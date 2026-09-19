@@ -1,0 +1,420 @@
+/**
+ * Activity Rescheduler Styles.
+ *
+ * @package    local_reschedule
+ * @copyright  2026 Juan Pablo de Castro
+ * @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+
+.quest-timeline-wrapper {
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    overflow-x: auto;
+    position: relative;
+    user-select: none;
+}
+
+.quest-timeline-table {
+    min-width: 100%;
+}
+
+.quest-timeline-left-column {
+    background: #fff;
+    box-shadow: 2px 0 6px rgba(0, 0, 0, 0.05);
+    left: 0;
+    position: sticky;
+    z-index: 10;
+}
+
+.quest-left-header {
+    background-color: #f1f5f9;
+    border-bottom: 2px solid #cbd5e1;
+    border-right: 1px solid #e2e8f0;
+    box-sizing: border-box;
+    height: 84px;
+}
+
+.quest-left-row {
+    align-items: center;
+    border-bottom: 1px solid #f1f5f9;
+    border-right: 1px solid #e2e8f0;
+    box-sizing: border-box;
+    display: flex;
+    gap: 0.35rem;
+    height: 56px;
+    padding: 0.25rem 0.5rem;
+    transition: background-color 0.15s ease;
+}
+
+.quest-left-row:hover {
+    background-color: #f8fafc;
+}
+
+.quest-left-row.is-subtype {
+    background-color: #fafafa;
+}
+
+.quest-bands-header {
+    background: #fff;
+    box-sizing: border-box;
+    height: 84px;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+}
+
+.quest-band-row {
+    box-sizing: border-box;
+    width: 100%;
+}
+
+.quest-band-l1 {
+    background: #e2e8f0;
+    border-bottom: 1px solid #cbd5e1;
+    height: 28px;
+}
+
+.quest-band-l2 {
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    height: 28px;
+}
+
+.quest-band-l3 {
+    background: #fff;
+    border-bottom: 2px solid #cbd5e1;
+    height: 28px;
+}
+
+.quest-band-cell {
+    align-items: center;
+    border-right: 1px solid #e2e8f0;
+    bottom: 0;
+    box-sizing: border-box;
+    display: flex;
+    justify-content: center;
+    overflow: hidden;
+    padding: 0 4px;
+    text-overflow: ellipsis;
+    top: 0;
+    white-space: nowrap;
+}
+
+.quest-band-cell.quest-cell-weekend {
+    background-color: #f1f5f9;
+}
+
+.quest-cell-l1 {
+    color: #1e293b;
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.quest-cell-l2 {
+    color: #475569;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.quest-cell-l2.quest-cell-weekend {
+    background-color: #f1f5f9;
+    color: #334155;
+    font-weight: 700;
+}
+
+.quest-cell-l3 {
+    color: #64748b;
+    font-size: 0.7rem;
+}
+
+.quest-cell-l3.quest-cell-weekend {
+    background-color: #f8fafc;
+    color: #475569;
+    font-weight: 600;
+}
+
+.quest-timeline-lane {
+    background: #fff;
+    border-bottom: 1px solid #f1f5f9;
+    box-sizing: border-box;
+    height: 56px;
+    position: relative;
+    transition: background-color 0.15s ease;
+}
+
+.quest-timeline-lane:hover {
+    background-color: #fbfcfd;
+}
+
+.quest-timeline-lane.is-subtype {
+    background-color: #fcfdfe;
+}
+
+.quest-lane-grid-tick {
+    border-right: 1px dashed rgba(0, 0, 0, 0.05);
+    bottom: 0;
+    box-sizing: border-box;
+    pointer-events: none;
+    top: 0;
+}
+
+.quest-lane-weekend {
+    background-color: rgba(241, 245, 249, 0.7);
+    border-left: 1px solid rgba(226, 232, 240, 0.85);
+    border-right: 1px solid rgba(226, 232, 240, 0.85);
+    bottom: 0;
+    pointer-events: none;
+    position: absolute;
+    top: 0;
+    z-index: 0;
+}
+
+.quest-lane-grid-tick.quest-lane-grid-weekend {
+    background-color: rgba(241, 245, 249, 0.35);
+}
+
+.quest-calendar-bar {
+    align-items: center;
+    background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+    border-radius: 6px;
+    box-sizing: border-box;
+    color: #fff;
+    cursor: grab;
+    display: flex;
+    height: 38px;
+    min-width: 14px;
+    position: absolute;
+    top: 9px;
+    touch-action: none;
+    transition: box-shadow 0.15s ease;
+    user-select: none;
+    z-index: 2;
+}
+
+.quest-calendar-bar.is-subtype {
+    background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+}
+
+.quest-calendar-bar.is-dragging {
+    box-shadow: 0 8px 24px rgba(29, 78, 216, 0.4);
+    cursor: grabbing;
+    opacity: 0.95;
+    z-index: 20;
+}
+
+.quest-bar-handle {
+    bottom: 0;
+    cursor: col-resize;
+    position: absolute;
+    top: 0;
+    transition: background-color 0.15s ease;
+    width: 10px;
+    max-width: 50%;
+    z-index: 5;
+}
+
+.quest-bar-handle:hover {
+    background-color: rgba(255, 255, 255, 0.4);
+}
+
+.quest-bar-handle::before {
+    bottom: 0;
+    content: '';
+    position: absolute;
+    top: 0;
+    width: 14px;
+}
+
+.quest-bar-handle-start {
+    border-bottom-left-radius: 6px;
+    border-top-left-radius: 6px;
+    left: 0;
+}
+
+.quest-bar-handle-start::before {
+    left: -4px;
+}
+
+.quest-bar-handle-end {
+    border-bottom-right-radius: 6px;
+    border-top-right-radius: 6px;
+    right: 0;
+}
+
+.quest-bar-handle-end::before {
+    right: -4px;
+}
+
+.quest-bar-content {
+    cursor: grab;
+    font-size: 0.75rem;
+    font-weight: 600;
+    overflow: hidden;
+    padding: 0 12px;
+    pointer-events: none;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    width: 100%;
+}
+
+.quest-calendar-bar.is-dragging .quest-bar-content {
+    cursor: grabbing;
+}
+
+.quest-drag-hud {
+    background-color: rgba(15, 23, 42, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    max-width: 320px;
+    pointer-events: none;
+    transition: opacity 0.1s ease;
+    z-index: 1050;
+}
+
+.quest-toggle-subtasks,
+.toggle-subtasks {
+    border-radius: 3px;
+    font-size: 0.75rem;
+    line-height: 1;
+    min-width: 20px;
+    padding: 2px 4px;
+}
+
+.quest-row-expander {
+    align-items: center;
+    display: flex;
+    flex-shrink: 0;
+    justify-content: center;
+    min-width: 20px;
+    width: 20px;
+}
+
+.quest-row-icon {
+    align-items: center;
+    display: flex;
+    flex-shrink: 0;
+    height: 24px;
+    justify-content: center;
+    width: 24px;
+}
+
+.quest-activity-icon {
+    display: block;
+    flex-shrink: 0;
+    height: 22px;
+    max-height: 22px;
+    max-width: 22px;
+    object-fit: contain;
+    width: 22px;
+}
+
+.quest-row-text {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    justify-content: center;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.quest-row-title {
+    color: #1e293b;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.quest-row-subtitle {
+    align-items: center;
+    color: #64748b;
+    display: flex;
+    font-size: 0.72rem;
+    justify-content: space-between;
+    line-height: 1.2;
+    margin-top: 2px;
+}
+
+.quest-row-typename {
+    color: #64748b;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.quest-timeline-wrapper img.activityicon,
+.quest-left-row img.activityicon,
+#reschedule-table img.activityicon {
+    display: inline-block;
+    flex-shrink: 0;
+    height: 18px;
+    max-height: 18px;
+    max-width: 18px;
+    object-fit: contain;
+    vertical-align: middle;
+    width: 18px;
+}
+
+#reschedule-autosequence-modal #autosequence-strategy-list .list-group-item {
+    background-color: #fff;
+    border: 1px solid #e2e8f0;
+    cursor: pointer;
+    transition: all 0.15s ease-in-out;
+}
+
+#reschedule-autosequence-modal #autosequence-strategy-list .list-group-item:hover {
+    background-color: #f8fafc;
+    border-color: #cbd5e1;
+}
+
+#reschedule-autosequence-modal #autosequence-strategy-list .list-group-item.active {
+    background-color: #eff6ff;
+    border-color: #3b82f6;
+    color: inherit;
+}
+
+#autosequence-description-panel {
+    background-color: #fff;
+    min-height: 280px;
+}
+
+/* Row jump pulse animation */
+@keyframes questRowPulse {
+    0% { background-color: rgba(59, 130, 246, 0.4); }
+    30% { background-color: rgba(59, 130, 246, 0.25); }
+    70% { background-color: rgba(59, 130, 246, 0.1); }
+    100% { background-color: transparent; }
+}
+
+.quest-row-highlight {
+    animation: questRowPulse 1.8s ease-out;
+}
+
+/* Editable Date Cells in Detail Table */
+#reschedule-table td.col-datestart,
+#reschedule-table td.col-dateend {
+    cursor: pointer;
+    position: relative;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+#reschedule-table td.col-datestart:hover,
+#reschedule-table td.col-dateend:hover {
+    background-color: #eff6ff !important;
+    color: #1d4ed8;
+}
+
+#reschedule-table td.col-datestart:hover .col-edit-icon,
+#reschedule-table td.col-dateend:hover .col-edit-icon {
+    opacity: 1 !important;
+    color: #2563eb !important;
+}
+
+#reschedule-table td.col-datestart .col-edit-icon,
+#reschedule-table td.col-dateend .col-edit-icon {
+    transition: opacity 0.15s ease, color 0.15s ease;
+}
+

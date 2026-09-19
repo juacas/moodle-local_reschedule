@@ -1,0 +1,312 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template local_reschedule/reschedule
+
+    Template for course activities scheduling and timeline page.
+
+    @copyright  2026 Juan Pablo de Castro
+    @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
+    @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+}}
+<div class="local-reschedule-container mb-4" id="reschedule-page-root">
+    <!-- Header card with controls -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body p-4">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+                <div>
+                    <h3 class="card-title fw-bold text-dark mb-1">
+                        <i class="fa fa-calendar-check-o text-primary me-2" aria-hidden="true"></i>
+                        {{#str}}rescheduletitle, local_reschedule{{/str}}
+                    </h3>
+                    <p class="text-muted mb-0 small">
+                        {{#str}}rescheduledesc, local_reschedule{{/str}}
+                    </p>
+                </div>
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    <a href="{{courseurl}}" class="btn btn-outline-secondary btn-sm">
+                        <i class="fa fa-arrow-left me-1" aria-hidden="true"></i>{{#str}}back, moodle{{/str}}
+                    </a>
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="btn-autosequence">
+                        <i class="fa fa-magic me-1" aria-hidden="true"></i>{{#str}}autosequence, local_reschedule{{/str}}
+                    </button>
+                    <button type="button" class="btn btn-outline-danger btn-sm" id="btn-reset">
+                        <i class="fa fa-undo me-1" aria-hidden="true"></i>{{#str}}resetschedule, local_reschedule{{/str}}
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm px-3" id="btn-save" disabled>
+                        <i class="fa fa-floppy-o me-1" aria-hidden="true"></i>{{#str}}savechanges, moodle{{/str}}
+                    </button>
+                </div>
+            </div>
+
+            <!-- Course Timeframe Meta -->
+            <div class="d-flex flex-wrap align-items-center gap-2 pt-2 border-top">
+                <span class="badge bg-light text-dark border py-2 px-3">
+                    <i class="fa fa-play text-success me-1" aria-hidden="true"></i>
+                    <strong>{{#str}}datestart, local_reschedule{{/str}}:</strong> {{coursestartstr}}
+                </span>
+                <span class="badge bg-light text-dark border py-2 px-3">
+                    <i class="fa fa-stop text-danger me-1" aria-hidden="true"></i>
+                    <strong>{{#str}}dateend, local_reschedule{{/str}}:</strong> {{courseendstr}}
+                </span>
+                <span class="badge bg-light text-secondary border py-2 px-3">
+                    <i class="fa fa-tasks me-1" aria-hidden="true"></i>
+                    <strong>{{#str}}activities, local_reschedule{{/str}}:</strong> {{itemscount}}
+                </span>
+                <div id="reschedule-unsaved-alert" class="badge bg-warning text-dark py-2 px-3 d-none animate__animated animate__fadeIn">
+                    <i class="fa fa-exclamation-triangle me-1" aria-hidden="true"></i>{{#str}}unsavedchanges, local_reschedule{{/str}}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{^hasitems}}
+    <div class="alert alert-info shadow-sm" role="alert">
+        <i class="fa fa-info-circle me-1" aria-hidden="true"></i>
+        {{#str}}noactivitiesfound, local_reschedule{{/str}}
+    </div>
+    {{/hasitems}}
+
+    {{#hasitems}}
+    <!-- Interactive Timeline Board Card -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body p-0">
+            <div id="reschedule-timeline-app" class="quest-timeline-wrapper position-relative overflow-auto" style="min-height: 250px;">
+                <!-- Timeline elements built by AMD reschedule_calendar.js -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Drag Floating HUD Tooltip -->
+    <div id="reschedule-drag-hud" class="quest-drag-hud position-fixed shadow-lg rounded px-3 py-2 text-white d-none" style="z-index: 1050; pointer-events: none; font-size: 0.8rem;">
+        <div class="fw-bold text-truncate" id="hud-title"></div>
+        <div class="smaller opacity-75" id="hud-dates"></div>
+    </div>
+
+    <!-- Table representation of activities -->
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white border-bottom py-3">
+            <h5 class="card-title mb-0 fw-bold small text-uppercase text-secondary">
+                <i class="fa fa-list me-2 text-primary" aria-hidden="true"></i>
+                {{#str}}activities, local_reschedule{{/str}}
+            </h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" id="reschedule-table">
+                    <thead class="table-light text-secondary smaller text-uppercase">
+                        <tr>
+                            <th scope="col" style="min-width: 250px;">{{#str}}activity, local_reschedule{{/str}}</th>
+                            <th scope="col" style="width: 160px;">{{#str}}type, local_reschedule{{/str}}</th>
+                            <th scope="col" style="width: 170px;">{{#str}}datestart, local_reschedule{{/str}}</th>
+                            <th scope="col" style="width: 170px;">{{#str}}dateend, local_reschedule{{/str}}</th>
+                            <th scope="col" style="width: 120px;" class="text-center">{{#str}}duration, local_reschedule{{/str}}</th>
+                        </tr>
+                    </thead>
+                    <tbody class="small">
+                        {{#items}}
+                        <tr data-itemid="{{id}}" {{#issubtype}}data-parentkey="{{parentkey}}"{{/issubtype}} class="{{#issubtype}}table-light text-muted subtask-row d-none{{/issubtype}}">
+                            <td class="{{#issubtype}}ps-4{{/issubtype}} text-nowrap">
+                                {{#haschildren}}
+                                <button type="button" class="btn btn-xs btn-outline-secondary py-0 px-1 me-2 toggle-subtasks" data-parentkey="{{id}}" aria-expanded="false" title="{{#str}}togglesubtasks, local_reschedule{{/str}}">
+                                    <i class="fa fa-plus" aria-hidden="true"></i>
+                                </button>
+                                {{/haschildren}}
+                                {{^haschildren}}
+                                {{^issubtype}}
+                                <span class="d-inline-block" style="width: 22px;"></span>
+                                {{/issubtype}}
+                                {{/haschildren}}
+                                {{#issubtype}}
+                                <i class="fa fa-level-up fa-rotate-90 text-muted me-2" aria-hidden="true"></i>
+                                {{/issubtype}}
+                                {{#iconurl}}
+                                <img src="{{iconurl}}" class="activityicon me-2" style="width: 18px; height: 18px; vertical-align: middle; object-fit: contain;" alt="">
+                                {{/iconurl}}
+                                <strong class="{{^issubtype}}text-dark{{/issubtype}}">{{title}}</strong>
+                            </td>
+                            <td>
+                                <span class="badge {{#issubtype}}bg-light text-secondary border{{/issubtype}}{{^issubtype}}bg-primary text-white{{/issubtype}}">
+                                    {{typelabel}}
+                                </span>
+                            </td>
+                            <td class="col-datestart text-nowrap" role="button" title="{{#str}}clicktoeditdate, local_reschedule{{/str}}" tabindex="0"><span class="date-text">{{startformatted}}</span> <i class="fa fa-pencil text-muted ms-1 col-edit-icon small opacity-50" aria-hidden="true"></i></td>
+                            <td class="col-dateend text-nowrap" role="button" title="{{#str}}clicktoeditdate, local_reschedule{{/str}}" tabindex="0"><span class="date-text">{{endformatted}}</span> <i class="fa fa-pencil text-muted ms-1 col-edit-icon small opacity-50" aria-hidden="true"></i></td>
+                            <td class="col-duration text-center text-nowrap">
+                                <span class="badge bg-light text-secondary border">{{durationformatted}}</span>
+                            </td>
+                        </tr>
+                        {{/items}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <!-- Auto-sequence Strategy Chooser Modal (Question-type chooser style) -->
+    <div class="modal fade" id="reschedule-autosequence-modal" tabindex="-1" aria-labelledby="autosequenceModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content shadow border-0">
+                <div class="modal-header bg-light border-bottom">
+                    <h5 class="modal-title fw-bold text-dark" id="autosequenceModalLabel">
+                        <i class="fa fa-magic text-primary me-2" aria-hidden="true"></i>{{#str}}autosequencetitle, local_reschedule{{/str}}
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{#str}}closebuttontitle, moodle{{/str}}"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <div class="container-fluid p-0">
+                        <div class="row g-0">
+                            <!-- Left Column: Strategy Options List -->
+                            <div class="col-md-5 border-end bg-light p-3">
+                                <div class="text-uppercase small fw-bold text-muted mb-2 px-1">
+                                    {{#str}}choosestrategy, local_reschedule{{/str}}
+                                </div>
+                                <div class="list-group" id="autosequence-strategy-list" role="tablist">
+                                    <label class="list-group-item list-group-item-action active cursor-pointer p-3 border rounded mb-2 d-flex align-items-center" data-strategy="equal">
+                                        <input class="form-check-input me-3 flex-shrink-0" type="radio" name="autosequence_strategy" value="equal" checked>
+                                        <div>
+                                            <div class="fw-bold text-dark"><i class="fa fa-balance-scale text-primary me-1" aria-hidden="true"></i> {{#str}}strategy_equal, local_reschedule{{/str}}</div>
+                                            <div class="smaller text-muted">{{#str}}strategy_equal_short, local_reschedule{{/str}}</div>
+                                        </div>
+                                    </label>
+                                    <label class="list-group-item list-group-item-action cursor-pointer p-3 border rounded mb-2 d-flex align-items-center" data-strategy="sequential">
+                                        <input class="form-check-input me-3 flex-shrink-0" type="radio" name="autosequence_strategy" value="sequential">
+                                        <div>
+                                            <div class="fw-bold text-dark"><i class="fa fa-link text-success me-1" aria-hidden="true"></i> {{#str}}strategy_sequential, local_reschedule{{/str}}</div>
+                                            <div class="smaller text-muted">{{#str}}strategy_sequential_short, local_reschedule{{/str}}</div>
+                                        </div>
+                                    </label>
+                                    <label class="list-group-item list-group-item-action cursor-pointer p-3 border rounded d-flex align-items-center" data-strategy="proportional">
+                                        <input class="form-check-input me-3 flex-shrink-0" type="radio" name="autosequence_strategy" value="proportional">
+                                        <div>
+                                            <div class="fw-bold text-dark"><i class="fa fa-sliders text-info me-1" aria-hidden="true"></i> {{#str}}strategy_proportional, local_reschedule{{/str}}</div>
+                                            <div class="smaller text-muted">{{#str}}strategy_proportional_short, local_reschedule{{/str}}</div>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+                            <!-- Right Column: Strategy Description -->
+                            <div class="col-md-7 p-4 d-flex flex-column justify-content-between bg-white" id="autosequence-description-panel" style="min-height: 280px;">
+                                <div id="strategy-desc-equal" class="strategy-desc-content">
+                                    <h5 class="fw-bold text-primary mb-3">
+                                        <i class="fa fa-balance-scale me-2" aria-hidden="true"></i>{{#str}}strategy_equal, local_reschedule{{/str}}
+                                    </h5>
+                                    <p class="text-secondary mb-3">
+                                        {{#str}}strategy_equal_desc, local_reschedule{{/str}}
+                                    </p>
+                                    <div class="alert alert-light border small text-muted mb-0">
+                                        <i class="fa fa-info-circle text-primary me-1" aria-hidden="true"></i>
+                                        {{#str}}strategy_equal_tip, local_reschedule{{/str}}
+                                    </div>
+                                </div>
+                                <div id="strategy-desc-sequential" class="strategy-desc-content d-none">
+                                    <h5 class="fw-bold text-success mb-3">
+                                        <i class="fa fa-link me-2" aria-hidden="true"></i>{{#str}}strategy_sequential, local_reschedule{{/str}}
+                                    </h5>
+                                    <p class="text-secondary mb-3">
+                                        {{#str}}strategy_sequential_desc, local_reschedule{{/str}}
+                                    </p>
+                                    <div class="alert alert-light border small text-muted mb-0">
+                                        <i class="fa fa-info-circle text-success me-1" aria-hidden="true"></i>
+                                        {{#str}}strategy_sequential_tip, local_reschedule{{/str}}
+                                    </div>
+                                </div>
+                                <div id="strategy-desc-proportional" class="strategy-desc-content d-none">
+                                    <h5 class="fw-bold text-info mb-3">
+                                        <i class="fa fa-sliders me-2" aria-hidden="true"></i>{{#str}}strategy_proportional, local_reschedule{{/str}}
+                                    </h5>
+                                    <p class="text-secondary mb-3">
+                                        {{#str}}strategy_proportional_desc, local_reschedule{{/str}}
+                                    </p>
+                                    <div class="alert alert-light border small text-muted mb-0">
+                                        <i class="fa fa-info-circle text-info me-1" aria-hidden="true"></i>
+                                        {{#str}}strategy_proportional_tip, local_reschedule{{/str}}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top">
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-autosequence-cancel" data-bs-dismiss="modal">
+                        {{#str}}cancel, moodle{{/str}}
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm px-3" id="btn-autosequence-apply">
+                        <i class="fa fa-check me-1" aria-hidden="true"></i>{{#str}}apply, local_reschedule{{/str}}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Dates Modal (Standard Moodle datetime-local form modal) -->
+    <div class="modal fade" id="reschedule-date-modal" tabindex="-1" aria-labelledby="dateModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content shadow border-0">
+                <div class="modal-header bg-light border-bottom">
+                    <h5 class="modal-title fw-bold text-dark" id="dateModalLabel">
+                        <i class="fa fa-calendar-check-o text-primary me-2" aria-hidden="true"></i>
+                        <span id="date-modal-activity-title">{{#str}}editdatesmodal, local_reschedule{{/str}}</span>
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{#str}}closebuttontitle, moodle{{/str}}"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <input type="hidden" id="date-modal-itemid" value="">
+                    <div class="mb-3 d-flex align-items-center justify-content-between">
+                        <span class="badge bg-primary text-white" id="date-modal-badge-type"></span>
+                        <span class="badge bg-light text-secondary border" id="date-modal-badge-duration"></span>
+                    </div>
+                    <div class="alert alert-danger d-none py-2 px-3 mb-3 small" id="date-modal-error">
+                        <i class="fa fa-exclamation-circle me-1" aria-hidden="true"></i>
+                        <span id="date-modal-error-text">{{#str}}invaliddateorder, local_reschedule{{/str}}</span>
+                    </div>
+                    <div class="mb-3">
+                        <label for="date-modal-start" class="form-label fw-bold small text-secondary">
+                            <i class="fa fa-play text-success me-1" aria-hidden="true"></i>
+                            {{#str}}datestart, local_reschedule{{/str}}
+                        </label>
+                        <input type="datetime-local" class="form-control" id="date-modal-start" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="date-modal-end" class="form-label fw-bold small text-secondary">
+                            <i class="fa fa-stop text-danger me-1" aria-hidden="true"></i>
+                            {{#str}}dateend, local_reschedule{{/str}}
+                        </label>
+                        <input type="datetime-local" class="form-control" id="date-modal-end" required>
+                    </div>
+                    <div class="alert alert-light border small text-muted mb-0">
+                        <i class="fa fa-info-circle text-primary me-1" aria-hidden="true"></i>
+                        {{#str}}editdatesmodaltip, local_reschedule{{/str}}
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top">
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-date-modal-cancel" data-bs-dismiss="modal">
+                        {{#str}}cancel, moodle{{/str}}
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm px-3" id="btn-date-modal-apply">
+                        <i class="fa fa-check me-1" aria-hidden="true"></i>{{#str}}apply, local_reschedule{{/str}}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Embedded Activities Data -->
+    <script type="application/json" id="reschedule-activities-data">
+        {{{itemsjson}}}
+    </script>
+    {{/hasitems}}
+</div>
