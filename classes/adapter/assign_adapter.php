@@ -16,8 +16,6 @@
 
 namespace local_reschedule\adapter;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Safe adapter for mod_assign.
  *
@@ -27,7 +25,6 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class assign_adapter extends base_adapter {
-
     #[\Override]
     public function supports(string $modname, array $item): bool {
         return ($modname === 'assign' && empty($item['issubtype']));

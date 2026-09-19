@@ -16,8 +16,6 @@
 
 namespace local_reschedule\adapter;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Safe adapter for mod_quest and quest_submissions.
  *
@@ -27,15 +25,9 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class quest_adapter extends base_adapter {
-
     #[\Override]
     public function supports(string $modname, array $item): bool {
         return ($modname === 'quest' || $item['table'] === 'quest' || $item['table'] === 'quest_submissions');
-    }
-
-    #[\Override]
-    public function validate(array $item, int $newstart, int $newend): array {
-        return parent::validate($item, $newstart, $newend);
     }
 
     #[\Override]

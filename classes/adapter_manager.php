@@ -25,8 +25,6 @@ use local_reschedule\adapter\kuet_adapter;
 use local_reschedule\adapter\editdates_bridge;
 use local_reschedule\adapter\generic_adapter;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Adapter Manager for resolving the appropriate date adapter.
  *
@@ -36,7 +34,6 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class adapter_manager {
-
     /** @var array Cache of instantiated adapters by course id and adapter class. */
     private static array $adapters = [];
 

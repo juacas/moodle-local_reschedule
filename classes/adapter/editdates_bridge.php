@@ -16,8 +16,6 @@
 
 namespace local_reschedule\adapter;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Bridge adapter to report_editdates integration if available.
  *
@@ -27,7 +25,6 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class editdates_bridge extends base_adapter {
-
     /**
      * Check whether date extractor infrastructure is available for this module.
      * Uses local_reschedule's autonomous extractor_factory (compatible with report_editdates if installed,
@@ -112,7 +109,10 @@ class editdates_bridge extends base_adapter {
                 }
             }
         } catch (\Throwable $e) {
-            // If validation threw unexpectedly, do not block if parent validation passed.
+            debugging(
+                'Date extractor validation failed: ' . $e->getMessage(),
+                DEBUG_DEVELOPER
+            );
         }
 
         return $errors;

@@ -20,8 +20,6 @@ use cm_info;
 use local_reschedule\extractor\base_builtin_extractor;
 use report_editdates_date_setting;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Replicated date extractor for the workshop activity module.
  *
@@ -31,7 +29,11 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class workshop_extractor extends base_builtin_extractor {
-
+    /**
+     * Initialise the extractor and load records for the course.
+     *
+     * @param \stdClass $course Course record.
+     */
     public function __construct($course) {
         parent::__construct($course, 'workshop');
         parent::load_data();
@@ -48,22 +50,26 @@ class workshop_extractor extends base_builtin_extractor {
             'submissionstart' => new report_editdates_date_setting(
                 get_string('submissionstart', 'workshop'),
                 $workshop->submissionstart,
-                self::DATETIME, true
+                self::DATETIME,
+                true
             ),
             'submissionend' => new report_editdates_date_setting(
                 get_string('submissionend', 'workshop'),
                 $workshop->submissionend,
-                self::DATETIME, true
+                self::DATETIME,
+                true
             ),
             'assessmentstart' => new report_editdates_date_setting(
                 get_string('assessmentstart', 'workshop'),
                 $workshop->assessmentstart,
-                self::DATETIME, true
+                self::DATETIME,
+                true
             ),
             'assessmentend' => new report_editdates_date_setting(
                 get_string('assessmentend', 'workshop'),
                 $workshop->assessmentend,
-                self::DATETIME, true
+                self::DATETIME,
+                true
             ),
         ];
     }
@@ -71,16 +77,22 @@ class workshop_extractor extends base_builtin_extractor {
     #[\Override]
     public function validate_dates(cm_info $cm, array $dates) {
         $errors = [];
-        if (!empty($dates['submissionstart']) && !empty($dates['submissionend'])
-                && $dates['submissionend'] < $dates['submissionstart']) {
+        if (
+            !empty($dates['submissionstart']) && !empty($dates['submissionend'])
+                && $dates['submissionend'] < $dates['submissionstart']
+        ) {
             $errors['submissionend'] = $this->get_error_string('timeclose');
         }
-        if (!empty($dates['assessmentstart']) && !empty($dates['assessmentend'])
-                && $dates['assessmentend'] < $dates['assessmentstart']) {
+        if (
+            !empty($dates['assessmentstart']) && !empty($dates['assessmentend'])
+                && $dates['assessmentend'] < $dates['assessmentstart']
+        ) {
             $errors['assessmentend'] = $this->get_error_string('timeclose');
         }
-        if (!empty($dates['submissionend']) && !empty($dates['assessmentstart'])
-                && $dates['assessmentstart'] < $dates['submissionend']) {
+        if (
+            !empty($dates['submissionend']) && !empty($dates['assessmentstart'])
+                && $dates['assessmentstart'] < $dates['submissionend']
+        ) {
             $errors['assessmentstart'] = $this->get_error_string('timeclose');
         }
         return $errors;

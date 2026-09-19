@@ -20,8 +20,6 @@ use cm_info;
 use local_reschedule\extractor\base_builtin_extractor;
 use report_editdates_date_setting;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Replicated date extractor for the chat activity module.
  *
@@ -31,7 +29,11 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class chat_extractor extends base_builtin_extractor {
-
+    /**
+     * Initialise the extractor and load records for the course.
+     *
+     * @param \stdClass $course Course record.
+     */
     public function __construct($course) {
         parent::__construct($course, 'chat');
         parent::load_data();
@@ -47,7 +49,8 @@ class chat_extractor extends base_builtin_extractor {
             'chattime' => new report_editdates_date_setting(
                 get_string('chattime', 'chat'),
                 $chat->chattime,
-                self::DATETIME, false
+                self::DATETIME,
+                false
             ),
         ];
     }

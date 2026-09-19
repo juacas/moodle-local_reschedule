@@ -16,7 +16,6 @@
 /**
  * Reschedule interactive calendar and timeline AMD module.
  *
- * @package    local_reschedule
  * @copyright  2026 Juan Pablo de Castro
  * @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -1208,6 +1207,9 @@ define(['core/notification'], function(Notification) {
             var dateModalDurBadge = document.getElementById('date-modal-badge-duration');
             var dateModalErrorEl = document.getElementById('date-modal-error');
 
+            /**
+             * Revalidate the date fields and refresh the duration badge.
+             */
             function handleDateModalInputChange() {
                 if (!dateModalStartInput || !dateModalEndInput) {
                     return;

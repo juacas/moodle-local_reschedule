@@ -16,8 +16,6 @@
 
 namespace local_reschedule\adapter;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Interface for activity date adapters.
  *
@@ -27,7 +25,6 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 interface adapter_interface {
-
     /**
      * Check if this adapter supports the given activity/item.
      *

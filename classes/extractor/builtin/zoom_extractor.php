@@ -20,8 +20,6 @@ use cm_info;
 use local_reschedule\extractor\base_builtin_extractor;
 use report_editdates_date_setting;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Replicated date extractor for the zoom activity module.
  *
@@ -31,7 +29,11 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class zoom_extractor extends base_builtin_extractor {
-
+    /**
+     * Initialise the extractor and load records for the course.
+     *
+     * @param \stdClass $course Course record.
+     */
     public function __construct($course) {
         parent::__construct($course, 'zoom');
         parent::load_data();
@@ -54,7 +56,8 @@ class zoom_extractor extends base_builtin_extractor {
             'starttime' => new report_editdates_date_setting(
                 $label,
                 $zoom->start_time,
-                self::DATETIME, false
+                self::DATETIME,
+                false
             ),
         ];
     }

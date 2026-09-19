@@ -14,9 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+/**
+ * Compatibility helpers for report_editdates integrations.
+ *
+ * @package    local_reschedule
+ * @copyright  2026 Juan Pablo de Castro
+ * @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
 namespace local_reschedule\extractor;
-
-defined('MOODLE_INTERNAL') || die();
 
 /**
  * Compatibility shim providing report_editdates base classes if report_editdates is not installed.
@@ -30,7 +36,6 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class compat {
-
     /** @var bool Flag indicating if compatibility classes have been declared. */
     private static bool $initialized = false;
 
@@ -66,70 +71,5 @@ class compat {
                 'report_editdates_mod_date_extractor'
             );
         }
-    }
-}
-
-/**
- * Fallback date setting class matching report_editdates_date_setting API.
- */
-class shim_date_setting {
-    public $label;
-    public $currentvalue;
-    public $type;
-    public $isoptional;
-    public $getstep;
-
-    public function __construct($label, $currentvalue, $type, $isoptional, $getstep = 1) {
-        $this->label = $label;
-        $this->currentvalue = $currentvalue;
-        $this->type = $type;
-        $this->isoptional = $isoptional;
-        $this->getstep = $getstep;
-    }
-}
-
-/**
- * Fallback base extractor class matching report_editdates_mod_date_extractor API.
- */
-abstract class shim_mod_date_extractor {
-    const DATE = 'date_selector';
-    const DATETIME = 'date_time_selector';
-
-    protected $course;
-    protected $type;
-    protected $mods;
-
-    public function __construct($course, $type) {
-        $this->course = $course;
-        $this->type = $type;
-    }
-
-    public static function make($modname, $course) {
-        return \local_reschedule\extractor\extractor_factory::get_extractor($modname, $course);
-    }
-
-    public function load_data() {
-        global $DB;
-        try {
-            $this->mods = $DB->get_records($this->type, ['course' => $this->course->id]);
-        } catch (\dml_exception $e) {
-            $this->mods = [];
-        }
-    }
-
-    abstract public function get_settings(\cm_info $cm);
-    abstract public function validate_dates(\cm_info $cm, array $dates);
-
-    public function save_dates(\cm_info $cm, array $dates) {
-        global $DB;
-        $updateobj = new \stdClass();
-        $updateobj->id = $cm->instance;
-        foreach ($this->get_settings($cm) as $name => $setting) {
-            if (array_key_exists($name, $dates)) {
-                $updateobj->$name = $dates[$name];
-            }
-        }
-        $updateobj->timemodified = time();
-        $DB->update_record($this->type, $updateobj);
     }
 }

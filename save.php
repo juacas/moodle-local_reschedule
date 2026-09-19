@@ -108,7 +108,6 @@ try {
     // 7. Execute safe schedule update via manager.
     $result = \local_reschedule\manager::save_schedule($courseid, $payload['items']);
     echo json_encode($result);
-
 } catch (\require_login_exception $e) {
     $msg = get_string('error_saving_session', 'local_reschedule');
     echo json_encode([
@@ -126,23 +125,25 @@ try {
         'errorcode' => 'nopermissions',
     ]);
 } catch (\moodle_exception $e) {
-    $msg = $e->getMessage();
     if ($e->errorcode === 'invalidsesskey') {
         $msg = get_string('error_saving_session', 'local_reschedule');
+    } else {
+        $msg = get_string('error_saving', 'local_reschedule');
     }
+    debugging($e->getMessage(), DEBUG_DEVELOPER);
     echo json_encode([
         'success' => false,
         'message' => $msg,
         'errors' => [$msg],
         'errorcode' => $e->errorcode,
-        'debuginfo' => !empty($e->debuginfo) ? $e->debuginfo : null,
     ]);
 } catch (\Throwable $e) {
+    $msg = get_string('error_saving', 'local_reschedule');
+    debugging($e->getMessage(), DEBUG_DEVELOPER);
     echo json_encode([
         'success' => false,
-        'message' => $e->getMessage(),
-        'errors' => [$e->getMessage()],
+        'message' => $msg,
+        'errors' => [$msg],
         'errorcode' => 'generalexception',
     ]);
 }
-

@@ -16,8 +16,6 @@
 
 namespace local_reschedule;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Manager class for local_reschedule.
  *
@@ -27,7 +25,6 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class manager {
-
     /**
      * Parse mapping rules configured in settings.
      *
@@ -347,10 +344,12 @@ class manager {
                 }
             } else {
                 // Subtype is in a related child table (e.g. quest_submissions with questid).
-                if (!$dbman->field_exists($subtable, $fkey) ||
+                if (
+                    !$dbman->field_exists($subtable, $fkey) ||
                     !$dbman->field_exists($subtable, $titlecol) ||
                     !$dbman->field_exists($subtable, $startcol) ||
-                    !$dbman->field_exists($subtable, $endcol)) {
+                    !$dbman->field_exists($subtable, $endcol)
+                ) {
                     continue;
                 }
 
@@ -363,7 +362,8 @@ class manager {
                     $extracols = ', sessionmode';
                 }
 
-                $sql = "SELECT id, {$fkey} AS parentid, {$titlecol} AS title, {$startcol} AS datestart, {$endcol} AS dateend{$extracols}
+                $sql = "SELECT id, {$fkey} AS parentid, {$titlecol} AS title, "
+                    . "{$startcol} AS datestart, {$endcol} AS dateend{$extracols}
                           FROM {{$subtable}}
                          WHERE {$fkey} $insql
                       ORDER BY {$startcol} ASC, id ASC";

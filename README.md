@@ -5,7 +5,7 @@ A local plugin for Moodle 4.x and 5.x that provides an interactive timeline (GAN
 
 - **Author:** Juan Pablo de Castro <[juan.pablo.de.castro@gmail.com](mailto:juan.pablo.de.castro@gmail.com)>
 - **License:** GNU General Public License v3 or later (GPLv3+)
-- **Compatibility:** Moodle 4.05 to Moodle 5.02+ (Boost, Moove, and derived themes with Bootstrap 4 and Bootstrap 5)
+- **Compatibility:** Moodle 4.5 or later (tested on Moodle 5.2; compatible with Boost, Moove, and derived Bootstrap 4/5 themes)
 
 ---
 
@@ -128,12 +128,12 @@ table_name, title_column, type_label, start_column, end_column [, parent_foreign
 
 ### Prerequisites
 - Web server running PHP 8.1 or higher.
-- Moodle 4.1 LTS, 4.5 LTS, 5.0, or higher.
+- Moodle 4.5 or higher (the plugin declares Moodle 4.5 as its minimum version).
 
 ### Installation steps
 1. Clone or copy the plugin folder into the `local/` directory of your Moodle installation:
    ```bash
-   git clone https://github.com/juacas/moodle-mod_quest.git local/reschedule # Or copy the package
+   git clone https://github.com/juacas/moodle-local_reschedule.git local/reschedule # Or copy the package
    # Location must be: {moodle_root}/local/reschedule
    ```
 2. Visit the Moodle administration notifications page (`/admin/index.php`) or execute the upgrade via CLI:

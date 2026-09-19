@@ -16,8 +16,6 @@
 
 namespace local_reschedule\adapter;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Generic safe fallback adapter.
  *
@@ -27,7 +25,6 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class generic_adapter extends base_adapter {
-
     #[\Override]
     public function supports(string $modname, array $item): bool {
         return true; // Fallback supports any activity.
@@ -61,7 +58,10 @@ class generic_adapter extends base_adapter {
                     try {
                         $eventfunc($modrecord);
                     } catch (\Throwable $e) {
-                        // Suppress hook failure.
+                        debugging(
+                            'Activity calendar update hook failed: ' . $e->getMessage(),
+                            DEBUG_DEVELOPER
+                        );
                     }
                 }
 
@@ -71,7 +71,10 @@ class generic_adapter extends base_adapter {
                     try {
                         $gradefunc($modrecord);
                     } catch (\Throwable $e) {
-                        // Suppress hook failure.
+                        debugging(
+                            'Activity gradebook update hook failed: ' . $e->getMessage(),
+                            DEBUG_DEVELOPER
+                        );
                     }
                 }
             }

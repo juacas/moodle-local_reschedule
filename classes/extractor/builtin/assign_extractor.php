@@ -22,8 +22,6 @@ use assign;
 use local_reschedule\extractor\base_builtin_extractor;
 use report_editdates_date_setting;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Replicated date extractor for the assign activity module.
  *
@@ -33,7 +31,11 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class assign_extractor extends base_builtin_extractor {
-
+    /**
+     * Initialise the extractor and load records for the course.
+     *
+     * @param \stdClass $course Course record.
+     */
     public function __construct($course) {
         parent::__construct($course, 'assign');
         parent::load_data();
@@ -50,22 +52,26 @@ class assign_extractor extends base_builtin_extractor {
             'allowsubmissionsfromdate' => new report_editdates_date_setting(
                 get_string('allowsubmissionsfromdate', 'assign'),
                 $assign->allowsubmissionsfromdate,
-                self::DATETIME, true
+                self::DATETIME,
+                true
             ),
             'duedate' => new report_editdates_date_setting(
                 get_string('duedate', 'assign'),
                 $assign->duedate,
-                self::DATETIME, true
+                self::DATETIME,
+                true
             ),
             'cutoffdate' => new report_editdates_date_setting(
                 get_string('cutoffdate', 'assign'),
                 $assign->cutoffdate,
-                self::DATETIME, true
+                self::DATETIME,
+                true
             ),
             'gradingduedate' => new report_editdates_date_setting(
                 get_string('gradingduedate', 'assign'),
                 $assign->gradingduedate,
-                self::DATETIME, true
+                self::DATETIME,
+                true
             ),
         ];
     }
@@ -73,16 +79,22 @@ class assign_extractor extends base_builtin_extractor {
     #[\Override]
     public function validate_dates(cm_info $cm, array $dates) {
         $errors = [];
-        if (!empty($dates['duedate']) && !empty($dates['allowsubmissionsfromdate'])
-                && $dates['duedate'] < $dates['allowsubmissionsfromdate']) {
+        if (
+            !empty($dates['duedate']) && !empty($dates['allowsubmissionsfromdate'])
+                && $dates['duedate'] < $dates['allowsubmissionsfromdate']
+        ) {
             $errors['duedate'] = $this->get_error_string('timedue');
         }
-        if (!empty($dates['cutoffdate']) && !empty($dates['allowsubmissionsfromdate'])
-                && $dates['cutoffdate'] < $dates['allowsubmissionsfromdate']) {
+        if (
+            !empty($dates['cutoffdate']) && !empty($dates['allowsubmissionsfromdate'])
+                && $dates['cutoffdate'] < $dates['allowsubmissionsfromdate']
+        ) {
             $errors['cutoffdate'] = $this->get_error_string('timeend');
         }
-        if (!empty($dates['cutoffdate']) && !empty($dates['duedate'])
-                && $dates['cutoffdate'] < $dates['duedate']) {
+        if (
+            !empty($dates['cutoffdate']) && !empty($dates['duedate'])
+                && $dates['cutoffdate'] < $dates['duedate']
+        ) {
             $errors['cutoffdate'] = $this->get_error_string('timeend');
         }
         return $errors;

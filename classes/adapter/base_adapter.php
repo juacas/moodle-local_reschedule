@@ -16,8 +16,6 @@
 
 namespace local_reschedule\adapter;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Base abstract class for date adapters.
  *
@@ -27,7 +25,6 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 abstract class base_adapter implements adapter_interface {
-
     /** @var \stdClass Course record. */
     protected \stdClass $course;
 
@@ -66,7 +63,10 @@ abstract class base_adapter implements adapter_interface {
             $event = \core\event\course_module_updated::create_from_cm($cm);
             $event->trigger();
         } catch (\Throwable $e) {
-            // Silently ignore event dispatch failure if context is restricted.
+            debugging(
+                'Could not dispatch the course module update event: ' . $e->getMessage(),
+                DEBUG_DEVELOPER
+            );
         }
     }
 
@@ -80,7 +80,14 @@ abstract class base_adapter implements adapter_interface {
      * @param int $newstart Start timestamp.
      * @param int $newend End timestamp.
      */
-    protected function raw_update_record(string $table, int $recordid, string $startcol, string $endcol, int $newstart, int $newend): void {
+    protected function raw_update_record(
+        string $table,
+        int $recordid,
+        string $startcol,
+        string $endcol,
+        int $newstart,
+        int $newend
+    ): void {
         global $DB;
         $up = new \stdClass();
         $up->id = $recordid;

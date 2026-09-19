@@ -16,8 +16,6 @@
 
 namespace local_reschedule\adapter;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Safe adapter for mod_kuet and kuet_sessions.
  *
@@ -27,7 +25,6 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class kuet_adapter extends base_adapter {
-
     /**
      * Check whether a KUET session uses a scheduled/programmed mode.
      *

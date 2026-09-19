@@ -32,7 +32,6 @@ use local_reschedule\adapter\kuet_adapter;
 #[\PHPUnit\Framework\Attributes\CoversClass(kuet_adapter::class)]
 #[\PHPUnit\Framework\Attributes\CoversClass(\local_reschedule\adapter_manager::class)]
 final class kuet_adapter_test extends advanced_testcase {
-
     /**
      * Test adapter supports method for kuet and kuet_sessions.
      */

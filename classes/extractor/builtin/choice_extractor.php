@@ -20,8 +20,6 @@ use cm_info;
 use local_reschedule\extractor\base_builtin_extractor;
 use report_editdates_date_setting;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Replicated date extractor for the choice activity module.
  *
@@ -31,7 +29,11 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class choice_extractor extends base_builtin_extractor {
-
+    /**
+     * Initialise the extractor and load records for the course.
+     *
+     * @param \stdClass $course Course record.
+     */
     public function __construct($course) {
         parent::__construct($course, 'choice');
         parent::load_data();
@@ -47,12 +49,14 @@ class choice_extractor extends base_builtin_extractor {
             'timeopen' => new report_editdates_date_setting(
                 get_string('choiceopen', 'choice'),
                 $choice->timeopen,
-                self::DATETIME, false
+                self::DATETIME,
+                false
             ),
             'timeclose' => new report_editdates_date_setting(
                 get_string('choiceclose', 'choice'),
                 $choice->timeclose,
-                self::DATETIME, false
+                self::DATETIME,
+                false
             ),
         ];
     }

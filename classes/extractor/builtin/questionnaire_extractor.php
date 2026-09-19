@@ -20,8 +20,6 @@ use cm_info;
 use local_reschedule\extractor\base_builtin_extractor;
 use report_editdates_date_setting;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Replicated date extractor for the questionnaire activity module.
  *
@@ -31,7 +29,11 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class questionnaire_extractor extends base_builtin_extractor {
-
+    /**
+     * Initialise the extractor and load records for the course.
+     *
+     * @param \stdClass $course Course record.
+     */
     public function __construct($course) {
         parent::__construct($course, 'questionnaire');
         parent::load_data();
@@ -47,12 +49,14 @@ class questionnaire_extractor extends base_builtin_extractor {
             'opendate' => new report_editdates_date_setting(
                 get_string('opendate', 'questionnaire'),
                 $mod->opendate,
-                self::DATETIME, true
+                self::DATETIME,
+                true
             ),
             'closedate' => new report_editdates_date_setting(
                 get_string('closedate', 'questionnaire'),
                 $mod->closedate,
-                self::DATETIME, true
+                self::DATETIME,
+                true
             ),
         ];
     }

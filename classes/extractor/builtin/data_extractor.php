@@ -20,8 +20,6 @@ use cm_info;
 use local_reschedule\extractor\base_builtin_extractor;
 use report_editdates_date_setting;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Replicated date extractor for the database (data) activity module.
  *
@@ -31,7 +29,11 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class data_extractor extends base_builtin_extractor {
-
+    /**
+     * Initialise the extractor and load records for the course.
+     *
+     * @param \stdClass $course Course record.
+     */
     public function __construct($course) {
         parent::__construct($course, 'data');
         parent::load_data();
@@ -48,22 +50,26 @@ class data_extractor extends base_builtin_extractor {
             'timeavailablefrom' => new report_editdates_date_setting(
                 get_string('availablefromdate', 'data'),
                 $data->timeavailablefrom,
-                self::DATETIME, true
+                self::DATETIME,
+                true
             ),
             'timeavailableto' => new report_editdates_date_setting(
                 get_string('availabletodate', 'data'),
                 $data->timeavailableto,
-                self::DATETIME, true
+                self::DATETIME,
+                true
             ),
             'timeviewfrom' => new report_editdates_date_setting(
                 get_string('viewfromdate', 'data'),
                 $data->timeviewfrom,
-                self::DATETIME, true
+                self::DATETIME,
+                true
             ),
             'timeviewto' => new report_editdates_date_setting(
                 get_string('viewtodate', 'data'),
                 $data->timeviewto,
-                self::DATETIME, true
+                self::DATETIME,
+                true
             ),
         ];
 
@@ -71,12 +77,14 @@ class data_extractor extends base_builtin_extractor {
             $settings['assesstimestart'] = new report_editdates_date_setting(
                 get_string('from'),
                 $data->assesstimestart,
-                self::DATETIME, false
+                self::DATETIME,
+                false
             );
             $settings['assesstimefinish'] = new report_editdates_date_setting(
                 get_string('to'),
                 $data->assesstimefinish,
-                self::DATETIME, false
+                self::DATETIME,
+                false
             );
         }
 
@@ -86,17 +94,23 @@ class data_extractor extends base_builtin_extractor {
     #[\Override]
     public function validate_dates(cm_info $cm, array $dates) {
         $errors = [];
-        if (!empty($dates['timeavailablefrom']) && !empty($dates['timeavailableto'])
-                && $dates['timeavailableto'] < $dates['timeavailablefrom']) {
+        if (
+            !empty($dates['timeavailablefrom']) && !empty($dates['timeavailableto'])
+                && $dates['timeavailableto'] < $dates['timeavailablefrom']
+        ) {
             $errors['timeavailableto'] = $this->get_error_string('assesstimefinish');
         }
-        if (!empty($dates['timeviewfrom']) && !empty($dates['timeviewto'])
-                && $dates['timeviewto'] < $dates['timeviewfrom']) {
+        if (
+            !empty($dates['timeviewfrom']) && !empty($dates['timeviewto'])
+                && $dates['timeviewto'] < $dates['timeviewfrom']
+        ) {
             $errors['timeviewto'] = $this->get_error_string('assesstimefinish');
         }
-        if (isset($dates['assesstimestart']) && isset($dates['assesstimefinish']) &&
+        if (
+            isset($dates['assesstimestart']) && isset($dates['assesstimefinish']) &&
                 $dates['assesstimestart'] != 0 && $dates['assesstimefinish'] != 0 &&
-                $dates['assesstimefinish'] < $dates['assesstimestart']) {
+                $dates['assesstimefinish'] < $dates['assesstimestart']
+        ) {
             $errors['assesstimefinish'] = $this->get_error_string('assesstimefinish');
         }
         return $errors;

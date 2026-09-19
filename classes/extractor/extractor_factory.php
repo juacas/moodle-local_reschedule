@@ -16,8 +16,6 @@
 
 namespace local_reschedule\extractor;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Universal date extractor factory for local_reschedule.
  *
@@ -32,7 +30,6 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class extractor_factory {
-
     /** @var array Cache of instantiated extractors keyed by courseid_modname. */
     private static array $extractors = [];
 
@@ -62,7 +59,10 @@ class extractor_factory {
                 self::$extractors[$cachekey] = $instance;
                 return $instance;
             } catch (\Throwable $e) {
-                // If instantiation failed, continue to fallback discovery.
+                debugging(
+                    'Module extractor could not be instantiated: ' . $e->getMessage(),
+                    DEBUG_DEVELOPER
+                );
             }
         }
 
@@ -74,11 +74,15 @@ class extractor_factory {
                 self::$extractors[$cachekey] = $instance;
                 return $instance;
             } catch (\Throwable $e) {
-                // Continue to external discovery.
+                debugging(
+                    'Built-in extractor could not be instantiated: ' . $e->getMessage(),
+                    DEBUG_DEVELOPER
+                );
             }
         }
 
-        // 3. Fallback: check report_editdates folder if installed on the system.
+        // Keep the fallback deliberately boring: only discover an external extractor here.
+        // 3. Check the report_editdates folder if it is installed on the system.
         $editdatesfile = $CFG->dirroot . '/report/editdates/mod/' . $modname . 'dates.php';
         if (file_exists($editdatesfile)) {
             include_once($editdatesfile);
@@ -89,7 +93,10 @@ class extractor_factory {
                     self::$extractors[$cachekey] = $instance;
                     return $instance;
                 } catch (\Throwable $e) {
-                    // Ignored.
+                    debugging(
+                        'External report_editdates extractor could not be instantiated: ' . $e->getMessage(),
+                        DEBUG_DEVELOPER
+                    );
                 }
             }
         }

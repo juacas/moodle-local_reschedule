@@ -383,10 +383,18 @@
 
 /* Row jump pulse animation */
 @keyframes questRowPulse {
-    0% { background-color: rgba(59, 130, 246, 0.4); }
-    30% { background-color: rgba(59, 130, 246, 0.25); }
-    70% { background-color: rgba(59, 130, 246, 0.1); }
-    100% { background-color: transparent; }
+    0% {
+        background-color: rgba(59, 130, 246, 0.4);
+    }
+    30% {
+        background-color: rgba(59, 130, 246, 0.25);
+    }
+    70% {
+        background-color: rgba(59, 130, 246, 0.1);
+    }
+    100% {
+        background-color: transparent;
+    }
 }
 
 .quest-row-highlight {
@@ -403,14 +411,14 @@
 
 #reschedule-table td.col-datestart:hover,
 #reschedule-table td.col-dateend:hover {
-    background-color: #eff6ff !important;
+    background-color: #eff6ff;
     color: #1d4ed8;
 }
 
 #reschedule-table td.col-datestart:hover .col-edit-icon,
 #reschedule-table td.col-dateend:hover .col-edit-icon {
-    opacity: 1 !important;
-    color: #2563eb !important;
+    opacity: 1;
+    color: #2563eb;
 }
 
 #reschedule-table td.col-datestart .col-edit-icon,
@@ -435,7 +443,7 @@
 }
 
 #reschedule-table td.date-cell-disabled {
-    background-color: #f8f9fa !important;
+    background-color: #f8f9fa;
     color: #6c757d;
     cursor: not-allowed;
     opacity: 0.65;

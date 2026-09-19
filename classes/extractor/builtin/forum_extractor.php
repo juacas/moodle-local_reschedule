@@ -20,8 +20,6 @@ use cm_info;
 use local_reschedule\extractor\base_builtin_extractor;
 use report_editdates_date_setting;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Replicated date extractor for the forum activity module.
  *
@@ -31,7 +29,11 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class forum_extractor extends base_builtin_extractor {
-
+    /**
+     * Initialise the extractor and load records for the course.
+     *
+     * @param \stdClass $course Course record.
+     */
     public function __construct($course) {
         parent::__construct($course, 'forum');
         parent::load_data();
@@ -48,24 +50,28 @@ class forum_extractor extends base_builtin_extractor {
         $fields['duedate'] = new report_editdates_date_setting(
             get_string('duedate', 'forum'),
             $forum->duedate,
-            self::DATETIME, true
+            self::DATETIME,
+            true
         );
         $fields['cutoffdate'] = new report_editdates_date_setting(
             get_string('cutoffdate', 'forum'),
             $forum->cutoffdate,
-            self::DATETIME, true
+            self::DATETIME,
+            true
         );
 
         if (!empty($forum->assessed)) {
             $fields['assesstimestart'] = new report_editdates_date_setting(
                 $this->get_error_string('assesstimefrom'),
                 $forum->assesstimestart,
-                self::DATETIME, true
+                self::DATETIME,
+                true
             );
             $fields['assesstimefinish'] = new report_editdates_date_setting(
                 $this->get_error_string('assesstimeto'),
                 $forum->assesstimefinish,
-                self::DATETIME, true
+                self::DATETIME,
+                true
             );
         }
 
@@ -81,8 +87,10 @@ class forum_extractor extends base_builtin_extractor {
         $forum = $this->mods[$cm->instance];
 
         if (!empty($forum->assessed)) {
-            if (!empty($dates['assesstimestart']) && !empty($dates['assesstimefinish']) &&
-                    $dates['assesstimefinish'] < $dates['assesstimestart']) {
+            if (
+                !empty($dates['assesstimestart']) && !empty($dates['assesstimefinish']) &&
+                    $dates['assesstimefinish'] < $dates['assesstimestart']
+            ) {
                 $errors['assesstimefinish'] = $this->get_error_string('assesstimefinish');
             }
 

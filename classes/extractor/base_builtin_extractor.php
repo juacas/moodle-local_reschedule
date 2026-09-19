@@ -30,7 +30,6 @@ compat::init();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 abstract class base_builtin_extractor extends \report_editdates_mod_date_extractor {
-
     #[\Override]
     public function load_data() {
         global $DB;
