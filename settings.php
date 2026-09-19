@@ -39,7 +39,9 @@ if ($hassiteconfig) {
         "data,name,Database,timeavailablefrom,timeavailableto\n" .
         "scorm,name,SCORM,timeopen,timeclose\n" .
         "quest,name,Questournament,datestart,dateend\n" .
-        "-quest_submissions,title,Quest Challenge,datestart,dateend,questid";
+        "-quest_submissions,title,Quest Challenge,datestart,dateend,questid\n" .
+        "kuet,name,Kuet,startdate,enddate\n" .
+        "-kuet_sessions,name,Kuet Session,startdate,enddate,kuetid";
 
     $settings->add(new admin_setting_configtextarea(
         'local_reschedule/mapping',

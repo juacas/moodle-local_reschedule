@@ -175,12 +175,12 @@ To guarantee comprehensive consistency, `local_reschedule` employs a 3-level cas
                                                  |
          +---------------------------------------+---------------------------------------+
          |                                       |                                       |
-   [Level 1: Reschedule]               [Level 2: Extractor Bridge]             [Level 3: Fallback]
- Dedicated custom adapter exists?        Extractor exists (builtin/bridge)?        Safe Generic Adapter
-(assign, quiz, workshop, quest)                          |                                |
-         |                                              |                                |
-        YES                                            YES                       Applies standard hooks
-         |                                              |                        ({mod}_update_events)
+    [Level 1: Reschedule]               [Level 2: Extractor Bridge]             [Level 3: Fallback]
+  Dedicated custom adapter exists?        Extractor exists (builtin/bridge)?        Safe Generic Adapter
+ (assign, quiz, workshop, quest, kuet)                         |                                |
+          |                                              |                                |
+         YES                                            YES                       Applies standard hooks
+          |                                              |                        ({mod}_update_events)
 Instantiate dedicated adapter              Instantiate editdates_bridge           and core cm events
 ```
 
@@ -189,6 +189,7 @@ Top priority for complex modules or those with subphases:
 - **`assign_adapter`**: Harmoniously adjusts dependent dates (`cutoffdate`, `gradingduedate`), invoking `$assign->update_calendar()` and `$assign->update_gradebook()`.
 - **`workshop_adapter`**: Handles workshops and submission/assessment subphases (`submissionstart/end`, `assessmentstart/end`), synchronizing events via `workshop_calendar_update()`.
 - **`quest_adapter`**: Handles `quest` and challenges `quest_submissions`, invoking `quest_update_quest_calendar()`, `quest_update_grades()`, and `quest_update_challenge_calendar()`.
+- **`kuet_adapter`**: Handles `mod_kuet` and its scheduled sessions (`kuet_sessions`), managing automated session start flags (`automaticstart = 1`), programmed session modes, reactivation of rescheduled sessions, and course module cache synchronization.
 - **`quiz_adapter`**: Validates opening/closing consistency and triggers `quiz_update_events()` and `quiz_grade_item_update()`.
 
 #### 2. Level 2: Extractor Bridge (`local_reschedule\adapter\editdates_bridge`)
@@ -299,6 +300,7 @@ local/reschedule/
 │   │   ├── quiz_adapter.php               # Safe handler for mod_quiz
 │   │   ├── workshop_adapter.php           # Safe handler for mod_workshop and phases
 │   │   ├── quest_adapter.php              # Safe handler for mod_quest and challenges
+│   │   ├── kuet_adapter.php               # Safe handler for mod_kuet and scheduled sessions
 │   │   ├── editdates_bridge.php           # Bridge to extractor subsystem
 │   │   └── generic_adapter.php            # Safe reflective fallback for third-party modules
 │   ├── extractor/                         # Autonomous extractor subsystem

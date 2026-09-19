@@ -21,6 +21,7 @@ use local_reschedule\adapter\assign_adapter;
 use local_reschedule\adapter\quiz_adapter;
 use local_reschedule\adapter\workshop_adapter;
 use local_reschedule\adapter\quest_adapter;
+use local_reschedule\adapter\kuet_adapter;
 use local_reschedule\adapter\editdates_bridge;
 use local_reschedule\adapter\generic_adapter;
 
@@ -57,6 +58,7 @@ class adapter_manager {
 
         // 1. Specific local_reschedule adapters.
         $specificclasses = [
+            kuet_adapter::class,
             quest_adapter::class,
             workshop_adapter::class,
             assign_adapter::class,

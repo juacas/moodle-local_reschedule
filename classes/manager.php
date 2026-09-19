@@ -47,7 +47,9 @@ class manager {
                 "data,name,Database,timeavailablefrom,timeavailableto\n" .
                 "scorm,name,SCORM,timeopen,timeclose\n" .
                 "quest,name,Questournament,datestart,dateend\n" .
-                "-quest_submissions,title,Quest Challenge,datestart,dateend,questid";
+                "-quest_submissions,title,Quest Challenge,datestart,dateend,questid\n" .
+                "kuet,name,Kuet,startdate,enddate\n" .
+                "-kuet_sessions,name,Kuet Session,startdate,enddate,kuetid";
         }
 
         $lines = preg_split('/\r\n|\r|\n/', $raw);
@@ -169,21 +171,32 @@ class manager {
 
             // Query module instance records.
             // Check if course column exists in table.
+            $hasdates = $dbman->field_exists($table, $startcol) && $dbman->field_exists($table, $endcol);
             $fieldsexist = $dbman->field_exists($table, 'id') &&
                 $dbman->field_exists($table, $titlecol) &&
-                $dbman->field_exists($table, $startcol) &&
-                $dbman->field_exists($table, $endcol);
+                ($hasdates || $table === 'kuet');
 
             if (!$fieldsexist) {
                 continue;
             }
 
             $records = [];
-            if ($dbman->field_exists($table, 'course')) {
+            if ($hasdates && $dbman->field_exists($table, 'course')) {
                 $sql = "SELECT t.id, t.{$titlecol} AS title, t.{$startcol} AS datestart, t.{$endcol} AS dateend
                           FROM {{$table}} t
                          WHERE t.course = :courseid
                       ORDER BY t.{$startcol} ASC, t.id ASC";
+                $records = $DB->get_records_sql($sql, ['courseid' => $courseid]);
+            } else if ($table === 'kuet' && $dbman->field_exists('kuet', 'course')) {
+                // Kuet activity timeframe is dynamically bounded by its scheduled sessions.
+                $sql = "SELECT k.id, k.{$titlecol} AS title,
+                               COALESCE(MIN(s.startdate), 0) AS datestart,
+                               COALESCE(MAX(s.enddate), 0) AS dateend
+                          FROM {kuet} k
+                     LEFT JOIN {kuet_sessions} s ON s.kuetid = k.id AND s.startdate > 0 AND s.enddate > 0
+                         WHERE k.course = :courseid
+                      GROUP BY k.id, k.{$titlecol}
+                      ORDER BY datestart ASC, k.id ASC";
                 $records = $DB->get_records_sql($sql, ['courseid' => $courseid]);
             }
 
@@ -220,6 +233,12 @@ class manager {
                     }
                 }
 
+                // Build view URL from course module.
+                $viewurl = '';
+                if ($cm) {
+                    $viewurl = $cm->get_url() ? $cm->get_url()->out(false) : '';
+                }
+
                 $items[$itemid] = [
                     'id' => $itemid,
                     'recordid' => (int)$rec->id,
@@ -230,6 +249,8 @@ class manager {
                     'haschildren' => false,
                     'childrencount' => 0,
                     'iconurl' => $iconurl,
+                    'viewurl' => $viewurl,
+                    'editable' => true,
                     'title' => (string)$rec->title,
                     'typelabel' => $rule['label'],
                     'startcol' => $startcol,
@@ -300,6 +321,8 @@ class manager {
 
                     $parenticon = $items[$parentkey]['iconurl'] ?? '';
 
+                    $parentviewurl = $items[$parentkey]['viewurl'] ?? '';
+
                     $subitem = [
                         'id' => $itemid,
                         'recordid' => (int)$prec->id,
@@ -310,6 +333,8 @@ class manager {
                         'haschildren' => false,
                         'childrencount' => 0,
                         'iconurl' => $parenticon,
+                        'viewurl' => $parentviewurl,
+                        'editable' => true,
                         'title' => (string)$prec->title . ' - ' . $rule['label'],
                         'typelabel' => $rule['label'],
                         'startcol' => $startcol,
@@ -331,7 +356,14 @@ class manager {
 
                 $parentids = array_keys($parentitems[$parenttable]);
                 [$insql, $inparams] = $DB->get_in_or_equal($parentids, SQL_PARAMS_NAMED);
-                $sql = "SELECT id, {$fkey} AS parentid, {$titlecol} AS title, {$startcol} AS datestart, {$endcol} AS dateend
+
+                // For kuet_sessions, also fetch sessionmode to determine editability.
+                $extracols = '';
+                if ($subtable === 'kuet_sessions' && $dbman->field_exists($subtable, 'sessionmode')) {
+                    $extracols = ', sessionmode';
+                }
+
+                $sql = "SELECT id, {$fkey} AS parentid, {$titlecol} AS title, {$startcol} AS datestart, {$endcol} AS dateend{$extracols}
                           FROM {{$subtable}}
                          WHERE {$fkey} $insql
                       ORDER BY {$startcol} ASC, id ASC";
@@ -361,6 +393,16 @@ class manager {
                         $items[$parentkey]['childrencount']++;
                     }
 
+                    // Determine if this subitem is editable.
+                    // For kuet_sessions, only programmed modes are editable.
+                    $editable = true;
+                    if ($subtable === 'kuet_sessions' && isset($ch->sessionmode)) {
+                        $programmodes = ['podium_programmed', 'race_programmed', 'inactive_programmed'];
+                        $editable = in_array($ch->sessionmode, $programmodes, true);
+                    }
+
+                    $parentviewurl = $items[$parentkey]['viewurl'] ?? '';
+
                     $subitem = [
                         'id' => $itemid,
                         'recordid' => (int)$ch->id,
@@ -371,6 +413,8 @@ class manager {
                         'haschildren' => false,
                         'childrencount' => 0,
                         'iconurl' => $parenticon,
+                        'viewurl' => $parentviewurl,
+                        'editable' => $editable,
                         'title' => (string)$ch->title,
                         'typelabel' => $rule['label'],
                         'startcol' => $startcol,
