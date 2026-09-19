@@ -609,7 +609,11 @@ define(['core/notification'], function(Notification) {
          */
         createBarElement: function(item, totalSec, cStart) {
             var bar = document.createElement('div');
-            bar.className = 'quest-calendar-bar' + (item.issubtype ? ' is-subtype' : '');
+            bar.className = 'quest-calendar-bar' + (item.issubtype ? ' is-subtype' : '') +
+                (this.isItemEditable(item) ? '' : ' is-disabled');
+            if (!this.isItemEditable(item)) {
+                bar.setAttribute('aria-disabled', 'true');
+            }
             bar.setAttribute('data-itemid', item.id);
 
             var sFrac = Math.max(0, Math.min(1, (item.datestart - cStart) / totalSec));
@@ -653,6 +657,18 @@ define(['core/notification'], function(Notification) {
                 if (!item) {
                     return;
                 }
+                // Disabled items remain clickable for navigation, but cannot be dragged.
+                if (!self.isItemEditable(item)) {
+                    self.clickCandidate = {
+                        itemId: itemId,
+                        startX: e.clientX,
+                        startY: e.clientY,
+                        hasMoved: false,
+                        startTime: Date.now()
+                    };
+                    return;
+                }
+
 
                 var barRect = bar.getBoundingClientRect();
                 var clickX = e.clientX - barRect.left;
@@ -682,7 +698,7 @@ define(['core/notification'], function(Notification) {
 
                 // Capture subactivities if this item is a parent activity.
                 var childItems = self.items.filter(function(it) {
-                    return it.parentkey === item.id;
+                    return it.parentkey === item.id && self.isItemEditable(it);
                 });
                 var childSnapshots = childItems.map(function(child) {
                     var childBar = self.board.querySelector('.quest-calendar-bar[data-itemid="' + child.id + '"]');
@@ -993,6 +1009,16 @@ define(['core/notification'], function(Notification) {
         },
 
         /**
+         * Return whether an item can be rescheduled.
+         *
+         * @param {Object} item Activity item.
+         * @return {boolean}
+         */
+        isItemEditable: function(item) {
+            return !!item && item.editable !== false;
+        },
+
+        /**
          * Mark state as dirty and enable Save button.
          */
         markDirty: function() {
@@ -1292,6 +1318,9 @@ define(['core/notification'], function(Notification) {
             if (!item) {
                 return;
             }
+            if (!self.isItemEditable(item)) {
+                return;
+            }
 
             var modalEl = document.getElementById('reschedule-date-modal');
             if (!modalEl) {
@@ -1407,6 +1436,9 @@ define(['core/notification'], function(Notification) {
             if (!item) {
                 return;
             }
+            if (!self.isItemEditable(item)) {
+                return;
+            }
 
             var newStart = dateTimeLocalToTimestamp(startInput.value);
             var newEnd = dateTimeLocalToTimestamp(endInput.value);
@@ -1432,7 +1464,7 @@ define(['core/notification'], function(Notification) {
 
             // If item is a parent activity, proportionally scale its subactivities
             var children = self.items.filter(function(it) {
-                return it.parentkey === item.id;
+                    return it.parentkey === item.id && self.isItemEditable(it);
             });
 
             if (children.length > 0) {
@@ -1632,7 +1664,7 @@ define(['core/notification'], function(Notification) {
             // Distribute subtasks/phases within their respective parent activity timeframe.
             mainItems.forEach(function(parent) {
                 var children = self.items.filter(function(it) {
-                    return it.parentkey === parent.id;
+                    return it.parentkey === parent.id && self.isItemEditable(it);
                 });
 
                 if (!children.length) {

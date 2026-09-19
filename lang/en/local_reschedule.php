@@ -85,3 +85,5 @@ $string['deadline'] = 'Deadline cannot be less than Available From';
 $string['dependentdate'] = 'The to and from dates must both be set or both must be disabled';
 $string['timedue'] = 'Time Due cannot be less than Time available';
 $string['timeend'] = 'Prevent from cannot be less than Allow From';
+$string['noteditable'] = 'This activity cannot be edited';
+$string['kuetsessionnoteditable'] = 'This manual KUET session cannot be edited from the rescheduler.';

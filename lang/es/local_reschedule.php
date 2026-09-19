@@ -85,3 +85,5 @@ $string['deadline'] = 'La fecha límite no puede ser anterior a la fecha de inic
 $string['dependentdate'] = 'Las fechas de inicio y fin deben estar ambas fijadas o ambas desactivadas';
 $string['timedue'] = 'La fecha de entrega no puede ser anterior a la fecha disponible';
 $string['timeend'] = 'La fecha límite no puede ser anterior a la fecha de inicio';
+$string['noteditable'] = 'Esta actividad no se puede editar';
+$string['kuetsessionnoteditable'] = 'Esta sesión manual de KUET no se puede editar desde el replanificador.';

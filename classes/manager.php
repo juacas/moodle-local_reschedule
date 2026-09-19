@@ -396,9 +396,9 @@ class manager {
                     // Determine if this subitem is editable.
                     // For kuet_sessions, only programmed modes are editable.
                     $editable = true;
-                    if ($subtable === 'kuet_sessions' && isset($ch->sessionmode)) {
-                        $programmodes = ['podium_programmed', 'race_programmed', 'inactive_programmed'];
-                        $editable = in_array($ch->sessionmode, $programmodes, true);
+                    if ($subtable === 'kuet_sessions') {
+                        $editable = isset($ch->sessionmode) &&
+                            \local_reschedule\adapter\kuet_adapter::is_programmed_session_mode((string)$ch->sessionmode);
                     }
 
                     $parentviewurl = $items[$parentkey]['viewurl'] ?? '';

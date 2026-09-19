@@ -118,7 +118,7 @@ final class kuet_adapter_test extends advanced_testcase {
             $session = new stdClass();
             $session->name = 'Session 1';
             $session->kuetid = $kuetid;
-            $session->sessionmode = 'podium_manual';
+            $session->sessionmode = 'podium_programmed';
             $session->automaticstart = 0;
             $session->status = 1;
             $session->startdate = 0;
@@ -137,7 +137,7 @@ final class kuet_adapter_test extends advanced_testcase {
     }
 
     /**
-     * Test saving kuet_sessions updates dates, triggers automaticstart, and normalizes sessionmode.
+     * Test saving a programmed kuet_sessions record updates its dates and activates it.
      */
     public function test_save_kuet_session(): void {
         $this->resetAfterTest(true);
@@ -162,7 +162,7 @@ final class kuet_adapter_test extends advanced_testcase {
         $session = new stdClass();
         $session->name = 'Scheduled Session Alpha';
         $session->kuetid = $kuetid;
-        $session->sessionmode = 'podium_manual';
+        $session->sessionmode = 'podium_programmed';
         $session->automaticstart = 0;
         $session->status = 0; // Finished status previously.
         $session->startdate = 0;
@@ -189,7 +189,7 @@ final class kuet_adapter_test extends advanced_testcase {
         $this->assertEquals($newend, (int)$updated->enddate);
         // Assert automaticstart flag set to 1.
         $this->assertEquals(1, (int)$updated->automaticstart);
-        // Assert manual mode converted to programmed.
+        // The programmed mode remains unchanged.
         $this->assertEquals('podium_programmed', $updated->sessionmode);
         // Assert reactivated to active (1) because newstart is in the future.
         $this->assertEquals(1, (int)$updated->status);

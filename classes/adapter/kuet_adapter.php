@@ -28,6 +28,20 @@ defined('MOODLE_INTERNAL') || die();
  */
 class kuet_adapter extends base_adapter {
 
+    /**
+     * Check whether a KUET session uses a scheduled/programmed mode.
+     *
+     * @param string $sessionmode Session mode value.
+     * @return bool
+     */
+    public static function is_programmed_session_mode(string $sessionmode): bool {
+        return in_array($sessionmode, [
+            'podium_programmed',
+            'race_programmed',
+            'inactive_programmed',
+        ], true);
+    }
+
     #[\Override]
     public function supports(string $modname, array $item): bool {
         return ($modname === 'kuet' || ($item['table'] ?? '') === 'kuet' || ($item['table'] ?? '') === 'kuet_sessions');
@@ -52,6 +66,8 @@ class kuet_adapter extends base_adapter {
             $session = $DB->get_record('kuet_sessions', ['id' => $recordid]);
             if (!$session) {
                 $errors[] = "{$title}: " . get_string('invalidrecord', 'error');
+            } else if (!self::is_programmed_session_mode((string)$session->sessionmode)) {
+                $errors[] = "{$title}: " . get_string('kuetsessionnoteditable', 'local_reschedule');
             }
         }
 
@@ -67,7 +83,7 @@ class kuet_adapter extends base_adapter {
 
         if ($table === 'kuet_sessions') {
             $session = $DB->get_record('kuet_sessions', ['id' => $recordid]);
-            if (!$session) {
+            if (!$session || !self::is_programmed_session_mode((string)$session->sessionmode)) {
                 return;
             }
 
@@ -77,15 +93,6 @@ class kuet_adapter extends base_adapter {
 
             // When scheduling dates, activate automatic start.
             $session->automaticstart = 1;
-
-            // Switch to programmed mode if previously manual.
-            if ($session->sessionmode === 'podium_manual') {
-                $session->sessionmode = 'podium_programmed';
-            } else if ($session->sessionmode === 'race_manual') {
-                $session->sessionmode = 'race_programmed';
-            } else if ($session->sessionmode === 'inactive_manual') {
-                $session->sessionmode = 'inactive_programmed';
-            }
 
             // If session was marked finished (0) but is being rescheduled for future, reactivate it (1 = SESSION_ACTIVE).
             if ((int)$session->status === 0 && $newstart > time()) {
