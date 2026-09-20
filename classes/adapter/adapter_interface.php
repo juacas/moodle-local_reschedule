@@ -35,6 +35,14 @@ interface adapter_interface {
     public function supports(string $modname, array $item): bool;
 
     /**
+     * Check whether the item's dates are derived from its child items.
+     *
+     * @param array $item Reschedule item metadata.
+     * @return bool True when the item is a calculated parent range.
+     */
+    public function is_derived_item(array $item): bool;
+
+    /**
      * Validate the proposed dates for this activity item.
      *
      * @param array $item Reschedule item metadata.

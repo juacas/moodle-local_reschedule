@@ -259,6 +259,47 @@
     width: 100%;
 }
 
+.quest-bar-overflow {
+    animation: quest-bar-overflow-blink 1.1s ease-in-out infinite;
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 900;
+    line-height: 1;
+    pointer-events: none;
+    position: absolute;
+    text-shadow: 0 1px 2px rgba(15, 23, 42, 0.8);
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 4;
+}
+
+.quest-bar-overflow-start {
+    left: 1px;
+}
+
+.quest-bar-overflow-end {
+    right: 1px;
+}
+
+@keyframes quest-bar-overflow-blink {
+    0%,
+    100% {
+        opacity: 0.35;
+    }
+
+    50% {
+        opacity: 1;
+        transform: translateY(-50%) scale(1.08);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .quest-bar-overflow {
+        animation: none;
+        opacity: 1;
+    }
+}
+
 .quest-calendar-bar.is-dragging .quest-bar-content {
     cursor: grabbing;
 }
@@ -274,11 +315,17 @@
 
 .quest-toggle-subtasks,
 .toggle-subtasks {
+    align-items: center;
     border-radius: 3px;
+    box-sizing: border-box;
+    display: inline-flex;
     font-size: 0.75rem;
+    height: 24px;
+    justify-content: center;
     line-height: 1;
-    min-width: 20px;
-    padding: 2px 4px;
+    min-width: 24px;
+    padding: 0;
+    width: 24px;
 }
 
 .quest-row-expander {
@@ -286,8 +333,8 @@
     display: flex;
     flex-shrink: 0;
     justify-content: center;
-    min-width: 20px;
-    width: 20px;
+    min-width: 28px;
+    width: 28px;
 }
 
 .quest-row-icon {

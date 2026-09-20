@@ -45,6 +45,11 @@ class kuet_adapter extends base_adapter {
     }
 
     #[\Override]
+    public function is_derived_item(array $item): bool {
+        return ($item['table'] ?? '') === 'kuet';
+    }
+
+    #[\Override]
     public function validate(array $item, int $newstart, int $newend): array {
         global $DB;
 

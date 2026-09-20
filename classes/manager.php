@@ -148,8 +148,18 @@ class manager {
         $modinfo = get_fast_modinfo($courseid);
 
         $items = [];
+        $itemorders = [];
         $parentitems = []; // Cache of parent records by parent table.
         $childrenbyparent = []; // Group subitems by parent key.
+
+        // Use the same section and activity sequence as the course page.
+        $courseorder = 0;
+        $cmorder = [];
+        foreach ($modinfo->get_section_info_all() as $section) {
+            foreach ($section->get_sequence_cm_infos() as $cm) {
+                $cmorder[(int)$cm->id] = $courseorder++;
+            }
+        }
 
         // Pass 1: Process main activities.
         foreach ($rules as $rule) {
@@ -185,12 +195,17 @@ class manager {
                       ORDER BY t.{$startcol} ASC, t.id ASC";
                 $records = $DB->get_records_sql($sql, ['courseid' => $courseid]);
             } else if ($table === 'kuet' && $dbman->field_exists('kuet', 'course')) {
-                // Kuet activity timeframe is dynamically bounded by its scheduled sessions.
+                // KUET activity timeframe is dynamically bounded by programmed sessions.
+                // Manual sessions have no scheduling meaning and must not enter this range.
                 $sql = "SELECT k.id, k.{$titlecol} AS title,
-                               COALESCE(MIN(s.startdate), 0) AS datestart,
-                               COALESCE(MAX(s.enddate), 0) AS dateend
+                               COALESCE(MIN(CASE WHEN s.startdate > 0 AND s.enddate > 0
+                                   THEN s.startdate ELSE NULL END), 0) AS datestart,
+                               COALESCE(MAX(CASE WHEN s.startdate > 0 AND s.enddate > 0
+                                   THEN s.enddate ELSE NULL END), 0) AS dateend
                           FROM {kuet} k
-                     LEFT JOIN {kuet_sessions} s ON s.kuetid = k.id AND s.startdate > 0 AND s.enddate > 0
+                          JOIN {kuet_sessions} s ON s.kuetid = k.id
+                           AND s.sessionmode IN
+                               ('podium_programmed', 'race_programmed', 'inactive_programmed')
                          WHERE k.course = :courseid
                       GROUP BY k.id, k.{$titlecol}
                       ORDER BY datestart ASC, k.id ASC";
@@ -201,17 +216,19 @@ class manager {
 
             foreach ($records as $rec) {
                 $itemid = 'main_' . $table . '_' . $rec->id;
-                $ds = (int)$rec->datestart;
-                $de = (int)$rec->dateend;
+                $rawstart = (int)$rec->datestart;
+                $rawend = (int)$rec->dateend;
+                $startenabled = $rawstart > 0;
+                $endenabled = $rawend > 0;
+                $itemmetadata = ['table' => $table];
+                $isderived = adapter_manager::get_adapter($table, $course, $itemmetadata)
+                    ->is_derived_item($itemmetadata);
 
-                // If dates are unset, assign a friendly default within the course.
-                if ($ds <= 0 && $de <= 0) {
-                    $ds = $coursestart;
-                    $de = min($courseend, $coursestart + (7 * 86400));
-                } else if ($ds <= 0) {
-                    $ds = max($coursestart, $de - (7 * 86400));
-                } else if ($de <= 0 || $de <= $ds) {
-                    $de = min($courseend, $ds + (7 * 86400));
+                // Disabled endpoints use the course limits only for drawing.
+                $ds = $startenabled ? $rawstart : $coursestart;
+                $de = $endenabled ? $rawend : $courseend;
+                if ($de <= $ds) {
+                    $de = max($de, $ds + 3600);
                 }
 
                 // Resolve activity icon.
@@ -236,9 +253,12 @@ class manager {
                     $viewurl = $cm->get_url() ? $cm->get_url()->out(false) : '';
                 }
 
+                $itemorders[$itemid] = $cm ? ($cmorder[(int)$cm->id] ?? PHP_INT_MAX) : PHP_INT_MAX;
+
                 $items[$itemid] = [
                     'id' => $itemid,
                     'recordid' => (int)$rec->id,
+                    'cmid' => $cm ? (int)$cm->id : 0,
                     'table' => $table,
                     'parentkey' => null,
                     'parenttitle' => null,
@@ -247,11 +267,19 @@ class manager {
                     'childrencount' => 0,
                     'iconurl' => $iconurl,
                     'viewurl' => $viewurl,
-                    'editable' => true,
+                    'editable' => !$isderived,
+                    'derived' => $isderived,
+                    'editreason' => $isderived ?
+                        get_string('kuetactivitynoteditable', 'local_reschedule') : '',
+                    'interactreason' => $isderived ?
+                        get_string('kuetactivityderivedhint', 'local_reschedule') : '',
+                    'interactive' => true,
                     'title' => (string)$rec->title,
                     'typelabel' => $rule['label'],
                     'startcol' => $startcol,
                     'endcol' => $endcol,
+                    'startenabled' => $startenabled,
+                    'endenabled' => $endenabled,
                     'datestart' => $ds,
                     'dateend' => $de,
                 ];
@@ -298,17 +326,15 @@ class manager {
                 foreach ($phases as $prec) {
                     $parentkey = 'main_' . $parenttable . '_' . $prec->id;
                     $itemid = 'sub_' . $subtable . '_' . $prec->id . '_' . $startcol;
-                    $ds = (int)$prec->datestart;
-                    $de = (int)$prec->dateend;
-
-                    if ($ds <= 0 && $de <= 0) {
-                        $parentstart = $items[$parentkey]['datestart'] ?? $coursestart;
-                        $ds = $parentstart;
-                        $de = $ds + (3 * 86400);
-                    } else if ($ds <= 0) {
-                        $ds = max($coursestart, $de - (3 * 86400));
-                    } else if ($de <= 0 || $de <= $ds) {
-                        $de = $ds + (3 * 86400);
+                    $rawstart = (int)$prec->datestart;
+                    $rawend = (int)$prec->dateend;
+                    $startenabled = $rawstart > 0;
+                    $endenabled = $rawend > 0;
+                    $parentstart = $items[$parentkey]['datestart'] ?? $coursestart;
+                    $ds = $startenabled ? $rawstart : $parentstart;
+                    $de = $endenabled ? $rawend : ($items[$parentkey]['dateend'] ?? $courseend);
+                    if ($de <= $ds) {
+                        $de = max($de, $ds + 3600);
                     }
 
                     if (isset($items[$parentkey])) {
@@ -323,6 +349,7 @@ class manager {
                     $subitem = [
                         'id' => $itemid,
                         'recordid' => (int)$prec->id,
+                        'cmid' => $items[$parentkey]['cmid'] ?? 0,
                         'table' => $subtable,
                         'parentkey' => $parentkey,
                         'parenttitle' => (string)$prec->title,
@@ -332,10 +359,14 @@ class manager {
                         'iconurl' => $parenticon,
                         'viewurl' => $parentviewurl,
                         'editable' => true,
+                        'derived' => false,
+                        'interactive' => true,
                         'title' => (string)$prec->title . ' - ' . $rule['label'],
                         'typelabel' => $rule['label'],
                         'startcol' => $startcol,
                         'endcol' => $endcol,
+                        'startenabled' => $startenabled,
+                        'endenabled' => $endenabled,
                         'datestart' => $ds,
                         'dateend' => $de,
                     ];
@@ -356,33 +387,37 @@ class manager {
                 $parentids = array_keys($parentitems[$parenttable]);
                 [$insql, $inparams] = $DB->get_in_or_equal($parentids, SQL_PARAMS_NAMED);
 
-                // For kuet_sessions, also fetch sessionmode to determine editability.
+                // For kuet_sessions, only programmed sessions have meaningful schedule dates.
                 $extracols = '';
                 if ($subtable === 'kuet_sessions' && $dbman->field_exists($subtable, 'sessionmode')) {
                     $extracols = ', sessionmode';
                 }
 
+                $sessionfilter = '';
+                if ($subtable === 'kuet_sessions') {
+                    $sessionfilter = " AND sessionmode IN
+                        ('podium_programmed', 'race_programmed', 'inactive_programmed')";
+                }
+
                 $sql = "SELECT id, {$fkey} AS parentid, {$titlecol} AS title, "
                     . "{$startcol} AS datestart, {$endcol} AS dateend{$extracols}
                           FROM {{$subtable}}
-                         WHERE {$fkey} $insql
+                         WHERE {$fkey} $insql{$sessionfilter}
                       ORDER BY {$startcol} ASC, id ASC";
                 $children = $DB->get_records_sql($sql, $inparams);
 
                 foreach ($children as $ch) {
                     $parentkey = 'main_' . $parenttable . '_' . $ch->parentid;
                     $itemid = 'sub_' . $subtable . '_' . $ch->id;
-                    $ds = (int)$ch->datestart;
-                    $de = (int)$ch->dateend;
-
-                    if ($ds <= 0 && $de <= 0) {
-                        $parentstart = $items[$parentkey]['datestart'] ?? $coursestart;
-                        $ds = $parentstart;
-                        $de = $ds + (3 * 86400);
-                    } else if ($ds <= 0) {
-                        $ds = max($coursestart, $de - (3 * 86400));
-                    } else if ($de <= 0 || $de <= $ds) {
-                        $de = $ds + (3 * 86400);
+                    $rawstart = (int)$ch->datestart;
+                    $rawend = (int)$ch->dateend;
+                    $startenabled = $rawstart > 0;
+                    $endenabled = $rawend > 0;
+                    $parentstart = $items[$parentkey]['datestart'] ?? $coursestart;
+                    $ds = $startenabled ? $rawstart : $parentstart;
+                    $de = $endenabled ? $rawend : ($items[$parentkey]['dateend'] ?? $courseend);
+                    if ($de <= $ds) {
+                        $de = max($de, $ds + 3600);
                     }
 
                     $parenttitle = $items[$parentkey]['title'] ?? '';
@@ -406,6 +441,7 @@ class manager {
                     $subitem = [
                         'id' => $itemid,
                         'recordid' => (int)$ch->id,
+                        'cmid' => $items[$parentkey]['cmid'] ?? 0,
                         'table' => $subtable,
                         'parentkey' => $parentkey,
                         'parenttitle' => $parenttitle,
@@ -415,10 +451,14 @@ class manager {
                         'iconurl' => $parenticon,
                         'viewurl' => $parentviewurl,
                         'editable' => $editable,
+                        'derived' => false,
+                        'interactive' => $editable,
                         'title' => (string)$ch->title,
                         'typelabel' => $rule['label'],
                         'startcol' => $startcol,
                         'endcol' => $endcol,
+                        'startenabled' => $startenabled,
+                        'endenabled' => $endenabled,
                         'datestart' => $ds,
                         'dateend' => $de,
                     ];
@@ -427,6 +467,12 @@ class manager {
                 }
             }
         }
+
+        uasort($items, static function(array $left, array $right) use ($itemorders): int {
+            $leftorder = $itemorders[$left['id']] ?? PHP_INT_MAX;
+            $rightorder = $itemorders[$right['id']] ?? PHP_INT_MAX;
+            return $leftorder <=> $rightorder ?: strcmp($left['id'], $right['id']);
+        });
 
         // Interleave main items followed immediately by their respective subitems.
         $ordereditems = [];
@@ -462,6 +508,7 @@ class manager {
         // Phase 1: Pre-validation of all proposed updates using adapters.
         $plan = [];
         $validationerrors = [];
+        $skipped = [];
 
         foreach ($updates as $up) {
             $key = $up['id'] ?? '';
@@ -472,14 +519,35 @@ class manager {
             $item = $itemmap[$key];
             $newstart = (int)($up['datestart'] ?? 0);
             $newend = (int)($up['dateend'] ?? 0);
+            $startenabled = array_key_exists('startenabled', $up) ?
+                !empty($up['startenabled']) : ($item['startenabled'] ?? true);
+            $endenabled = array_key_exists('endenabled', $up) ?
+                !empty($up['endenabled']) : ($item['endenabled'] ?? true);
+
+            // A disabled endpoint is represented by zero in the module table.
+            $storedstart = $startenabled ? $newstart : 0;
+            $storedend = $endenabled ? $newend : 0;
 
             // Skip if no change in dates.
-            if ($newstart === (int)$item['datestart'] && $newend === (int)$item['dateend']) {
+            $currentstart = ($item['startenabled'] ?? true) ? (int)$item['datestart'] : 0;
+            $currentend = ($item['endenabled'] ?? true) ? (int)$item['dateend'] : 0;
+            if ($storedstart === $currentstart && $storedend === $currentend &&
+                    $startenabled === ($item['startenabled'] ?? true) &&
+                    $endenabled === ($item['endenabled'] ?? true)) {
+                continue;
+            }
+
+            if (($item['editable'] ?? true) === false) {
+                $skipped[] = ($item['title'] ?? $key) . ': ' .
+                    ($item['editreason'] ?? get_string('noteditable', 'local_reschedule'));
                 continue;
             }
 
             $adapter = adapter_manager::get_adapter($item['table'], $course, $item);
-            $errs = $adapter->validate($item, $newstart, $newend);
+            // Validate against the visible range, while saving zero for disabled ends.
+            $validationstart = $startenabled ? $newstart : (int)$item['datestart'];
+            $validationend = $endenabled ? $newend : (int)$item['dateend'];
+            $errs = $adapter->validate($item, $validationstart, $validationend);
             if (!empty($errs)) {
                 $validationerrors = array_merge($validationerrors, $errs);
             }
@@ -487,8 +555,8 @@ class manager {
             $plan[] = [
                 'item' => $item,
                 'adapter' => $adapter,
-                'newstart' => $newstart,
-                'newend' => $newend,
+                'newstart' => $storedstart,
+                'newend' => $storedend,
             ];
         }
 
@@ -502,6 +570,16 @@ class manager {
         }
 
         if (empty($plan)) {
+            if (!empty($skipped)) {
+                return [
+                    'success' => false,
+                    'updated' => 0,
+                    'message' => implode("\n", array_unique($skipped)),
+                    'errors' => array_values(array_unique($skipped)),
+                    'skipped' => array_values(array_unique($skipped)),
+                ];
+            }
+
             return [
                 'success' => true,
                 'updated' => 0,
@@ -523,10 +601,16 @@ class manager {
         // Phase 3: Course cache rebuild.
         rebuild_course_cache($courseid, true);
 
+        $message = get_string('schedulesaved', 'local_reschedule');
+        if (!empty($skipped)) {
+            $message .= "\n" . implode("\n", array_unique($skipped));
+        }
+
         return [
             'success' => true,
             'updated' => $updatedcount,
-            'message' => get_string('schedulesaved', 'local_reschedule'),
+            'message' => $message,
+            'warnings' => array_values(array_unique($skipped)),
         ];
     }
 }

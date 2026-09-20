@@ -53,6 +53,9 @@ final class kuet_adapter_test extends advanced_testcase {
         $this->assertFalse($adapter->supports('assign', ['table' => 'assign']));
         $this->assertFalse($adapter->supports('workshop', ['table' => 'workshop']));
         $this->assertFalse($adapter->supports('quest', ['table' => 'quest']));
+
+        $this->assertTrue($adapter->is_derived_item(['table' => 'kuet']));
+        $this->assertFalse($adapter->is_derived_item(['table' => 'kuet_sessions']));
     }
 
     /**
@@ -262,5 +265,59 @@ final class kuet_adapter_test extends advanced_testcase {
         $this->assertTrue($sessionrule['issubtype']);
         $this->assertEquals('kuetid', $sessionrule['foreignkey']);
         $this->assertEquals('kuet', $sessionrule['parenttable']);
+    }
+
+    /**
+     * Test that only programmed KUET sessions enter the reschedule view.
+     */
+    public function test_course_items_exclude_unprogrammed_sessions(): void {
+        $this->resetAfterTest(true);
+        global $DB;
+
+        if (!$DB->get_manager()->table_exists('kuet') || !$DB->get_manager()->table_exists('kuet_sessions')) {
+            $this->markTestSkipped('mod_kuet tables not installed.');
+        }
+
+        $course = $this->getDataGenerator()->create_course();
+        $now = time() + 3600;
+        $kuet = new stdClass();
+        $kuet->course = $course->id;
+        $kuet->name = 'KUET scheduling filter';
+        $kuet->intro = '';
+        $kuet->introformat = FORMAT_HTML;
+        $kuet->timecreated = time();
+        $kuet->timemodified = time();
+        $kuetid = $DB->insert_record('kuet', $kuet);
+
+        foreach (['podium_programmed', 'podium_manual'] as $sessionmode) {
+            $session = new stdClass();
+            $session->name = $sessionmode;
+            $session->kuetid = $kuetid;
+            $session->sessionmode = $sessionmode;
+            $session->automaticstart = 0;
+            $session->status = 1;
+            $session->startdate = $now;
+            $session->enddate = $now + 3600;
+            $session->timecreated = time();
+            $session->timemodified = time();
+            $sessionid = $DB->insert_record('kuet_sessions', $session);
+
+            if ($sessionmode === 'podium_programmed') {
+                $programmedid = $sessionid;
+            } else {
+                $manualid = $sessionid;
+            }
+        }
+
+        $items = manager::get_course_items($course->id);
+        $sessionids = [];
+        foreach ($items as $item) {
+            if ($item['table'] === 'kuet_sessions') {
+                $sessionids[] = (int)$item['recordid'];
+            }
+        }
+
+        $this->assertContains($programmedid, $sessionids);
+        $this->assertNotContains($manualid, $sessionids);
     }
 }

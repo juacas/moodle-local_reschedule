@@ -38,6 +38,16 @@ abstract class base_adapter implements adapter_interface {
     }
 
     /**
+     * Dates are normally stored directly on the activity item.
+     *
+     * @param array $item Reschedule item metadata.
+     * @return bool False for ordinary stored date ranges.
+     */
+    public function is_derived_item(array $item): bool {
+        return false;
+    }
+
+    /**
      * Get course module info instance for an activity module instance.
      *
      * @param string $modname Module name (e.g. 'assign', 'quiz').

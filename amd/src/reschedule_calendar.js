@@ -182,8 +182,19 @@ define(['core/notification'], function(Notification) {
                 }
             }
 
+            var timelineStart = Number(cfg.timelineStart || cfg.courseStart);
+            var timelineEnd = Number(cfg.timelineEnd || cfg.courseEnd);
             this.items = (rawItems || []).map(function(item) {
-                return Object.assign({}, item);
+                var copy = Object.assign({}, item);
+                // Disabled endpoints occupy the complete visible timeline without
+                // turning the display boundary into a stored date.
+                if (copy.startenabled === false) {
+                    copy.datestart = timelineStart;
+                }
+                if (copy.endenabled === false) {
+                    copy.dateend = timelineEnd;
+                }
+                return copy;
             });
             this.initialItems = this.items.map(function(item) {
                 return Object.assign({}, item);
@@ -414,8 +425,8 @@ define(['core/notification'], function(Notification) {
          */
         renderTimeline: function() {
             var self = this;
-            var cStart = self.config.courseStart;
-            var cEnd = self.config.courseEnd;
+            var cStart = self.getTimelineStart();
+            var cEnd = self.getTimelineEnd();
             var totalSec = Math.max(3600, cEnd - cStart);
 
             var bands = self.calculateBands(cStart, cEnd);
@@ -449,6 +460,9 @@ define(['core/notification'], function(Notification) {
                     if (!self.expandedParents[item.parentkey]) {
                         rowLabel.classList.add('d-none');
                     }
+                }
+                if (!self.isItemEditable(item) && item.editreason) {
+                    rowLabel.setAttribute('title', item.interactreason || item.editreason);
                 }
                 var dur = formatDuration(item.dateend - item.datestart);
 
@@ -609,11 +623,14 @@ define(['core/notification'], function(Notification) {
         createBarElement: function(item, totalSec, cStart) {
             var bar = document.createElement('div');
             bar.className = 'quest-calendar-bar' + (item.issubtype ? ' is-subtype' : '') +
-                (this.isItemEditable(item) ? '' : ' is-disabled');
-            if (!this.isItemEditable(item)) {
+                (this.isItemInteractive(item) ? '' : ' is-disabled');
+            if (!this.isItemInteractive(item)) {
                 bar.setAttribute('aria-disabled', 'true');
             }
             bar.setAttribute('data-itemid', item.id);
+            bar.setAttribute('data-base-title', (!this.isItemEditable(item) &&
+                (item.interactreason || item.editreason)) ?
+                (item.interactreason || item.editreason) : '');
 
             var sFrac = Math.max(0, Math.min(1, (item.datestart - cStart) / totalSec));
             var eFrac = Math.max(0, Math.min(1, (item.dateend - cStart) / totalSec));
@@ -621,6 +638,7 @@ define(['core/notification'], function(Notification) {
 
             bar.style.left = (sFrac * 100) + '%';
             bar.style.width = (wFrac * 100) + '%';
+            this.updateBarOverflow(bar, item, totalSec, cStart);
 
             var hStart = document.createElement('div');
             hStart.className = 'quest-bar-handle quest-bar-handle-start';
@@ -636,6 +654,69 @@ define(['core/notification'], function(Notification) {
             bar.appendChild(hEnd);
 
             return bar;
+        },
+
+        /**
+         * Add or remove markers for dates outside the visible course timeframe.
+         *
+         * @param {HTMLElement} bar Gantt activity bar.
+         * @param {Object} item Activity item.
+         * @param {number} totalSec Visible timeline duration in seconds.
+         * @param {number} cStart Visible timeline start timestamp.
+         */
+        updateBarOverflow: function(bar, item, totalSec, cStart) {
+            var cEnd = cStart + totalSec;
+            var startsBefore = item.startenabled === false || Number(item.datestart) < cStart;
+            var endsAfter = item.endenabled === false || Number(item.dateend) > cEnd;
+            var markers = bar.querySelectorAll('.quest-bar-overflow');
+
+            for (var i = 0; i < markers.length; i++) {
+                markers[i].remove();
+            }
+
+            bar.classList.toggle('has-overflow-start', startsBefore);
+            bar.classList.toggle('has-overflow-end', endsAfter);
+
+            if (startsBefore) {
+                var startMarker = document.createElement('span');
+                startMarker.className = 'quest-bar-overflow quest-bar-overflow-start';
+                startMarker.setAttribute('aria-hidden', 'true');
+                startMarker.textContent = '<<';
+                bar.appendChild(startMarker);
+            }
+
+            if (endsAfter) {
+                var endMarker = document.createElement('span');
+                endMarker.className = 'quest-bar-overflow quest-bar-overflow-end';
+                endMarker.setAttribute('aria-hidden', 'true');
+                endMarker.textContent = '>>';
+                bar.appendChild(endMarker);
+            }
+
+            var messages = [];
+            if (startsBefore) {
+                messages.push(item.startenabled === false ?
+                    ((this.strings && this.strings.activitystartdisabled) || 'The start date is disabled.') :
+                    ((this.strings && this.strings.activitybeforetimeline) ||
+                        'The activity starts before the visible timeline.'));
+            }
+            if (endsAfter) {
+                messages.push(item.endenabled === false ?
+                    ((this.strings && this.strings.activityenddisabled) || 'The end date is disabled.') :
+                    ((this.strings && this.strings.activityaftertimeline) ||
+                        'The activity ends after the visible timeline.'));
+            }
+            var baseTitle = bar.getAttribute('data-base-title') || '';
+            var titleParts = baseTitle ? [baseTitle] : [];
+            if (messages.length) {
+                titleParts = titleParts.concat(messages);
+            }
+            bar.setAttribute('aria-label', item.title + (titleParts.length ? '. ' + titleParts.join(' ') : ''));
+            if (titleParts.length) {
+                bar.setAttribute('title', titleParts.join(' '));
+            } else {
+                bar.removeAttribute('title');
+            }
         },
 
         /**
@@ -657,7 +738,7 @@ define(['core/notification'], function(Notification) {
                     return;
                 }
                 // Disabled items remain clickable for navigation, but cannot be dragged.
-                if (!self.isItemEditable(item)) {
+                if (!self.isItemInteractive(item)) {
                     self.clickCandidate = {
                         itemId: itemId,
                         startX: e.clientX,
@@ -695,6 +776,20 @@ define(['core/notification'], function(Notification) {
                     }
                 }
 
+                // An activity with a disabled endpoint has no movable interval yet.
+                // Its handles are still active so dragging one enables that endpoint.
+                if (mode === 'move' &&
+                        (item.startenabled === false || item.endenabled === false)) {
+                    self.clickCandidate = {
+                        itemId: itemId,
+                        startX: e.clientX,
+                        startY: e.clientY,
+                        hasMoved: false,
+                        startTime: Date.now()
+                    };
+                    return;
+                }
+
                 // Capture subactivities if this item is a parent activity.
                 var childItems = self.items.filter(function(it) {
                     return it.parentkey === item.id && self.isItemEditable(it);
@@ -712,6 +807,7 @@ define(['core/notification'], function(Notification) {
 
                 var rightArea = self.board.querySelector('.quest-timeline-right-area');
                 var trackRect = rightArea.getBoundingClientRect();
+                var parentItem = self.getParentItem(item);
 
                 self.activeDrag = {
                     item: item,
@@ -722,8 +818,9 @@ define(['core/notification'], function(Notification) {
                     initialStart: item.datestart,
                     initialEnd: item.dateend,
                     duration: Math.max(1, item.dateend - item.datestart),
+                    parent: parentItem,
                     children: childSnapshots,
-                    totalSec: Math.max(3600, self.config.courseEnd - self.config.courseStart)
+                    totalSec: Math.max(3600, self.getTimelineEnd() - self.getTimelineStart())
                 };
 
                 // Track potential simple click on the bar
@@ -763,14 +860,25 @@ define(['core/notification'], function(Notification) {
 
                 var cStart = self.config.courseStart;
                 var cEnd = self.config.courseEnd;
+                var timelineStart = self.getTimelineStart();
                 var minDur = 3600;
 
                 var newStart = drag.item.datestart;
                 var newEnd = drag.item.dateend;
 
+                if (drag.mode === 'resize-start') {
+                    drag.item.startenabled = true;
+                } else if (drag.mode === 'resize-end') {
+                    drag.item.endenabled = true;
+                }
+
                 if (drag.mode === 'move') {
                     var minShift = cStart - drag.initialStart;
                     var maxShift = cEnd - drag.initialEnd;
+                    if (drag.parent && !drag.parent.derived) {
+                        minShift = Math.max(minShift, drag.parent.datestart - drag.initialStart);
+                        maxShift = Math.min(maxShift, drag.parent.dateend - drag.initialEnd);
+                    }
                     if (drag.children && drag.children.length > 0) {
                         drag.children.forEach(function(c) {
                             minShift = Math.max(minShift, cStart - c.initialStart);
@@ -778,8 +886,13 @@ define(['core/notification'], function(Notification) {
                         });
                     }
                     if (minShift > maxShift) {
-                        minShift = cStart - drag.initialStart;
-                        maxShift = cEnd - drag.initialEnd;
+                        if (drag.parent && !drag.parent.derived) {
+                            minShift = drag.parent.datestart - drag.initialStart;
+                            maxShift = drag.parent.dateend - drag.initialEnd;
+                        } else {
+                            minShift = cStart - drag.initialStart;
+                            maxShift = cEnd - drag.initialEnd;
+                        }
                     }
                     var shift = Math.max(minShift, Math.min(maxShift, dt));
                     newStart = drag.initialStart + shift;
@@ -792,21 +905,30 @@ define(['core/notification'], function(Notification) {
                             c.item.dateend = c.initialEnd + shift;
 
                             if (c.barEl) {
-                                var cSFrac = Math.max(0, Math.min(1, (c.item.datestart - cStart) / drag.totalSec));
-                                var cEFrac = Math.max(0, Math.min(1, (c.item.dateend - cStart) / drag.totalSec));
+                                var cSFrac = Math.max(0, Math.min(1, (c.item.datestart - timelineStart) / drag.totalSec));
+                                var cEFrac = Math.max(0, Math.min(1, (c.item.dateend - timelineStart) / drag.totalSec));
                                 var cWFrac = Math.max(0.005, cEFrac - cSFrac);
                                 c.barEl.style.left = (cSFrac * 100) + '%';
                                 c.barEl.style.width = (cWFrac * 100) + '%';
+                                self.updateBarOverflow(c.barEl, c.item, drag.totalSec, timelineStart);
                             }
                             self.updateTableRow(c.item);
                         });
                     }
                 } else if (drag.mode === 'resize-start') {
-                    newStart = Math.min(drag.initialEnd - minDur, Math.max(cStart, drag.initialStart + dt));
+                    var minStart = cStart;
+                    if (drag.parent && !drag.parent.derived) {
+                        minStart = Math.max(minStart, drag.parent.datestart);
+                    }
+                    newStart = Math.min(drag.initialEnd - minDur, Math.max(minStart, drag.initialStart + dt));
                     newEnd = drag.initialEnd;
                 } else if (drag.mode === 'resize-end') {
+                    var maxEnd = cEnd;
+                    if (drag.parent && !drag.parent.derived) {
+                        maxEnd = Math.min(maxEnd, drag.parent.dateend);
+                    }
                     newStart = drag.initialStart;
-                    newEnd = Math.max(drag.initialStart + minDur, Math.min(cEnd, drag.initialEnd + dt));
+                    newEnd = Math.max(drag.initialStart + minDur, Math.min(maxEnd, drag.initialEnd + dt));
                 }
 
                 drag.item.datestart = newStart;
@@ -857,25 +979,32 @@ define(['core/notification'], function(Notification) {
                         c.item.dateend = newCEnd;
 
                         if (c.barEl) {
-                            var cSFrac = Math.max(0, Math.min(1, (newCStart - cStart) / drag.totalSec));
-                            var cEFrac = Math.max(0, Math.min(1, (newCEnd - cStart) / drag.totalSec));
+                            var cSFrac = Math.max(0, Math.min(1, (newCStart - timelineStart) / drag.totalSec));
+                            var cEFrac = Math.max(0, Math.min(1, (newCEnd - timelineStart) / drag.totalSec));
                             var cWFrac = Math.max(0.005, cEFrac - cSFrac);
                             c.barEl.style.left = (cSFrac * 100) + '%';
                             c.barEl.style.width = (cWFrac * 100) + '%';
+                            self.updateBarOverflow(c.barEl, c.item, drag.totalSec, timelineStart);
                         }
                         self.updateTableRow(c.item);
                     });
                 }
 
-                var sFrac = Math.max(0, Math.min(1, (newStart - cStart) / drag.totalSec));
-                var eFrac = Math.max(0, Math.min(1, (newEnd - cStart) / drag.totalSec));
+                var sFrac = Math.max(0, Math.min(1, (newStart - timelineStart) / drag.totalSec));
+                var eFrac = Math.max(0, Math.min(1, (newEnd - timelineStart) / drag.totalSec));
                 var wFrac = Math.max(0.005, eFrac - sFrac);
 
                 drag.barEl.style.left = (sFrac * 100) + '%';
                 drag.barEl.style.width = (wFrac * 100) + '%';
+                self.updateBarOverflow(drag.barEl, drag.item, drag.totalSec, timelineStart);
 
                 self.updateHUD(e.clientX, e.clientY, drag.item);
                 self.updateTableRow(drag.item);
+                if (drag.item.derived) {
+                    self.refreshDerivedItem(drag.item);
+                } else {
+                    self.refreshDerivedParent(drag.item);
+                }
                 self.markDirty();
             });
 
@@ -978,8 +1107,8 @@ define(['core/notification'], function(Notification) {
             var colEnd = row.querySelector('.col-dateend');
             var colDur = row.querySelector('.col-duration .badge');
 
-            var startStr = formatDateTime(item.datestart, this.locale);
-            var endStr = formatDateTime(item.dateend, this.locale);
+            var startStr = item.startenabled === false ? '' : formatDateTime(item.datestart, this.locale);
+            var endStr = item.endenabled === false ? '' : formatDateTime(item.dateend, this.locale);
 
             if (colStart) {
                 var sSpan = colStart.querySelector('.date-text');
@@ -1008,6 +1137,24 @@ define(['core/notification'], function(Notification) {
         },
 
         /**
+         * Return the visible timeline start without changing course constraints.
+         *
+         * @return {number} Timeline start timestamp.
+         */
+        getTimelineStart: function() {
+            return Number(this.config.timelineStart || this.config.courseStart);
+        },
+
+        /**
+         * Return the visible timeline end without changing course constraints.
+         *
+         * @return {number} Timeline end timestamp.
+         */
+        getTimelineEnd: function() {
+            return Number(this.config.timelineEnd || this.config.courseEnd);
+        },
+
+        /**
          * Return whether an item can be rescheduled.
          *
          * @param {Object} item Activity item.
@@ -1015,6 +1162,86 @@ define(['core/notification'], function(Notification) {
          */
         isItemEditable: function(item) {
             return !!item && item.editable !== false;
+        },
+
+        /**
+         * Return whether an item can be used to manipulate its schedule.
+         * Derived parents are interactive even though their dates are not saved directly.
+         *
+         * @param {Object} item Activity item.
+         * @return {boolean}
+         */
+        isItemInteractive: function(item) {
+            return !!item && (this.isItemEditable(item) || !!item.derived);
+        },
+
+        /**
+         * Return an item's parent, if it has one.
+         *
+         * @param {Object} item Activity item.
+         * @return {Object|null} Parent item.
+         */
+        getParentItem: function(item) {
+            if (!item || !item.parentkey) {
+                return null;
+            }
+            return this.items.find(function(candidate) {
+                return candidate.id === item.parentkey;
+            }) || null;
+        },
+
+        /**
+         * Recalculate a parent whose dates are derived from its children.
+         *
+         * @param {Object} child Changed child item.
+         */
+        refreshDerivedParent: function(child) {
+            var parent = this.getParentItem(child);
+            if (!parent || !parent.derived) {
+                return;
+            }
+            this.refreshDerivedItem(parent);
+        },
+
+        /**
+         * Recalculate a derived item's dates from its child items.
+         *
+         * @param {Object} parent Derived parent item.
+         */
+        refreshDerivedItem: function(parent) {
+            var self = this;
+            if (!parent || !parent.derived) {
+                return;
+            }
+
+            var children = self.items.filter(function(item) {
+                return item.parentkey === parent.id && Number(item.dateend) > Number(item.datestart);
+            });
+            if (!children.length) {
+                return;
+            }
+
+            var newStart = Math.min.apply(null, children.map(function(item) {
+                return Number(item.datestart);
+            }));
+            var newEnd = Math.max.apply(null, children.map(function(item) {
+                return Number(item.dateend);
+            }));
+            parent.datestart = newStart;
+            parent.dateend = newEnd;
+
+            var cStart = self.getTimelineStart();
+            var totalSec = Math.max(3600, self.getTimelineEnd() - cStart);
+            var bar = self.board.querySelector('.quest-calendar-bar[data-itemid="' + parent.id + '"]');
+            if (bar) {
+                var sFrac = Math.max(0, Math.min(1, (newStart - cStart) / totalSec));
+                var eFrac = Math.max(0, Math.min(1, (newEnd - cStart) / totalSec));
+                var wFrac = Math.max(0.005, eFrac - sFrac);
+                bar.style.left = (sFrac * 100) + '%';
+                bar.style.width = (wFrac * 100) + '%';
+                self.updateBarOverflow(bar, parent, totalSec, cStart);
+            }
+            self.updateTableRow(parent);
         },
 
         /**
@@ -1320,7 +1547,7 @@ define(['core/notification'], function(Notification) {
             if (!item) {
                 return;
             }
-            if (!self.isItemEditable(item)) {
+            if (!self.isItemInteractive(item)) {
                 return;
             }
 
@@ -1438,16 +1665,29 @@ define(['core/notification'], function(Notification) {
             if (!item) {
                 return;
             }
-            if (!self.isItemEditable(item)) {
+            if (!self.isItemInteractive(item)) {
                 return;
             }
 
             var newStart = dateTimeLocalToTimestamp(startInput.value);
             var newEnd = dateTimeLocalToTimestamp(endInput.value);
 
+            var parent = self.getParentItem(item);
+            if (parent && !parent.derived) {
+                newStart = Math.max(newStart, Number(parent.datestart));
+                newEnd = Math.min(newEnd, Number(parent.dateend));
+                startInput.value = timestampToDateTimeLocal(newStart);
+                endInput.value = timestampToDateTimeLocal(newEnd);
+            }
+
             if (!newStart || !newEnd || newEnd <= newStart) {
                 if (errorEl) {
                     errorEl.classList.remove('d-none');
+                }
+                var errorText = document.getElementById('date-modal-error-text');
+                if (errorText && parent && !parent.derived) {
+                    errorText.textContent = (self.strings && self.strings.subactivityparentbounds) ||
+                        'The subactivity must remain within the parent activity timeframe.';
                 }
                 if (endInput) {
                     endInput.classList.add('is-invalid');
@@ -1457,12 +1697,20 @@ define(['core/notification'], function(Notification) {
 
             var oldStart = item.datestart;
             var oldEnd = item.dateend;
+            var startChanged = newStart !== oldStart;
+            var endChanged = newEnd !== oldEnd;
 
             item.datestart = newStart;
             item.dateend = newEnd;
+            if (startChanged) {
+                item.startenabled = true;
+            }
+            if (endChanged) {
+                item.endenabled = true;
+            }
 
-            var totalSec = Math.max(3600, self.config.courseEnd - self.config.courseStart);
-            var cStart = self.config.courseStart;
+            var cStart = self.getTimelineStart();
+            var totalSec = Math.max(3600, self.getTimelineEnd() - cStart);
 
             // If item is a parent activity, proportionally scale its subactivities
             var children = self.items.filter(function(it) {
@@ -1514,6 +1762,7 @@ define(['core/notification'], function(Notification) {
                         var cWFrac = Math.max(0.005, cEFrac - cSFrac);
                         cBar.style.left = (cSFrac * 100) + '%';
                         cBar.style.width = (cWFrac * 100) + '%';
+                        self.updateBarOverflow(cBar, c, totalSec, cStart);
                     }
                     self.updateTableRow(c);
                 });
@@ -1527,9 +1776,15 @@ define(['core/notification'], function(Notification) {
                 var wFrac = Math.max(0.005, eFrac - sFrac);
                 bar.style.left = (sFrac * 100) + '%';
                 bar.style.width = (wFrac * 100) + '%';
+                self.updateBarOverflow(bar, item, totalSec, cStart);
             }
 
             self.updateTableRow(item);
+            if (item.derived) {
+                self.refreshDerivedItem(item);
+            } else {
+                self.refreshDerivedParent(item);
+            }
             self.markDirty();
             self.closeDateModal();
             self.scrollToTableRow(item.id);
@@ -1584,7 +1839,7 @@ define(['core/notification'], function(Notification) {
                 btn.setAttribute('aria-expanded', isNowExpanded ? 'true' : 'false');
                 var icon = btn.querySelector('i.fa');
                 if (icon) {
-                    icon.className = isNowExpanded ? 'fa fa-minus' : 'fa-plus';
+                    icon.className = isNowExpanded ? 'fa fa-minus' : 'fa fa-plus';
                 }
             });
         },
@@ -1600,10 +1855,16 @@ define(['core/notification'], function(Notification) {
          * Auto-sequence activities according to the selected strategy.
          * Top-level items share course duration. Subtasks/phases are distributed within parent duration.
          *
-         * @param {string} strategy 'equal', 'sequential', or 'proportional'
+         * @param {string} strategy 'equal', 'sequential', 'proportional', or 'relative'
          */
         applyAutoSequence: function(strategy) {
             var self = this;
+
+            if (strategy === 'relative') {
+                self.applyRelativeSequence();
+                return;
+            }
+
             var cStart = self.config.courseStart;
             var cEnd = self.config.courseEnd;
             var totalCourseSec = Math.max(3600, cEnd - cStart);
@@ -1718,11 +1979,108 @@ define(['core/notification'], function(Notification) {
         },
 
         /**
+         * Rebase all editable activities to the current course timeframe.
+         *
+         * A single affine transformation is applied to every item, so gaps,
+         * durations and parent/child positions retain their relative values.
+         */
+        applyRelativeSequence: function() {
+            var self = this;
+            var courseStart = Number(self.config.courseStart);
+            var courseEnd = Number(self.config.courseEnd);
+            var courseDuration = Math.max(3600, courseEnd - courseStart);
+            var datedItems = self.items.filter(function(item) {
+                return Number(item.dateend) > Number(item.datestart);
+            });
+            var transformableItems = datedItems.filter(function(item) {
+                return self.isItemEditable(item) || item.derived;
+            });
+
+            if (!transformableItems.length) {
+                return;
+            }
+
+            var originalStart = Math.min.apply(null, datedItems.map(function(item) {
+                return Number(item.datestart);
+            }));
+            var originalEnd = Math.max.apply(null, datedItems.map(function(item) {
+                return Number(item.dateend);
+            }));
+            var originalDuration = originalEnd - originalStart;
+
+            if (originalDuration <= 0) {
+                return;
+            }
+
+            var scale = courseDuration / originalDuration;
+            var changed = false;
+
+            transformableItems.forEach(function(item) {
+                var oldStart = Number(item.datestart);
+                var oldEnd = Number(item.dateend);
+                var newStart = Math.round(courseStart + (oldStart - originalStart) * scale);
+                var newEnd = Math.round(courseStart + (oldEnd - originalStart) * scale);
+
+                // Rounding must not turn a valid interval into a zero-length one.
+                if (newEnd <= newStart) {
+                    newEnd = newStart + 1;
+                }
+
+                if (oldStart !== newStart || oldEnd !== newEnd) {
+                    changed = true;
+                }
+                item.datestart = newStart;
+                item.dateend = newEnd;
+            });
+
+            if (!changed) {
+                return;
+            }
+
+            self.renderTimeline();
+            self.items.forEach(function(item) {
+                self.updateTableRow(item);
+            });
+            self.markDirty();
+        },
+
+        /**
          * Save schedule via AJAX.
          */
         saveSchedule: function() {
             var self = this;
             if (!self.isDirty) {
+                return;
+            }
+
+            var changedItems = self.items.filter(function(item) {
+                if (!self.isItemEditable(item)) {
+                    return false;
+                }
+                var initial = self.initialItems.find(function(original) {
+                    return String(original.id) === String(item.id);
+                });
+                var initialStart = initial && initial.startenabled === false ? 0 :
+                    (initial ? Number(initial.datestart) : 0);
+                var initialEnd = initial && initial.endenabled === false ? 0 :
+                    (initial ? Number(initial.dateend) : 0);
+                var itemStart = item.startenabled === false ? 0 : Number(item.datestart);
+                var itemEnd = item.endenabled === false ? 0 : Number(item.dateend);
+                return !initial || itemStart !== initialStart || itemEnd !== initialEnd ||
+                    (initial.startenabled !== false) !== (item.startenabled !== false) ||
+                    (initial.endenabled !== false) !== (item.endenabled !== false);
+            });
+            if (!changedItems.length) {
+                self.isDirty = false;
+                self.saveBtn.disabled = true;
+                if (self.unsavedAlert) {
+                    self.unsavedAlert.classList.add('d-none');
+                }
+                Notification.addNotification({
+                    message: (self.strings && self.strings.noschedulablechanges) ||
+                        'There are no editable schedule changes to save.',
+                    type: 'warning'
+                });
                 return;
             }
 
@@ -1733,11 +2091,13 @@ define(['core/notification'], function(Notification) {
             var payload = {
                 courseid: self.config.courseid,
                 sesskey: self.config.sesskey,
-                items: self.items.map(function(it) {
+                items: changedItems.map(function(it) {
                     return {
                         id: it.id,
                         datestart: it.datestart,
-                        dateend: it.dateend
+                        dateend: it.dateend,
+                        startenabled: it.startenabled !== false,
+                        endenabled: it.endenabled !== false
                     };
                 })
             };
@@ -1784,7 +2144,7 @@ define(['core/notification'], function(Notification) {
                         'Schedule successfully saved.';
                     Notification.addNotification({
                         message: successMsg,
-                        type: 'success'
+                        type: data.warnings && data.warnings.length ? 'warning' : 'success'
                     });
                 } else {
                     self.saveBtn.disabled = false;

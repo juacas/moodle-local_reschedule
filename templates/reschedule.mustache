@@ -119,7 +119,7 @@
                     </thead>
                     <tbody class="small">
                         {{#items}}
-                        <tr data-itemid="{{id}}" {{#issubtype}}data-parentkey="{{parentkey}}"{{/issubtype}} class="{{#issubtype}}table-light text-muted subtask-row d-none{{/issubtype}}{{^editable}} reschedule-item-disabled{{/editable}}">
+                        <tr data-itemid="{{id}}" {{#issubtype}}data-parentkey="{{parentkey}}"{{/issubtype}} class="{{#issubtype}}table-light text-muted subtask-row d-none{{/issubtype}}{{^interactive}} reschedule-item-disabled{{/interactive}}">
                             <td class="{{#issubtype}}ps-4{{/issubtype}} text-nowrap">
                                 {{#haschildren}}
                                 <button type="button" class="btn btn-xs btn-outline-secondary py-0 px-1 me-2 toggle-subtasks" data-parentkey="{{id}}" aria-expanded="false" title="{{#str}}togglesubtasks, local_reschedule{{/str}}">
@@ -145,8 +145,8 @@
                                     {{typelabel}}
                                 </span>
                             </td>
-                            <td class="col-datestart text-nowrap {{^editable}}date-cell-disabled{{/editable}}"{{#editable}} role="button" title="{{#str}}clicktoeditdate, local_reschedule{{/str}}" tabindex="0"{{/editable}}{{^editable}} aria-disabled="true" title="{{#str}}noteditable, local_reschedule{{/str}}"{{/editable}}><span class="date-text">{{startformatted}}</span>{{#editable}} <i class="fa fa-pencil text-muted ms-1 col-edit-icon small opacity-50" aria-hidden="true"></i>{{/editable}}</td>
-                            <td class="col-dateend text-nowrap {{^editable}}date-cell-disabled{{/editable}}"{{#editable}} role="button" title="{{#str}}clicktoeditdate, local_reschedule{{/str}}" tabindex="0"{{/editable}}{{^editable}} aria-disabled="true" title="{{#str}}noteditable, local_reschedule{{/str}}"{{/editable}}><span class="date-text">{{endformatted}}</span>{{#editable}} <i class="fa fa-pencil text-muted ms-1 col-edit-icon small opacity-50" aria-hidden="true"></i>{{/editable}}</td>
+                            <td class="col-datestart text-nowrap {{^interactive}}date-cell-disabled{{/interactive}}"{{#interactive}} role="button" title="{{#interactreason}}{{interactreason}}{{/interactreason}}{{^interactreason}}{{#str}}clicktoeditdate, local_reschedule{{/str}}{{/interactreason}}" tabindex="0"{{/interactive}}{{^interactive}} aria-disabled="true" title="{{#editreason}}{{editreason}}{{/editreason}}{{^editreason}}{{#str}}noteditable, local_reschedule{{/str}}{{/editreason}}"{{/interactive}}><span class="date-text">{{startformatted}}</span>{{#editable}} <i class="fa fa-pencil text-muted ms-1 col-edit-icon small opacity-50" aria-hidden="true"></i>{{/editable}}{{#derived}} <i class="fa fa-arrows-alt text-muted ms-1 col-edit-icon small opacity-50" aria-hidden="true"></i>{{/derived}}</td>
+                            <td class="col-dateend text-nowrap {{^interactive}}date-cell-disabled{{/interactive}}"{{#interactive}} role="button" title="{{#interactreason}}{{interactreason}}{{/interactreason}}{{^interactreason}}{{#str}}clicktoeditdate, local_reschedule{{/str}}{{/interactreason}}" tabindex="0"{{/interactive}}{{^interactive}} aria-disabled="true" title="{{#editreason}}{{editreason}}{{/editreason}}{{^editreason}}{{#str}}noteditable, local_reschedule{{/str}}{{/editreason}}"{{/interactive}}><span class="date-text">{{endformatted}}</span>{{#editable}} <i class="fa fa-pencil text-muted ms-1 col-edit-icon small opacity-50" aria-hidden="true"></i>{{/editable}}{{#derived}} <i class="fa fa-arrows-alt text-muted ms-1 col-edit-icon small opacity-50" aria-hidden="true"></i>{{/derived}}</td>
                             <td class="col-duration text-center text-nowrap">
                                 <span class="badge bg-light text-secondary border">{{durationformatted}}</span>
                             </td>
@@ -197,6 +197,13 @@
                                             <div class="smaller text-muted">{{#str}}strategy_proportional_short, local_reschedule{{/str}}</div>
                                         </div>
                                     </label>
+                                    <label class="list-group-item list-group-item-action cursor-pointer p-3 border rounded d-flex align-items-center" data-strategy="relative">
+                                        <input class="form-check-input me-3 flex-shrink-0" type="radio" name="autosequence_strategy" value="relative">
+                                        <div>
+                                            <div class="fw-bold text-dark"><i class="fa fa-arrows-h text-warning me-1" aria-hidden="true"></i> {{#str}}strategy_relative, local_reschedule{{/str}}</div>
+                                            <div class="smaller text-muted">{{#str}}strategy_relative_short, local_reschedule{{/str}}</div>
+                                        </div>
+                                    </label>
                                 </div>
                             </div>
                             <!-- Right Column: Strategy Description -->
@@ -235,6 +242,18 @@
                                     <div class="alert alert-light border small text-muted mb-0">
                                         <i class="fa fa-info-circle text-info me-1" aria-hidden="true"></i>
                                         {{#str}}strategy_proportional_tip, local_reschedule{{/str}}
+                                    </div>
+                                </div>
+                                <div id="strategy-desc-relative" class="strategy-desc-content d-none">
+                                    <h5 class="fw-bold text-warning mb-3">
+                                        <i class="fa fa-arrows-h me-2" aria-hidden="true"></i>{{#str}}strategy_relative, local_reschedule{{/str}}
+                                    </h5>
+                                    <p class="text-secondary mb-3">
+                                        {{#str}}strategy_relative_desc, local_reschedule{{/str}}
+                                    </p>
+                                    <div class="alert alert-light border small text-muted mb-0">
+                                        <i class="fa fa-info-circle text-warning me-1" aria-hidden="true"></i>
+                                        {{#str}}strategy_relative_tip, local_reschedule{{/str}}
                                     </div>
                                 </div>
                             </div>

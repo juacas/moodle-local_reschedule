@@ -27,13 +27,34 @@ require(__DIR__ . '/../../config.php');
 require_once(__DIR__ . '/lib.php');
 
 $courseid = required_param('id', PARAM_INT);
+$cmidsparam = optional_param('cmids', '', PARAM_SEQUENCE);
+$singlecmid = optional_param('cmid', 0, PARAM_INT);
+$instancesparam = optional_param('instances', '', PARAM_RAW);
+$requestedstart = optional_param('datestart', 0, PARAM_INT);
+$requestedend = optional_param('dateend', 0, PARAM_INT);
 $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 
 require_login($course);
 $context = \context_course::instance($courseid);
 require_capability('moodle/course:manageactivities', $context);
 
-$PAGE->set_url(new \moodle_url('/local/reschedule/index.php', ['id' => $courseid]));
+$urlparams = ['id' => $courseid];
+if ($cmidsparam !== '') {
+    $urlparams['cmids'] = $cmidsparam;
+}
+if ($singlecmid > 0) {
+    $urlparams['cmid'] = $singlecmid;
+}
+if ($instancesparam !== '') {
+    $urlparams['instances'] = $instancesparam;
+}
+if ($requestedstart > 0) {
+    $urlparams['datestart'] = $requestedstart;
+}
+if ($requestedend > 0) {
+    $urlparams['dateend'] = $requestedend;
+}
+$PAGE->set_url(new \moodle_url('/local/reschedule/index.php', $urlparams));
 $PAGE->set_context($context);
 $PAGE->set_pagelayout('incourse');
 $PAGE->set_title(get_string('rescheduletitle', 'local_reschedule'));
@@ -43,6 +64,50 @@ $timeframe = \local_reschedule\manager::get_course_timeframe($course);
 $coursestart = $timeframe['start'];
 $courseend = $timeframe['end'];
 $items = \local_reschedule\manager::get_course_items($courseid);
+
+$cmids = array_filter(array_map('intval', preg_split('/,/', $cmidsparam, -1, PREG_SPLIT_NO_EMPTY)));
+if ($singlecmid > 0) {
+    $cmids[] = $singlecmid;
+}
+$cmids = array_values(array_unique($cmids));
+$instances = [];
+foreach (preg_split('/,/', $instancesparam, -1, PREG_SPLIT_NO_EMPTY) as $instancevalue) {
+    $parts = explode(':', trim($instancevalue), 2);
+    if (count($parts) !== 2 || !preg_match('/^[a-z][a-z0-9_]*$/i', $parts[0])) {
+        continue;
+    }
+    $recordid = (int)$parts[1];
+    if ($recordid > 0) {
+        $instances[] = strtolower($parts[0]) . ':' . $recordid;
+    }
+}
+$instances = array_values(array_unique($instances));
+if (!empty($cmids)) {
+    $cmidlookup = array_fill_keys($cmids, true);
+    $items = array_values(array_filter($items, function(array $item) use ($cmidlookup): bool {
+        return isset($cmidlookup[(int)($item['cmid'] ?? 0)]);
+    }));
+}
+if (!empty($instances)) {
+    $instancelookup = array_fill_keys($instances, true);
+    $parentlookup = [];
+    foreach ($instances as $instance) {
+        [$type, $recordid] = explode(':', $instance, 2);
+        $parentlookup['main_' . $type . '_' . $recordid] = true;
+    }
+    $items = array_values(array_filter($items, function(array $item) use ($instancelookup, $parentlookup): bool {
+        $itemkey = ($item['table'] ?? '') . ':' . (int)($item['recordid'] ?? 0);
+        return isset($instancelookup[$itemkey]) ||
+            (!empty($item['parentkey']) && isset($parentlookup[$item['parentkey']]));
+    }));
+}
+
+$timelinestart = $requestedstart > 0 ? $requestedstart : $coursestart;
+$timelineend = $requestedend > 0 ? $requestedend : $courseend;
+if ($timelineend <= $timelinestart) {
+    $timelinestart = $coursestart;
+    $timelineend = $courseend;
+}
 
 $dateformat = get_string('strftimedatetimeshort', 'langconfig');
 $itemsforview = [];
@@ -62,8 +127,8 @@ foreach ($items as $item) {
     }
 
     $itemsforview[] = array_merge($item, [
-        'startformatted' => userdate($item['datestart'], $dateformat),
-        'endformatted' => userdate($item['dateend'], $dateformat),
+        'startformatted' => !empty($item['startenabled']) ? userdate($item['datestart'], $dateformat) : '',
+        'endformatted' => !empty($item['endenabled']) ? userdate($item['dateend'], $dateformat) : '',
         'durationformatted' => $durstr,
     ]);
 }
@@ -94,6 +159,8 @@ $amdconfig = [
     'courseid' => $courseid,
     'courseStart' => $coursestart,
     'courseEnd' => $courseend,
+    'timelineStart' => $timelinestart,
+    'timelineEnd' => $timelineend,
     'saveUrl' => $saveurl->out(false),
     'sesskey' => sesskey(),
     'lang' => current_language(),
@@ -101,6 +168,13 @@ $amdconfig = [
         'error_saving' => get_string('error_saving', 'local_reschedule'),
         'error_saving_header' => get_string('error_saving_header', 'local_reschedule'),
         'schedulesaved' => get_string('schedulesaved', 'local_reschedule'),
+        'activitybeforetimeline' => get_string('activitybeforetimeline', 'local_reschedule'),
+        'activityaftertimeline' => get_string('activityaftertimeline', 'local_reschedule'),
+        'activitystartdisabled' => get_string('activitystartdisabled', 'local_reschedule'),
+        'activityenddisabled' => get_string('activityenddisabled', 'local_reschedule'),
+        'noschedulablechanges' => get_string('noschedulablechanges', 'local_reschedule'),
+        'subactivityparentbounds' => get_string('subactivityparentbounds', 'local_reschedule'),
+        'kuetactivityderivedhint' => get_string('kuetactivityderivedhint', 'local_reschedule'),
     ],
 ];
 

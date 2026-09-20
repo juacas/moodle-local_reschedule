@@ -1,7 +1,8 @@
 # Activity Rescheduler for Moodle (`local_reschedule`)
 
-**Activity Rescheduler & Interactive Timeline for Moodle**  
+**Activity Rescheduler & Interactive Timeline for Moodle**
 A local plugin for Moodle 4.x and 5.x that provides an interactive timeline (GANTT chart) and advanced tools for visual rescheduling, automated sequencing, and precise date editing of course activities with atomic, safe subsystem synchronization.
+Inspired in report_editdates and extending its functionality with a modern, touch-friendly interface.
 
 - **Author:** Juan Pablo de Castro <[juan.pablo.de.castro@gmail.com](mailto:juan.pablo.de.castro@gmail.com)>
 - **License:** GNU General Public License v3 or later (GPLv3+)
@@ -48,10 +49,11 @@ In university and corporate training courses, Moodle courses often comprise doze
 - **Harmonic subactivity synchronization**: Moving a parent activity (e.g., a workshop or a `mod_quest` challenge) shifts its subactivities/phases in tandem; resizing it proportionally scales subactivities while respecting bounds.
 - **Interactive jump with highlight**: A single click on any GANTT bar automatically unfolds the activity (if collapsed), smoothly scrolls to its row in the detail table, and emits a highlight pulse animation.
 - **Manual editing via standard modal**: Clicking date cells in the table opens a modal with standard `<input type="datetime-local" class="form-control">` pickers, live duration preview, and semantic validations.
-- **Three assisted auto-sequencing strategies**:
+- **Four assisted auto-sequencing strategies**:
   - *Equal distribution*: Divides the course duration equally among activities.
   - *Sequential chaining*: Chains activities consecutively while preserving their current durations.
   - *Bounded proportional*: Distributes time according to the relative weights of each activity while capping outsized values.
+  - *Relative scaling*: Applies one common shift and scale to the existing timeline, preserving its gaps and relative positions while fitting it to the course timeframe.
 - **Total autonomy**: Does not require the `report_editdates` plugin to be installed, replicating and isolating the entire extractor subsystem.
 
 ---
@@ -59,7 +61,14 @@ In university and corporate training courses, Moodle courses often comprise doze
 ## 3. User Manual & Operations
 
 ### Navigating the Interactive Timeline
-The timeline can be accessed from the course secondary navigation: **More > Reschedule dates** (`/local/reschedule/index.php?id={courseid}`).
+The timeline can be accessed from the course secondary navigation: **More > Reschedule dates** (`/local/reschedule/index.php?id={courseid}`). It also accepts optional startup parameters for embedding or focused scheduling:
+
+- `cmids=12,18,25`: limit the interface to the activities whose course-module IDs are listed. Their mapped subactivities remain visible below each selected activity.
+- `cmid=12`: shorthand for a single course-module ID.
+- `instances=quest:55,quiz:123`: alternative activity-instance filter using the module type and instance ID. Selecting a main activity also includes its mapped subactivities.
+- `datestart=UNIX_TIMESTAMP&dateend=UNIX_TIMESTAMP`: use a concrete visible GANTT window. The real course timeframe remains the validation boundary when dates are saved.
+
+For example: `/local/reschedule/index.php?id=6&instances=quest:55,quiz:123&datestart=1764547200&dateend=1767225600`.
 - **Top time header**: Displays the timeline divided into 3 tiers (Year, Month, Day for long periods; Month, Day, Hours for short periods $\le 7$ days).
 - **Weekend bands**: Saturdays and Sundays are subtly shaded across the lane background according to the user's active locale (`Intl.Locale`).
 - **Fixed left column**: Lists activities with their official icon, title, type, and current duration.
@@ -96,6 +105,7 @@ Clicking the **Auto-sequence** button in the top bar opens the strategy selector
 1. **Equal distribution (`equal`)**: Divides the course duration into $N$ identical blocks and distributes primary activities in a continuous chain.
 2. **Sequential chaining (`sequential`)**: Concatenates activities one after another starting from course start, preserving each activity's existing duration.
 3. **Bounded proportional (`proportional`)**: Calculates total relative duration and scales all activities to fill the course period, applying containment thresholds to prevent outliers from monopolizing the timeline.
+4. **Relative scaling (`relative`)**: Applies one affine transformation to all editable activities, preserving gaps and relative positions while adapting the existing timeline to the current course timeframe.
 
 ---
 
