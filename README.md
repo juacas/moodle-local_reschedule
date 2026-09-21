@@ -6,7 +6,7 @@
 
 **Activity Rescheduler & Interactive Timeline for Moodle**
 A local plugin for Moodle 4.x and 5.x that provides an interactive timeline (GANTT chart) and advanced tools for visual rescheduling, automated sequencing, and precise date editing of course activities with atomic, safe subsystem synchronization.
-Inspired in report_editdates and extending its functionality with a modern, touch-friendly interface.
+Deeply inspired by [report_editdates](https://marketplace.moodle.com/plugins/report_editdates) and extending its functionality with a modern, touch-friendly interface.
 
 - **Author:** Juan Pablo de Castro <[juan.pablo.de.castro@gmail.com](mailto:juan.pablo.de.castro@gmail.com)>
 - **License:** GNU General Public License v3 or later (GPLv3+)
@@ -182,6 +182,8 @@ git push origin v1.0.8
 ```
 
 The `moodle_release.yml` workflow uses the official Moodle Marketplace release workflow. The repository must define the `MOODLE_MARKETPLACE_TOKEN` GitHub Actions secret. The package excludes `website/` and `.github/` through `.gitattributes`, so the Marketplace ZIP contains only the Moodle plugin.
+
+To enable the landing page deployment, go to the repository's **Settings > Pages** and select **GitHub Actions** as the source. The Pages workflow validates pull requests without querying the Pages API, then deploys pushes to `main`. Optionally, a `PAGES_TOKEN` secret with repository administration/pages write permissions can be configured so `configure-pages` enables Pages automatically.
 
 ---
 
