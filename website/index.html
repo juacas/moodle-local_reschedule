@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="An open-source interactive timeline for safely rescheduling Moodle activities.">
+  <meta name="theme-color" content="#081426">
+  <meta property="og:title" content="Activity Rescheduler for Moodle">
+  <meta property="og:description" content="Plan, move and synchronize Moodle activity dates from one visual timeline.">
+  <meta property="og:type" content="website">
+  <title>Activity Rescheduler · Moodle</title>
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="Activity Rescheduler home">
+      <img src="assets/icon.svg" alt="" width="34" height="34">
+      <span>Activity Rescheduler</span>
+    </a>
+    <nav class="nav-links" aria-label="Primary navigation">
+      <a href="#features">Features</a>
+      <a href="#how-it-works">How it works</a>
+      <a href="#install">Install</a>
+      <a class="nav-github" href="https://github.com/juacas/moodle-local_reschedule">GitHub ↗</a>
+      <a href="es/">ES</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero section-shell">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="status-dot"></span> Open source · GPLv3+</p>
+        <h1>See the whole course. <em>Move it with confidence.</em></h1>
+        <p class="hero-lede">A visual Gantt timeline for Moodle that makes course-wide date changes clear, fast and safe.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="https://github.com/juacas/moodle-local_reschedule">Explore on GitHub <span>↗</span></a>
+          <a class="button button-quiet" href="#features">Discover the workflow <span>↓</span></a>
+        </div>
+        <div class="compatibility"><span>Moodle 4.5+</span><span>PHP 8.1+</span><span>Touch ready</span></div>
+      </div>
+      <div class="hero-visual" aria-label="Preview of the interactive course timeline">
+        <div class="orb orb-blue"></div><div class="orb orb-teal"></div>
+        <div class="window-card">
+          <div class="window-bar"><span></span><span></span><span></span><b>Course timeline</b><i>•••</i></div>
+          <img src="assets/timeline.png" alt="Interactive Moodle timeline with activities arranged across a calendar" width="1806" height="637">
+          <div class="floating-note"><strong>12 activities</strong><small>aligned and ready</small></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="proof-strip section-shell" aria-label="Project highlights">
+      <div><strong>One timeline</strong><span>for the whole course</span></div>
+      <div><strong>Atomic saves</strong><span>with Moodle sync</span></div>
+      <div><strong>Open source</strong><span>built for educators</span></div>
+    </section>
+
+    <section class="section-shell section-block" id="features">
+      <div class="section-heading"><p class="eyebrow">Designed for real course changes</p><h2>Less calendar juggling.<br><em>More teaching clarity.</em></h2></div>
+      <div class="feature-grid">
+        <article class="feature-card feature-card-wide"><div class="feature-icon">↔</div><h3>Drag, resize, understand</h3><p>Move activities directly on a responsive Gantt timeline. See dates, durations, weekends and dependencies at a glance.</p><span class="feature-number">01</span></article>
+        <article class="feature-card feature-card-teal"><div class="feature-icon">⌁</div><h3>Keep phases together</h3><p>Parent activities and subactivities move in harmony, with proportional resizing for complex modules.</p><span class="feature-number">02</span></article>
+        <article class="feature-card feature-card-blue"><div class="feature-icon">✓</div><h3>Save safely</h3><p>Official calendar events, gradebook dates and course caches stay synchronized through Moodle-aware adapters.</p><span class="feature-number">03</span></article>
+        <article class="feature-card feature-card-dark"><div class="feature-icon">✦</div><h3>Sequence in seconds</h3><p>Choose equal, sequential, proportional or relative scheduling strategies when the academic calendar shifts.</p><span class="feature-number">04</span></article>
+      </div>
+    </section>
+
+    <section class="showcase section-shell section-block" id="how-it-works">
+      <div class="section-heading"><p class="eyebrow">A calmer way to reschedule</p><h2>From course overview<br><em>to confident change.</em></h2></div>
+      <div class="steps">
+        <div class="step"><span>01</span><div><h3>Open the timeline</h3><p>Access Reschedule dates from the course navigation and see every mapped activity in context.</p></div></div>
+        <div class="step"><span>02</span><div><h3>Shape the plan</h3><p>Drag bars, edit exact timestamps or apply an assisted sequencing strategy.</p></div></div>
+        <div class="step"><span>03</span><div><h3>Save the whole system</h3><p>Validated changes update Moodle's connected subsystems in one atomic operation.</p></div></div>
+      </div>
+      <div class="gallery">
+        <figure class="gallery-main"><img src="assets/screenshot1.png" alt="Activity Rescheduler detailed timeline view" loading="lazy" width="1780" height="756"><figcaption>Bird's-eye course planning</figcaption></figure>
+        <figure><img src="assets/screenshot2.png" alt="Activity Rescheduler date editing view" loading="lazy" width="730" height="577"><figcaption>Precise date editing</figcaption></figure>
+      </div>
+    </section>
+
+    <section class="architecture section-block">
+      <div class="section-shell architecture-inner"><div><p class="eyebrow">Moodle-aware by design</p><h2>A safe layer between<br><em>dates and dependencies.</em></h2><p class="architecture-copy">Dedicated adapters handle complex activities. The autonomous extractor subsystem covers standard modules, while a safe generic fallback keeps third-party extensions useful.</p><a class="text-link" href="https://github.com/juacas/moodle-local_reschedule#annex-software-design-notes">Read the technical notes ↗</a></div><div class="architecture-diagram"><div class="diagram-node">Visual timeline</div><div class="diagram-line"></div><div class="diagram-node diagram-node-accent">Adapter engine</div><div class="diagram-line"></div><div class="diagram-targets"><span>Calendar</span><span>Gradebook</span><span>Cache</span></div></div></div>
+    </section>
+
+    <section class="install section-shell section-block" id="install">
+      <div class="install-card"><div><p class="eyebrow">Ready to try it?</p><h2>Install in a minute.</h2><p>Clone the plugin into your Moodle installation, run the upgrade and start planning with a complete view.</p></div><div class="code-block"><code><span class="code-muted"># from your Moodle root</span><br>git clone https://github.com/juacas/<br>moodle-local_reschedule.git local/reschedule<br><br>php admin/cli/upgrade.php</code><button class="copy-button" type="button" data-copy="git clone https://github.com/juacas/moodle-local_reschedule.git local/reschedule">Copy</button></div><a class="button button-light" href="https://github.com/juacas/moodle-local_reschedule#installation--deployment">Read installation docs <span>↗</span></a></div>
+    </section>
+  </main>
+
+  <footer class="site-footer section-shell"><div class="brand"><img src="assets/icon.svg" alt="" width="30" height="30"><span>Activity Rescheduler</span></div><p>Open source scheduling tools for Moodle.</p><div class="footer-links"><a href="https://github.com/juacas/moodle-local_reschedule">GitHub</a><a href="https://github.com/juacas/moodle-local_reschedule/issues">Issues</a><a href="es/">Español</a><span>GPLv3+</span></div></footer>
+  <script src="script.js"></script>
+</body>
+</html>

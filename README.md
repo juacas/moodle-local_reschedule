@@ -1,5 +1,9 @@
 # Activity Rescheduler for Moodle (`local_reschedule`)
 
+<p align="center"><a href="https://juacas.github.io/moodle-local_reschedule/"><img src="pix/icon.svg" alt="Activity Rescheduler" width="96"></a></p>
+
+<p align="center"><strong><a href="https://juacas.github.io/moodle-local_reschedule/">Project website</a></strong> · <a href="https://moodle.org/plugins/local_reschedule">Moodle Marketplace</a> · <a href="https://github.com/juacas/moodle-local_reschedule/issues">Issues</a></p>
+
 **Activity Rescheduler & Interactive Timeline for Moodle**
 A local plugin for Moodle 4.x and 5.x that provides an interactive timeline (GANTT chart) and advanced tools for visual rescheduling, automated sequencing, and precise date editing of course activities with atomic, safe subsystem synchronization.
 Inspired in report_editdates and extending its functionality with a modern, touch-friendly interface.
@@ -165,6 +169,19 @@ src = src.replace("define([\x27core/notification\x27],", "define(\x27local_resch
 fs.writeFileSync("/tmp/reschedule_calendar.named.js", src);
 ' && npx terser /tmp/reschedule_calendar.named.js --comments "/@license|@copyright|@author|@package|@module/" -o amd/build/reschedule_calendar.min.js --source-map "url=reschedule_calendar.min.js.map,filename=amd/build/reschedule_calendar.min.js.map"
 ```
+
+### Project website and releases
+
+The public project website is maintained in `website/` and published automatically to GitHub Pages when changes reach `main`.
+
+To submit a plugin release to the Moodle Marketplace, create and push a tag matching `v*`, for example:
+
+```bash
+git tag -a v1.0.8 -m "Release v1.0.8"
+git push origin v1.0.8
+```
+
+The `moodle_release.yml` workflow uses the official Moodle Marketplace release workflow. The repository must define the `MOODLE_MARKETPLACE_TOKEN` GitHub Actions secret. The package excludes `website/` and `.github/` through `.gitattributes`, so the Marketplace ZIP contains only the Moodle plugin.
 
 ---
 

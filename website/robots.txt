@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://juacas.github.io/moodle-local_reschedule/sitemap.xml
