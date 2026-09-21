@@ -147,38 +147,18 @@ $templatecontext = [
     'courseend' => $courseend,
     'coursestartstr' => userdate($coursestart, $dateformat),
     'courseendstr' => userdate($courseend, $dateformat),
+    'timelineStart' => $timelinestart,
+    'timelineEnd' => $timelineend,
     'hasitems' => !empty($itemsforview),
     'itemscount' => count($itemsforview),
     'items' => $itemsforview,
     'itemsjson' => json_encode($items, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP),
     'saveurl' => $saveurl->out(false),
     'sesskey' => sesskey(),
+    'language' => current_language(),
 ];
 
-$amdconfig = [
-    'courseid' => $courseid,
-    'courseStart' => $coursestart,
-    'courseEnd' => $courseend,
-    'timelineStart' => $timelinestart,
-    'timelineEnd' => $timelineend,
-    'saveUrl' => $saveurl->out(false),
-    'sesskey' => sesskey(),
-    'lang' => current_language(),
-    'strings' => [
-        'error_saving' => get_string('error_saving', 'local_reschedule'),
-        'error_saving_header' => get_string('error_saving_header', 'local_reschedule'),
-        'schedulesaved' => get_string('schedulesaved', 'local_reschedule'),
-        'activitybeforetimeline' => get_string('activitybeforetimeline', 'local_reschedule'),
-        'activityaftertimeline' => get_string('activityaftertimeline', 'local_reschedule'),
-        'activitystartdisabled' => get_string('activitystartdisabled', 'local_reschedule'),
-        'activityenddisabled' => get_string('activityenddisabled', 'local_reschedule'),
-        'noschedulablechanges' => get_string('noschedulablechanges', 'local_reschedule'),
-        'subactivityparentbounds' => get_string('subactivityparentbounds', 'local_reschedule'),
-        'kuetactivityderivedhint' => get_string('kuetactivityderivedhint', 'local_reschedule'),
-    ],
-];
-
-$PAGE->requires->js_call_amd('local_reschedule/reschedule_calendar', 'init', [$amdconfig]);
+$PAGE->requires->js_call_amd('local_reschedule/reschedule_calendar', 'init');
 
 echo $OUTPUT->header();
 echo $OUTPUT->render_from_template('local_reschedule/reschedule', $templatecontext);

@@ -159,6 +159,13 @@ define(['core/notification'], function(Notification) {
         isDirty: false,
         activeDrag: null,
         trackWidthPx: 1200,
+        baseTrackWidthPx: 1200,
+        zoomLevel: 1,
+        minZoom: 0.5,
+        maxZoom: 5,
+        pointerPositions: {},
+        backgroundPan: null,
+        pinchState: null,
         locale: undefined,
 
         /**
@@ -167,6 +174,40 @@ define(['core/notification'], function(Notification) {
          * @param {Object} cfg Configuration object from PHP.
          */
         init: function(cfg) {
+            cfg = cfg || {};
+            var root = document.getElementById('reschedule-page-root');
+            if (root) {
+                var getRootData = function(name, fallback) {
+                    var value = root.getAttribute(name);
+                    return value === null ? fallback : value;
+                };
+
+                cfg.courseid = Number(getRootData('data-courseid', cfg.courseid || 0));
+                cfg.courseStart = Number(getRootData('data-course-start', cfg.courseStart || 0));
+                cfg.courseEnd = Number(getRootData('data-course-end', cfg.courseEnd || 0));
+                cfg.timelineStart = Number(getRootData('data-timeline-start', cfg.timelineStart || cfg.courseStart));
+                cfg.timelineEnd = Number(getRootData('data-timeline-end', cfg.timelineEnd || cfg.courseEnd));
+                cfg.saveUrl = getRootData('data-save-url', cfg.saveUrl || '');
+                cfg.sesskey = getRootData('data-sesskey', cfg.sesskey || '');
+                cfg.lang = getRootData('data-lang', cfg.lang || '');
+                cfg.strings = cfg.strings || {};
+
+                [
+                    ['data-error-saving', 'error_saving'],
+                    ['data-error-saving-header', 'error_saving_header'],
+                    ['data-schedulesaved', 'schedulesaved'],
+                    ['data-activity-before-timeline', 'activitybeforetimeline'],
+                    ['data-activity-after-timeline', 'activityaftertimeline'],
+                    ['data-activity-start-disabled', 'activitystartdisabled'],
+                    ['data-activity-end-disabled', 'activityenddisabled'],
+                    ['data-no-schedulable-changes', 'noschedulablechanges'],
+                    ['data-subactivity-parent-bounds', 'subactivityparentbounds'],
+                    ['data-kuet-activity-derived-hint', 'kuetactivityderivedhint']
+                ].forEach(function(mapping) {
+                    cfg.strings[mapping[1]] = getRootData(mapping[0], cfg.strings[mapping[1]] || '');
+                });
+            }
+
             this.config = cfg;
             this.strings = cfg.strings || {};
             this.locale = cfg.lang || (typeof M !== 'undefined' && M.cfg && M.cfg.lang) ||
@@ -431,12 +472,15 @@ define(['core/notification'], function(Notification) {
 
             var bands = self.calculateBands(cStart, cEnd);
 
-            var baseCount = Math.max(12, bands.b3.length);
-            var wrapperWidth = self.wrapper ? (self.wrapper.clientWidth - 280) : 1000;
-            self.trackWidthPx = Math.max(wrapperWidth, baseCount * 36);
+            var wrapperWidth = self.wrapper ? Math.max(1, self.wrapper.clientWidth - 280) : 1000;
+            // Keep the initial timeline inside the available viewport. The
+            // horizontal scrollbar is intentionally introduced only by zoom.
+            self.baseTrackWidthPx = wrapperWidth;
+            self.trackWidthPx = Math.max(wrapperWidth, self.baseTrackWidthPx * self.zoomLevel);
 
             var board = document.createElement('div');
             board.className = 'quest-timeline-table d-flex';
+            board.style.width = (280 + self.trackWidthPx) + 'px';
 
             // Left column: Sticky activity titles
             var leftCol = document.createElement('div');
@@ -447,7 +491,6 @@ define(['core/notification'], function(Notification) {
             leftHeader.className = 'quest-left-header p-2 border-bottom border-end d-flex flex-column justify-content-center';
             leftHeader.innerHTML = '<div class="fw-bold small text-dark"><i class="fa fa-tasks me-1 text-primary"></i> ' +
                 self.items.length + ' Items</div><div class="smaller text-muted">Drag bars to adjust schedule</div>';
-            leftCol.appendChild(leftHeader);
 
             self.items.forEach(function(item) {
                 var rowLabel = document.createElement('div');
@@ -566,7 +609,8 @@ define(['core/notification'], function(Notification) {
                 band3Row.appendChild(cell);
             });
             bandsHeader.appendChild(band3Row);
-            rightArea.appendChild(bandsHeader);
+            bandsHeader.style.width = self.trackWidthPx + 'px';
+            bandsHeader.style.minWidth = self.trackWidthPx + 'px';
 
             // Lanes for each item
             self.items.forEach(function(item) {
@@ -608,8 +652,89 @@ define(['core/notification'], function(Notification) {
             });
 
             board.appendChild(rightArea);
+
+            // Keep the date header outside the horizontal scroll container so
+            // the page-scroll controller can float it through the complete
+            // Gantt height without introducing vertical overflow.
+            var stickyHeader = document.createElement('div');
+            stickyHeader.className = 'quest-timeline-sticky-header';
+            stickyHeader.appendChild(leftHeader);
+
+            var headerViewport = document.createElement('div');
+            headerViewport.className = 'quest-timeline-header-viewport';
+            headerViewport.appendChild(bandsHeader);
+            stickyHeader.appendChild(headerViewport);
+
+            var scrollContainer = document.createElement('div');
+            scrollContainer.className = 'quest-timeline-scroll';
+            scrollContainer.appendChild(board);
+
+            var shell = document.createElement('div');
+            shell.className = 'quest-timeline-shell';
+            var headerPlaceholder = document.createElement('div');
+            headerPlaceholder.className = 'quest-timeline-sticky-placeholder';
+            headerPlaceholder.setAttribute('aria-hidden', 'true');
+            shell.appendChild(headerPlaceholder);
+            shell.appendChild(stickyHeader);
+            shell.appendChild(scrollContainer);
+
             self.board.innerHTML = '';
-            self.board.appendChild(board);
+            self.board.appendChild(shell);
+            self.timelineShell = shell;
+            self.stickyHeader = stickyHeader;
+            self.headerPlaceholder = headerPlaceholder;
+            self.scrollContainer = scrollContainer;
+            self.headerViewport = headerViewport;
+            self.headerTrack = bandsHeader;
+
+            var syncHeaderScroll = function() {
+                self.headerTrack.style.transform = 'translateX(-' + self.scrollContainer.scrollLeft + 'px)';
+            };
+            self.scrollContainer.addEventListener('scroll', syncHeaderScroll, {passive: true});
+            syncHeaderScroll();
+            self.updatePageStickyHeader();
+        },
+
+        /**
+         * Keep the timeline date header attached to the page viewport while
+         * the page is scrolling through the Gantt. The placeholder preserves
+         * the original layout height while the header is fixed.
+         */
+        updatePageStickyHeader: function() {
+            var header = this.stickyHeader;
+            var shell = this.timelineShell;
+            var scrollContainer = this.scrollContainer;
+            var placeholder = this.headerPlaceholder;
+
+            if (!header || !shell || !scrollContainer || !placeholder) {
+                return;
+            }
+
+            var headerHeight = header.offsetHeight;
+            var shellRect = shell.getBoundingClientRect();
+            var scrollRect = scrollContainer.getBoundingClientRect();
+            var topOffset = 0;
+            var isInsideGantt = shellRect.top <= topOffset &&
+                scrollRect.bottom > topOffset + headerHeight;
+
+            if (isInsideGantt) {
+                var viewportWidth = scrollContainer.clientWidth || scrollRect.width;
+
+                placeholder.classList.add('is-active');
+                placeholder.style.height = headerHeight + 'px';
+                header.classList.add('is-page-sticky');
+                header.style.left = scrollRect.left + 'px';
+                header.style.top = topOffset + 'px';
+                header.style.width = viewportWidth + 'px';
+                return;
+            }
+
+            placeholder.classList.remove('is-active');
+            placeholder.style.height = '';
+            header.classList.remove('is-page-sticky');
+            header.style.left = '';
+            header.style.top = '';
+            header.style.width = '';
         },
 
         /**
@@ -720,14 +845,201 @@ define(['core/notification'], function(Notification) {
         },
 
         /**
-         * Bind drag events.
+         * Return the horizontal scroll container for the timeline body.
+         *
+         * @return {HTMLElement} Timeline scroll container.
+         */
+        getScrollContainer: function() {
+            return this.scrollContainer || this.board;
+        },
+
+        /**
+         * Return the width of the fixed activity column in pixels.
+         *
+         * @return {number} Left column width.
+         */
+        getLeftColumnWidth: function() {
+            var leftColumn = this.board && this.board.querySelector('.quest-timeline-left-column');
+            return leftColumn ? leftColumn.getBoundingClientRect().width : 280;
+        },
+
+        /**
+         * Clamp a horizontal scroll position to the current board bounds.
+         *
+         * @param {number} value Desired scroll position.
+         * @return {number} Safe scroll position.
+         */
+        clampScrollLeft: function(value) {
+            var scrollContainer = this.getScrollContainer();
+            if (!scrollContainer) {
+                return 0;
+            }
+            var maxScroll = Math.max(0, scrollContainer.scrollWidth - scrollContainer.clientWidth);
+            return Math.max(0, Math.min(maxScroll, value));
+        },
+
+        /**
+         * Change the horizontal time zoom while keeping a focal point stable.
+         *
+         * @param {number} requestedZoom Requested zoom multiplier.
+         * @param {number} clientX Focal point in viewport coordinates.
+         * @param {number} [focalRatio] Optional time ratio to preserve.
+         */
+        setZoomAt: function(requestedZoom, clientX, focalRatio) {
+            if (!this.board || !this.baseTrackWidthPx) {
+                return;
+            }
+
+            var oldZoom = this.zoomLevel;
+            var newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, requestedZoom));
+            if (Math.abs(newZoom - oldZoom) < 0.001) {
+                return;
+            }
+
+            var boardRect = this.board.getBoundingClientRect();
+            var viewportX = clientX - boardRect.left;
+            var leftColumnWidth = this.getLeftColumnWidth();
+            var scrollContainer = this.getScrollContainer();
+            var oldContentX = scrollContainer.scrollLeft + viewportX - leftColumnWidth;
+            var oldScrollTop = scrollContainer.scrollTop;
+            var ratio = typeof focalRatio === 'number' ? focalRatio :
+                Math.max(0, Math.min(1, oldContentX / Math.max(1, this.trackWidthPx)));
+
+            this.zoomLevel = newZoom;
+            this.renderTimeline();
+            scrollContainer = this.getScrollContainer();
+            scrollContainer.scrollTop = oldScrollTop;
+
+            var newLeftColumnWidth = this.getLeftColumnWidth();
+            var newContentX = ratio * this.trackWidthPx;
+            scrollContainer.scrollLeft = this.clampScrollLeft(
+                newContentX - viewportX + newLeftColumnWidth
+            );
+        },
+
+        /**
+         * Get the two active pointer positions used for pinch zooming.
+         *
+         * @param {Array<number>} pointerIds Pointer IDs.
+         * @return {Array<Object>} Two pointer positions or an empty array.
+         */
+        getPinchPoints: function(pointerIds) {
+            if (!pointerIds || pointerIds.length < 2) {
+                return [];
+            }
+            var first = this.pointerPositions[pointerIds[0]];
+            var second = this.pointerPositions[pointerIds[1]];
+            return first && second ? [first, second] : [];
+        },
+
+        /**
+         * Start a two-finger timeline gesture.
+         */
+        startPinch: function() {
+            var pointerIds = Object.keys(this.pointerPositions);
+            if (pointerIds.length < 2 || this.activeDrag) {
+                return;
+            }
+            pointerIds = pointerIds.slice(0, 2);
+            var points = this.getPinchPoints(pointerIds);
+            var centerX = (points[0].x + points[1].x) / 2;
+            var distance = Math.max(1, Math.hypot(
+                points[1].x - points[0].x,
+                points[1].y - points[0].y
+            ));
+            var boardRect = this.board.getBoundingClientRect();
+            var scrollContainer = this.getScrollContainer();
+            var contentX = scrollContainer.scrollLeft + centerX - boardRect.left - this.getLeftColumnWidth();
+
+            this.pinchState = {
+                pointerIds: pointerIds,
+                startDistance: distance,
+                startCenterX: centerX,
+                startZoom: this.zoomLevel,
+                focalRatio: Math.max(0, Math.min(1, contentX / Math.max(1, this.trackWidthPx)))
+            };
+            this.backgroundPan = null;
+            this.clickCandidate = null;
+            this.board.classList.add('is-panning');
+        },
+
+        /**
+         * Update an active two-finger gesture.
+         */
+        updatePinch: function() {
+            if (!this.pinchState) {
+                return;
+            }
+            var points = this.getPinchPoints(this.pinchState.pointerIds);
+            if (points.length < 2) {
+                return;
+            }
+
+            var centerX = (points[0].x + points[1].x) / 2;
+            var distance = Math.max(1, Math.hypot(
+                points[1].x - points[0].x,
+                points[1].y - points[0].y
+            ));
+            var scale = distance / this.pinchState.startDistance;
+            this.setZoomAt(
+                this.pinchState.startZoom * scale,
+                centerX,
+                this.pinchState.focalRatio
+            );
+
+            // Translation of both fingers pans the timeline as well as zooming it.
+            var centerDelta = centerX - this.pinchState.startCenterX;
+            if (Math.abs(centerDelta) > 0) {
+                var scrollContainer = this.getScrollContainer();
+                scrollContainer.scrollLeft = this.clampScrollLeft(
+                    scrollContainer.scrollLeft - centerDelta
+                );
+            }
+        },
+
+        /**
+         * Bind drag, pan, wheel-zoom and pinch-zoom events.
          */
         bindGlobalEvents: function() {
             var self = this;
 
+            if (!self.pageStickyEventsBound) {
+                self.pageStickyHandler = function() {
+                    self.updatePageStickyHeader();
+                };
+                window.addEventListener('scroll', self.pageStickyHandler, {passive: true});
+                window.addEventListener('resize', self.pageStickyHandler);
+                self.pageStickyEventsBound = true;
+            }
+
             self.board.addEventListener('pointerdown', function(e) {
+                self.pointerPositions[e.pointerId] = {
+                    x: e.clientX,
+                    y: e.clientY,
+                    pointerType: e.pointerType
+                };
+
+                if (e.pointerType === 'touch' && Object.keys(self.pointerPositions).length >= 2) {
+                    self.startPinch();
+                    e.preventDefault();
+                    return;
+                }
+
                 var bar = e.target.closest('.quest-calendar-bar');
                 if (!bar) {
+                    var horizontalSurface = e.target.closest(
+                        '.quest-timeline-right-area, .quest-timeline-header-viewport'
+                    );
+                    if (!horizontalSurface || (e.pointerType === 'mouse' && e.button !== 0)) {
+                        return;
+                    }
+                    self.backgroundPan = {
+                        pointerId: e.pointerId,
+                        startX: e.clientX,
+                        startScrollLeft: self.getScrollContainer().scrollLeft,
+                        hasMoved: false
+                    };
+                    self.board.classList.add('is-panning');
                     return;
                 }
                 var itemId = bar.getAttribute('data-itemid');
@@ -840,6 +1152,31 @@ define(['core/notification'], function(Notification) {
             });
 
             document.addEventListener('pointermove', function(e) {
+                if (self.pointerPositions[e.pointerId]) {
+                    self.pointerPositions[e.pointerId].x = e.clientX;
+                    self.pointerPositions[e.pointerId].y = e.clientY;
+                }
+
+                if (self.pinchState) {
+                    self.updatePinch();
+                    e.preventDefault();
+                    return;
+                }
+
+                if (self.backgroundPan && self.backgroundPan.pointerId === e.pointerId) {
+                    var panDx = e.clientX - self.backgroundPan.startX;
+                    if (Math.abs(panDx) > 4) {
+                        self.backgroundPan.hasMoved = true;
+                    }
+                    if (self.backgroundPan.hasMoved) {
+                        e.preventDefault();
+                        self.getScrollContainer().scrollLeft = self.clampScrollLeft(
+                            self.backgroundPan.startScrollLeft - panDx
+                        );
+                    }
+                    return;
+                }
+
                 if (self.clickCandidate && !self.clickCandidate.hasMoved) {
                     var moveDist = Math.hypot(e.clientX - self.clickCandidate.startX, e.clientY - self.clickCandidate.startY);
                     if (moveDist > 4) {
@@ -1008,7 +1345,24 @@ define(['core/notification'], function(Notification) {
                 self.markDirty();
             });
 
-            document.addEventListener('pointerup', function() {
+            document.addEventListener('pointerup', function(e) {
+                delete self.pointerPositions[e.pointerId];
+
+                if (self.pinchState) {
+                    var remainingPinchPointers = self.getPinchPoints(self.pinchState.pointerIds);
+                    if (remainingPinchPointers.length < 2) {
+                        self.pinchState = null;
+                        self.board.classList.remove('is-panning');
+                    }
+                    return;
+                }
+
+                if (self.backgroundPan && self.backgroundPan.pointerId === e.pointerId) {
+                    self.backgroundPan = null;
+                    self.board.classList.remove('is-panning');
+                    return;
+                }
+
                 // If it was a simple click without drag movement, jump to the table row
                 if (self.clickCandidate && !self.clickCandidate.hasMoved && (Date.now() - self.clickCandidate.startTime < 500)) {
                     var clickedItemId = self.clickCandidate.itemId;
@@ -1024,7 +1378,11 @@ define(['core/notification'], function(Notification) {
                 self.hideHUD();
             });
 
-            document.addEventListener('pointercancel', function() {
+            document.addEventListener('pointercancel', function(e) {
+                delete self.pointerPositions[e.pointerId];
+                self.pinchState = null;
+                self.backgroundPan = null;
+                self.board.classList.remove('is-panning');
                 self.clickCandidate = null;
                 if (!self.activeDrag) {
                     return;
@@ -1033,6 +1391,21 @@ define(['core/notification'], function(Notification) {
                 self.activeDrag = null;
                 self.hideHUD();
             });
+
+            self.board.addEventListener('wheel', function(e) {
+                if (!e.ctrlKey) {
+                    return;
+                }
+                e.preventDefault();
+                var delta = e.deltaY;
+                if (e.deltaMode === 1) {
+                    delta *= 16;
+                } else if (e.deltaMode === 2) {
+                    delta *= self.board.clientHeight;
+                }
+                var zoomFactor = Math.exp(-delta * 0.002);
+                self.setZoomAt(self.zoomLevel * zoomFactor, e.clientX);
+            }, {passive: false});
         },
 
         /**

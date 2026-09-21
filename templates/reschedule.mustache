@@ -23,7 +23,25 @@
     @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
     @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
 }}
-<div class="local-reschedule-container mb-4" id="reschedule-page-root">
+<div class="local-reschedule-container mb-4" id="reschedule-page-root"
+    data-courseid="{{courseid}}"
+    data-course-start="{{coursestart}}"
+    data-course-end="{{courseend}}"
+    data-timeline-start="{{timelineStart}}"
+    data-timeline-end="{{timelineEnd}}"
+    data-save-url="{{saveurl}}"
+    data-sesskey="{{sesskey}}"
+    data-lang="{{language}}"
+    data-error-saving="{{#str}}error_saving, local_reschedule{{/str}}"
+    data-error-saving-header="{{#str}}error_saving_header, local_reschedule{{/str}}"
+    data-schedulesaved="{{#str}}schedulesaved, local_reschedule{{/str}}"
+    data-activity-before-timeline="{{#str}}activitybeforetimeline, local_reschedule{{/str}}"
+    data-activity-after-timeline="{{#str}}activityaftertimeline, local_reschedule{{/str}}"
+    data-activity-start-disabled="{{#str}}activitystartdisabled, local_reschedule{{/str}}"
+    data-activity-end-disabled="{{#str}}activityenddisabled, local_reschedule{{/str}}"
+    data-no-schedulable-changes="{{#str}}noschedulablechanges, local_reschedule{{/str}}"
+    data-subactivity-parent-bounds="{{#str}}subactivityparentbounds, local_reschedule{{/str}}"
+    data-kuet-activity-derived-hint="{{#str}}kuetactivityderivedhint, local_reschedule{{/str}}">
     <!-- Header card with controls -->
     <div class="card shadow-sm border-0 mb-4">
         <div class="card-body p-4">
@@ -85,7 +103,7 @@
     <!-- Interactive Timeline Board Card -->
     <div class="card shadow-sm border-0 mb-4">
         <div class="card-body p-0">
-            <div id="reschedule-timeline-app" class="quest-timeline-wrapper position-relative overflow-auto" style="min-height: 250px;">
+            <div id="reschedule-timeline-app" class="quest-timeline-wrapper position-relative" style="min-height: 250px;">
                 <!-- Timeline elements built by AMD reschedule_calendar.js -->
             </div>
         </div>

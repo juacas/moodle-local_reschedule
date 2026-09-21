@@ -11,21 +11,93 @@
     background-color: #f8fafc;
     border: 1px solid #e2e8f0;
     border-radius: 0.5rem;
-    overflow-x: auto;
     position: relative;
+    touch-action: pan-y;
     user-select: none;
 }
 
+.quest-timeline-shell {
+    position: relative;
+}
+
+.quest-timeline-sticky-header {
+    align-items: stretch;
+    background: #fff;
+    display: flex;
+    height: 84px;
+    overflow: hidden;
+    position: relative;
+    z-index: 30;
+}
+
+/* The header is promoted to fixed positioning by the page-scroll handler. */
+.quest-timeline-sticky-header.is-page-sticky {
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.14);
+    position: fixed;
+    z-index: 1030;
+}
+
+.quest-timeline-sticky-placeholder {
+    display: none;
+    height: 0;
+}
+
+.quest-timeline-sticky-placeholder.is-active {
+    display: block;
+}
+
+.quest-timeline-sticky-header > .quest-left-header {
+    flex: 0 0 280px;
+    position: relative;
+    top: auto;
+    width: 280px;
+    z-index: 31;
+}
+
+.quest-timeline-header-viewport {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    position: relative;
+}
+
+.quest-timeline-sticky-header .quest-bands-header {
+    position: relative;
+    top: auto;
+}
+
+.quest-timeline-scroll {
+    overflow-x: auto;
+    overflow-y: visible;
+    position: relative;
+    touch-action: pan-y;
+}
+
+.quest-timeline-right-area {
+    cursor: grab;
+    touch-action: pan-y;
+}
+
+.quest-timeline-wrapper.is-panning .quest-timeline-right-area,
+.quest-timeline-right-area:active {
+    cursor: grabbing;
+}
+
 .quest-timeline-table {
+    align-items: flex-start;
     min-width: 100%;
 }
 
 .quest-timeline-left-column {
+    align-self: flex-start;
     background: #fff;
     box-shadow: 2px 0 6px rgba(0, 0, 0, 0.05);
+    flex: 0 0 280px;
     left: 0;
+    max-width: 280px;
     position: sticky;
-    z-index: 10;
+    width: 280px;
+    z-index: 20;
 }
 
 .quest-left-header {
@@ -34,10 +106,14 @@
     border-right: 1px solid #e2e8f0;
     box-sizing: border-box;
     height: 84px;
+    position: sticky;
+    top: 0;
+    z-index: 21;
 }
 
 .quest-left-row {
     align-items: center;
+    background-color: #fff;
     border-bottom: 1px solid #f1f5f9;
     border-right: 1px solid #e2e8f0;
     box-sizing: border-box;
@@ -60,6 +136,7 @@
     background: #fff;
     box-sizing: border-box;
     height: 84px;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
     position: sticky;
     top: 0;
     z-index: 5;
