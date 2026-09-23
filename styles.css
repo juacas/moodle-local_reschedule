@@ -46,7 +46,7 @@
     display: block;
 }
 
-.quest-timeline-sticky-header > .quest-left-header {
+.quest-timeline-sticky-header>.quest-left-header {
     flex: 0 0 280px;
     position: relative;
     top: auto;
@@ -267,7 +267,104 @@
     touch-action: none;
     transition: box-shadow 0.15s ease;
     user-select: none;
+    z-index: 3;
+}
+
+/* Core conditional date availability is rendered in the upper lane margin,
+ * separately from the module's own draggable bar. */
+.quest-availability-range {
+    background-color: #facc1520;
+    background-image: repeating-linear-gradient(
+        135deg,
+        #11182720 0,
+        #11182720 8px,
+        #facc1520 8px,
+        #facc1520 16px
+    );
+    border: 2px solid #111827;
+    border-radius: 3px;
+    box-sizing: border-box;
+    color: #fff;
+    cursor: grab;
+    height: 25px;
+    min-width: 22px;
+    position: absolute;
+    top: 3px;
+    touch-action: none;
+    z-index: 7;
+}
+
+.quest-availability-range.is-readonly {
+    background-color: rgba(100, 116, 139, 0.72);
+    cursor: default;
+    opacity: 0.8;
+}
+
+.quest-availability-range.is-dragging {
+    background-color: #facc1510;
+    background-image: repeating-linear-gradient(135deg,
+            #11182710 0,
+            #11182710 8px,
+            #facc1510 8px,
+            #facc1510 16px);
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.45);
+    cursor: grabbing;
+}
+
+.quest-availability-lock {
+    background: none;
+    border-radius: 2px;
+    color: #facc15;
+    font-size: 18px;
+    left: 50%;
+    line-height: 14px;
+    padding: 0 0px;
+    pointer-events: none;
+    position: absolute;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.7);
+    top: 3px;
+    transform: translateX(-50%);
+    z-index: 3;
+}
+
+.quest-availability-handle {
+    background: #fbbf24;
+    border: 2px solid #92400e;
+    bottom: -2px;
+    cursor: ew-resize;
+    position: absolute;
+    top: -2px;
+    width: 9px;
     z-index: 2;
+}
+
+.quest-availability-handle-start {
+    border-radius: 4px 0 0 4px;
+    left: -5px;
+}
+
+.quest-availability-handle-end {
+    border-radius: 0 4px 4px 0;
+    right: -5px;
+}
+
+.quest-availability-open {
+    color: #facc15;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 12px;
+    pointer-events: none;
+    position: absolute;
+    text-shadow: 0 1px 1px #111827;
+    top: 1px;
+}
+
+.quest-availability-open-start {
+    left: 1px;
+}
+
+.quest-availability-open-end {
+    right: 1px;
 }
 
 .quest-calendar-bar.is-subtype {
@@ -359,6 +456,7 @@
 }
 
 @keyframes quest-bar-overflow-blink {
+
     0%,
     100% {
         opacity: 0.35;
@@ -388,6 +486,7 @@
     pointer-events: none;
     transition: opacity 0.1s ease;
     z-index: 1050;
+    will-change: transform;
 }
 
 .quest-toggle-subtasks,
@@ -510,12 +609,15 @@
     0% {
         background-color: rgba(59, 130, 246, 0.4);
     }
+
     30% {
         background-color: rgba(59, 130, 246, 0.25);
     }
+
     70% {
         background-color: rgba(59, 130, 246, 0.1);
     }
+
     100% {
         background-color: transparent;
     }

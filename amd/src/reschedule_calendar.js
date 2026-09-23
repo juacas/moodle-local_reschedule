@@ -202,7 +202,9 @@ define(['core/notification'], function(Notification) {
                     ['data-activity-end-disabled', 'activityenddisabled'],
                     ['data-no-schedulable-changes', 'noschedulablechanges'],
                     ['data-subactivity-parent-bounds', 'subactivityparentbounds'],
-                    ['data-kuet-activity-derived-hint', 'kuetactivityderivedhint']
+                    ['data-kuet-activity-derived-hint', 'kuetactivityderivedhint'],
+                    ['data-availability-restriction', 'availabilityrestriction'],
+                    ['data-availability-restriction-hint', 'availabilityrestrictionhint']
                 ].forEach(function(mapping) {
                     cfg.strings[mapping[1]] = getRootData(mapping[0], cfg.strings[mapping[1]] || '');
                 });
@@ -238,7 +240,7 @@ define(['core/notification'], function(Notification) {
                 return copy;
             });
             this.initialItems = this.items.map(function(item) {
-                return Object.assign({}, item);
+                return JSON.parse(JSON.stringify(item));
             });
 
             this.board = document.getElementById('reschedule-timeline-app');
@@ -648,6 +650,7 @@ define(['core/notification'], function(Notification) {
 
                 var bar = self.createBarElement(item, totalSec, cStart);
                 lane.appendChild(bar);
+                self.createAvailabilityOverlays(lane, item, totalSec, cStart);
                 rightArea.appendChild(lane);
             });
 
@@ -782,6 +785,89 @@ define(['core/notification'], function(Notification) {
         },
 
         /**
+         * Render core date-availability ranges in the upper lane margin.
+         *
+         * @param {HTMLElement} lane Gantt lane.
+         * @param {Object} item Activity item.
+         * @param {number} totalSec Timeline duration.
+         * @param {number} cStart Timeline start.
+         */
+        createAvailabilityOverlays: function(lane, item, totalSec, cStart) {
+            var self = this;
+            var ranges = item.availabilityranges || [];
+            if (!item.hasavailabilitydates || !ranges.length) {
+                return;
+            }
+            var cEnd = cStart + totalSec;
+            ranges.forEach(function(range, index) {
+                var overlay = document.createElement('div');
+                overlay.className = 'quest-availability-range' +
+                    (item.availabilityeditable ? '' : ' is-readonly');
+                overlay.setAttribute('data-availability-rangeid', range.id || ('range-' + index));
+                overlay.setAttribute('data-itemid', item.id);
+                overlay.setAttribute('aria-label', self.strings.availabilityrestriction || 'Date availability restriction');
+                overlay.setAttribute('title', item.availabilityeditable ?
+                    (self.strings.availabilityrestrictionhint || 'Drag to adjust the date restriction.') :
+                    (item.availabilityreason || 'Date availability restriction'));
+                self.positionAvailabilityOverlay(overlay, range, totalSec, cStart);
+
+                if (range.startcondition) {
+                    var startHandle = document.createElement('span');
+                    startHandle.className = 'quest-availability-handle quest-availability-handle-start';
+                    startHandle.setAttribute('data-condition-id', range.startcondition);
+                    startHandle.setAttribute('aria-hidden', 'true');
+                    overlay.appendChild(startHandle);
+                } else {
+                    var before = document.createElement('span');
+                    before.className = 'quest-availability-open quest-availability-open-start';
+                    before.textContent = '<<';
+                    before.setAttribute('aria-hidden', 'true');
+                    overlay.appendChild(before);
+                }
+
+                var lock = document.createElement('span');
+                lock.className = 'quest-availability-lock fa fa-lock';
+                lock.setAttribute('aria-hidden', 'true');
+                overlay.appendChild(lock);
+
+                if (range.endcondition) {
+                    var endHandle = document.createElement('span');
+                    endHandle.className = 'quest-availability-handle quest-availability-handle-end';
+                    endHandle.setAttribute('data-condition-id', range.endcondition);
+                    endHandle.setAttribute('aria-hidden', 'true');
+                    overlay.appendChild(endHandle);
+                } else {
+                    var after = document.createElement('span');
+                    after.className = 'quest-availability-open quest-availability-open-end';
+                    after.textContent = '>>';
+                    after.setAttribute('aria-hidden', 'true');
+                    overlay.appendChild(after);
+                }
+                lane.appendChild(overlay);
+            });
+        },
+
+        /**
+         * Position one availability range against the visible timeline.
+         *
+         * @param {HTMLElement} overlay Range element.
+         * @param {Object} range Range metadata.
+         * @param {number} totalSec Timeline duration.
+         * @param {number} cStart Timeline start.
+         */
+        positionAvailabilityOverlay: function(overlay, range, totalSec, cStart) {
+            var cEnd = cStart + totalSec;
+            var start = Number(range.start || cStart);
+            var end = Number(range.end || cEnd);
+            var startFraction = Math.max(0, Math.min(1, (start - cStart) / totalSec));
+            var endFraction = Math.max(0, Math.min(1, (end - cStart) / totalSec));
+            overlay.style.left = (startFraction * 100) + '%';
+            overlay.style.width = (Math.max(0.005, endFraction - startFraction) * 100) + '%';
+            overlay.classList.toggle('has-open-start', !range.start);
+            overlay.classList.toggle('has-open-end', !range.end);
+        },
+
+        /**
          * Add or remove markers for dates outside the visible course timeframe.
          *
          * @param {HTMLElement} bar Gantt activity bar.
@@ -841,6 +927,224 @@ define(['core/notification'], function(Notification) {
                 bar.setAttribute('title', titleParts.join(' '));
             } else {
                 bar.removeAttribute('title');
+            }
+        },
+
+        /**
+         * Start a drag on a date-availability decoration.
+         *
+         * @param {PointerEvent} e Pointer event.
+         * @param {HTMLElement} target Range or handle element.
+         * @return {boolean} True when a restriction drag was started.
+         */
+        startAvailabilityDrag: function(e, target) {
+            var self = this;
+            var overlay = target.closest('.quest-availability-range');
+            if (!overlay) {
+                return false;
+            }
+            var itemId = overlay.getAttribute('data-itemid');
+            var item = self.items.find(function(candidate) {
+                return String(candidate.id) === String(itemId);
+            });
+            if (!item || !item.availabilityeditable) {
+                return false;
+            }
+            var rangeId = overlay.getAttribute('data-availability-rangeid');
+            var range = (item.availabilityranges || []).find(function(candidate) {
+                return String(candidate.id) === String(rangeId);
+            });
+            if (!range) {
+                return false;
+            }
+
+            var handle = target.closest('.quest-availability-handle');
+            var mode = handle ? (handle.classList.contains('quest-availability-handle-start') ?
+                'resize-start' : 'resize-end') : 'move';
+            if (mode === 'move' && (!range.startcondition || !range.endcondition)) {
+                return false;
+            }
+            var rightArea = self.board.querySelector('.quest-timeline-right-area');
+            if (!rightArea) {
+                return false;
+            }
+            var conditionIds = {
+                start: range.startcondition || null,
+                end: range.endcondition || null
+            };
+            self.activeAvailabilityDrag = {
+                pointerId: e.pointerId,
+                item: item,
+                range: range,
+                overlay: overlay,
+                mode: mode,
+                startX: e.clientX,
+                trackRect: rightArea.getBoundingClientRect(),
+                initialStart: Number(range.start || 0),
+                initialEnd: Number(range.end || 0),
+                conditionIds: conditionIds,
+                totalSec: Math.max(3600, self.getTimelineEnd() - self.getTimelineStart()),
+                pendingPointer: null,
+                frameId: 0,
+                changed: false
+            };
+            overlay.classList.add('is-dragging');
+            if (overlay.setPointerCapture) {
+                overlay.setPointerCapture(e.pointerId);
+            }
+            e.preventDefault();
+            return true;
+        },
+
+        /**
+         * Coalesce availability pointer moves to one visual update per frame.
+         * Pointer events can arrive faster than the browser can present them;
+         * retaining only the latest coordinates prevents an event backlog from
+         * delaying the next pointer input and inflating INP.
+         *
+         * @param {PointerEvent} e Pointer event.
+         */
+        queueAvailabilityDrag: function(e) {
+            var self = this;
+            var drag = self.activeAvailabilityDrag;
+            if (!drag || drag.pointerId !== e.pointerId) {
+                return;
+            }
+            drag.pendingPointer = {
+                pointerId: e.pointerId,
+                clientX: e.clientX,
+                clientY: e.clientY
+            };
+            if (drag.frameId) {
+                return;
+            }
+            drag.frameId = window.requestAnimationFrame(function() {
+                drag.frameId = 0;
+                if (self.activeAvailabilityDrag !== drag || !drag.pendingPointer) {
+                    return;
+                }
+                var pointer = drag.pendingPointer;
+                drag.pendingPointer = null;
+                self.updateAvailabilityDrag(pointer);
+            });
+        },
+
+        /**
+         * Apply the final queued availability position before pointerup.
+         */
+        flushAvailabilityDrag: function() {
+            var drag = this.activeAvailabilityDrag;
+            if (!drag) {
+                return;
+            }
+            if (drag.frameId) {
+                window.cancelAnimationFrame(drag.frameId);
+                drag.frameId = 0;
+            }
+            if (drag.pendingPointer) {
+                var pointer = drag.pendingPointer;
+                drag.pendingPointer = null;
+                this.updateAvailabilityDrag(pointer);
+            }
+        },
+
+        /**
+         * Cancel a queued availability frame without applying it.
+         */
+        cancelAvailabilityDragFrame: function() {
+            var drag = this.activeAvailabilityDrag;
+            if (!drag) {
+                return;
+            }
+            if (drag.frameId) {
+                window.cancelAnimationFrame(drag.frameId);
+                drag.frameId = 0;
+            }
+            drag.pendingPointer = null;
+        },
+
+        /**
+         * Update one availability range during a drag.
+         *
+         * @param {PointerEvent} e Pointer event.
+         */
+        updateAvailabilityDrag: function(e) {
+            var drag = this.activeAvailabilityDrag;
+            if (!drag || drag.pointerId !== e.pointerId) {
+                return;
+            }
+            var dx = e.clientX - drag.startX;
+            var dt = Math.round((dx / drag.trackRect.width) * drag.totalSec / 3600) * 3600;
+            var newStart = drag.initialStart;
+            var newEnd = drag.initialEnd;
+            var minDuration = 3600;
+            var timelineStart = this.getTimelineStart();
+            var timelineEnd = this.getTimelineEnd();
+
+            if (drag.mode === 'move') {
+                var minShift = timelineStart - drag.initialStart;
+                var maxShift = timelineEnd - drag.initialEnd;
+                var shift = Math.max(minShift, Math.min(maxShift, dt));
+                newStart = drag.initialStart + shift;
+                newEnd = drag.initialEnd + shift;
+            } else if (drag.mode === 'resize-start') {
+                newStart = Math.max(timelineStart, drag.initialStart + dt);
+                if (drag.initialEnd && newStart >= drag.initialEnd) {
+                    newStart = drag.initialEnd - minDuration;
+                }
+            } else {
+                newEnd = Math.min(timelineEnd, drag.initialEnd + dt);
+                if (drag.initialStart && newEnd <= drag.initialStart) {
+                    newEnd = drag.initialStart + minDuration;
+                }
+            }
+
+            var changed = newStart !== drag.range.start || newEnd !== drag.range.end;
+            this.updateAvailabilityHUD(e.clientX, e.clientY, drag.item, drag.range);
+            if (!changed) {
+                return;
+            }
+
+            drag.range.start = newStart;
+            drag.range.end = newEnd;
+            var conditions = drag.item.availabilityconditions || [];
+            conditions.forEach(function(condition) {
+                if (condition.id === drag.conditionIds.start) {
+                    condition.time = newStart;
+                }
+                if (condition.id === drag.conditionIds.end) {
+                    condition.time = newEnd;
+                }
+            });
+            this.positionAvailabilityOverlay(drag.overlay, drag.range, drag.totalSec, timelineStart);
+            this.updateAvailabilityHUD(e.clientX, e.clientY, drag.item, drag.range);
+            if (!drag.changed) {
+                drag.changed = true;
+                this.markDirty();
+            }
+        },
+
+        /**
+         * Update the drag HUD for a restriction.
+         *
+         * @param {number} x Pointer X.
+         * @param {number} y Pointer Y.
+         * @param {Object} item Activity item.
+         * @param {Object} range Restriction range.
+         */
+        updateAvailabilityHUD: function(x, y, item, range) {
+            if (!this.hud) {
+                return;
+            }
+            this.hud.classList.remove('d-none');
+            this.hud.style.transform = 'translate3d(' + (x + 15) + 'px, ' + (y - 50) + 'px, 0)';
+            var dateText = (range.start ? formatDateTime(range.start, this.locale) : '<<') +
+                '  \u2192  ' + (range.end ? formatDateTime(range.end, this.locale) : '>>');
+            if (this.availabilityHudDateText !== dateText) {
+                this.hudTitle.textContent = (this.strings.availabilityrestriction || 'Date availability restriction') +
+                    ': ' + item.title;
+                this.hudDates.textContent = dateText;
+                this.availabilityHudDateText = dateText;
             }
         },
 
@@ -1025,6 +1329,13 @@ define(['core/notification'], function(Notification) {
                     return;
                 }
 
+                var availabilityTarget = e.target.closest(
+                    '.quest-availability-range, .quest-availability-handle'
+                );
+                if (availabilityTarget && self.startAvailabilityDrag(e, availabilityTarget)) {
+                    return;
+                }
+
                 var bar = e.target.closest('.quest-calendar-bar');
                 if (!bar) {
                     var horizontalSurface = e.target.closest(
@@ -1159,6 +1470,12 @@ define(['core/notification'], function(Notification) {
 
                 if (self.pinchState) {
                     self.updatePinch();
+                    e.preventDefault();
+                    return;
+                }
+
+                if (self.activeAvailabilityDrag) {
+                    self.queueAvailabilityDrag(e);
                     e.preventDefault();
                     return;
                 }
@@ -1357,6 +1674,19 @@ define(['core/notification'], function(Notification) {
                     return;
                 }
 
+                if (self.activeAvailabilityDrag && self.activeAvailabilityDrag.pointerId === e.pointerId) {
+                    self.activeAvailabilityDrag.pendingPointer = {
+                        pointerId: e.pointerId,
+                        clientX: e.clientX,
+                        clientY: e.clientY
+                    };
+                    self.flushAvailabilityDrag();
+                    self.activeAvailabilityDrag.overlay.classList.remove('is-dragging');
+                    self.activeAvailabilityDrag = null;
+                    self.hideHUD();
+                    return;
+                }
+
                 if (self.backgroundPan && self.backgroundPan.pointerId === e.pointerId) {
                     self.backgroundPan = null;
                     self.board.classList.remove('is-panning');
@@ -1384,6 +1714,13 @@ define(['core/notification'], function(Notification) {
                 self.backgroundPan = null;
                 self.board.classList.remove('is-panning');
                 self.clickCandidate = null;
+                if (self.activeAvailabilityDrag && self.activeAvailabilityDrag.pointerId === e.pointerId) {
+                    self.cancelAvailabilityDragFrame();
+                    self.activeAvailabilityDrag.overlay.classList.remove('is-dragging');
+                    self.activeAvailabilityDrag = null;
+                    self.hideHUD();
+                    return;
+                }
                 if (!self.activeDrag) {
                     return;
                 }
@@ -1420,8 +1757,7 @@ define(['core/notification'], function(Notification) {
                 return;
             }
             this.hud.classList.remove('d-none');
-            this.hud.style.left = (x + 15) + 'px';
-            this.hud.style.top = (y - 50) + 'px';
+            this.hud.style.transform = 'translate3d(' + (x + 15) + 'px, ' + (y - 50) + 'px, 0)';
             this.hudTitle.textContent = item.title + ' (' + formatDuration(item.dateend - item.datestart) + ')';
             this.hudDates.textContent = formatDateTime(item.datestart, this.locale) + '  \u2192  ' +
                 formatDateTime(item.dateend, this.locale);
@@ -1434,6 +1770,7 @@ define(['core/notification'], function(Notification) {
             if (this.hud) {
                 this.hud.classList.add('d-none');
             }
+            this.availabilityHudDateText = null;
         },
 
         /**
@@ -1549,6 +1886,30 @@ define(['core/notification'], function(Notification) {
         },
 
         /**
+         * Check whether core availability condition times changed.
+         *
+         * @param {Object} item Current item.
+         * @param {Object} initial Original item.
+         * @return {boolean}
+         */
+        hasAvailabilityChanges: function(item, initial) {
+            var current = (item && item.availabilityconditions) || [];
+            var original = (initial && initial.availabilityconditions) || [];
+            var normalise = function(conditions) {
+                return conditions.map(function(condition) {
+                    return {
+                        id: String(condition.id),
+                        direction: String(condition.direction || ''),
+                        time: Number(condition.time || 0)
+                    };
+                }).sort(function(a, b) {
+                    return a.id.localeCompare(b.id);
+                });
+            };
+            return JSON.stringify(normalise(current)) !== JSON.stringify(normalise(original));
+        },
+
+        /**
          * Return an item's parent, if it has one.
          *
          * @param {Object} item Activity item.
@@ -1626,7 +1987,7 @@ define(['core/notification'], function(Notification) {
                 this.saveBtn.disabled = false;
             }
             if (this.unsavedAlert) {
-                this.unsavedAlert.classList.remove('d-none');
+                this.unsavedAlert.classList.remove('invisible');
             }
         },
 
@@ -1639,7 +2000,7 @@ define(['core/notification'], function(Notification) {
             if (self.resetBtn) {
                 self.resetBtn.addEventListener('click', function() {
                     self.items = self.initialItems.map(function(it) {
-                        return Object.assign({}, it);
+                        return JSON.parse(JSON.stringify(it));
                     });
                     self.renderTimeline();
                     self.items.forEach(function(it) {
@@ -1650,7 +2011,7 @@ define(['core/notification'], function(Notification) {
                         self.saveBtn.disabled = true;
                     }
                     if (self.unsavedAlert) {
-                        self.unsavedAlert.classList.add('d-none');
+                        self.unsavedAlert.classList.add('invisible');
                     }
                 });
             }
@@ -2427,7 +2788,7 @@ define(['core/notification'], function(Notification) {
             }
 
             var changedItems = self.items.filter(function(item) {
-                if (!self.isItemEditable(item)) {
+                if (!self.isItemEditable(item) && !item.availabilityeditable) {
                     return false;
                 }
                 var initial = self.initialItems.find(function(original) {
@@ -2441,13 +2802,14 @@ define(['core/notification'], function(Notification) {
                 var itemEnd = item.endenabled === false ? 0 : Number(item.dateend);
                 return !initial || itemStart !== initialStart || itemEnd !== initialEnd ||
                     (initial.startenabled !== false) !== (item.startenabled !== false) ||
-                    (initial.endenabled !== false) !== (item.endenabled !== false);
+                    (initial.endenabled !== false) !== (item.endenabled !== false) ||
+                    self.hasAvailabilityChanges(item, initial);
             });
             if (!changedItems.length) {
                 self.isDirty = false;
                 self.saveBtn.disabled = true;
                 if (self.unsavedAlert) {
-                    self.unsavedAlert.classList.add('d-none');
+                    self.unsavedAlert.classList.add('invisible');
                 }
                 Notification.addNotification({
                     message: (self.strings && self.strings.noschedulablechanges) ||
@@ -2465,13 +2827,26 @@ define(['core/notification'], function(Notification) {
                 courseid: self.config.courseid,
                 sesskey: self.config.sesskey,
                 items: changedItems.map(function(it) {
-                    return {
+                    var initial = self.initialItems.find(function(original) {
+                        return String(original.id) === String(it.id);
+                    });
+                    var payloadItem = {
                         id: it.id,
                         datestart: it.datestart,
                         dateend: it.dateend,
                         startenabled: it.startenabled !== false,
                         endenabled: it.endenabled !== false
                     };
+                    if (self.hasAvailabilityChanges(it, initial)) {
+                        payloadItem.availabilityconditions = (it.availabilityconditions || []).map(function(condition) {
+                            return {
+                                id: condition.id,
+                                direction: condition.direction,
+                                time: Number(condition.time)
+                            };
+                        });
+                    }
+                    return payloadItem;
                 })
             };
 
@@ -2505,12 +2880,12 @@ define(['core/notification'], function(Notification) {
                 self.saveBtn.innerHTML = originalHtml;
                 if (data && data.success) {
                     self.initialItems = self.items.map(function(it) {
-                        return Object.assign({}, it);
+                        return JSON.parse(JSON.stringify(it));
                     });
                     self.isDirty = false;
                     self.saveBtn.disabled = true;
                     if (self.unsavedAlert) {
-                        self.unsavedAlert.classList.add('d-none');
+                        self.unsavedAlert.classList.add('invisible');
                     }
                     var successMsg = data.message ||
                         (self.strings && self.strings.schedulesaved) ||

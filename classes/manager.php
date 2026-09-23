@@ -468,6 +468,61 @@ class manager {
             }
         }
 
+        // Availability is a Moodle-level capability, so it can expose an
+        // activity even when no local date adapter knows how to read that
+        // module's native scheduling fields. Such rows deliberately use the
+        // course timeframe as a drawing window and keep both native endpoints
+        // disabled; the Gantt then renders them as an unbounded activity
+        // (<< activity >>) while the availability layer remains visible.
+        $availabilityadapter = adapter_manager::get_availability_adapter($course);
+        $mappedcmids = [];
+        foreach ($items as $item) {
+            $cmid = (int)($item['cmid'] ?? 0);
+            if ($cmid > 0) {
+                $mappedcmids[$cmid] = true;
+            }
+        }
+        foreach ($modinfo->get_cms() as $cm) {
+            $cmid = (int)$cm->id;
+            if ($cmid <= 0 || isset($mappedcmids[$cmid])) {
+                continue;
+            }
+
+            $availability = $availabilityadapter->describe($cm);
+            if (empty($availability['hasavailabilitydates'])) {
+                continue;
+            }
+
+            $itemid = 'main_' . $cm->modname . '_' . $cm->instance;
+            $itemorders[$itemid] = $cmorder[$cmid] ?? PHP_INT_MAX;
+            $items[$itemid] = array_merge([
+                'id' => $itemid,
+                'recordid' => (int)$cm->instance,
+                'cmid' => $cmid,
+                'table' => (string)$cm->modname,
+                'parentkey' => null,
+                'parenttitle' => null,
+                'issubtype' => false,
+                'haschildren' => false,
+                'childrencount' => 0,
+                'iconurl' => $cm->get_icon_url()->out(false),
+                'viewurl' => $cm->get_url() ? $cm->get_url()->out(false) : '',
+                'editable' => false,
+                'derived' => false,
+                'editreason' => get_string('unmappedactivitynoteditable', 'local_reschedule'),
+                'interactreason' => get_string('unmappedactivitynoteditable', 'local_reschedule'),
+                'interactive' => false,
+                'title' => (string)$cm->name,
+                'typelabel' => (string)$cm->modname,
+                'startcol' => '',
+                'endcol' => '',
+                'startenabled' => false,
+                'endenabled' => false,
+                'datestart' => $coursestart,
+                'dateend' => $courseend,
+            ], $availability);
+        }
+
         uasort($items, static function(array $left, array $right) use ($itemorders): int {
             $leftorder = $itemorders[$left['id']] ?? PHP_INT_MAX;
             $rightorder = $itemorders[$right['id']] ?? PHP_INT_MAX;
@@ -484,6 +539,21 @@ class manager {
                 }
             }
         }
+
+        // Conditional availability is a second, independent date layer. Only
+        // the main activity row receives it; child/phase rows share the same
+        // CM and would otherwise render and submit the same conditions more
+        // than once.
+        foreach ($ordereditems as &$ordereditem) {
+            if (!empty($ordereditem['issubtype']) || (int)($ordereditem['cmid'] ?? 0) <= 0) {
+                continue;
+            }
+            $cm = $modinfo->get_cm((int)$ordereditem['cmid']);
+            if ($cm) {
+                $ordereditem = array_merge($ordereditem, $availabilityadapter->describe($cm));
+            }
+        }
+        unset($ordereditem);
 
         return $ordereditems;
     }
@@ -509,6 +579,7 @@ class manager {
         $plan = [];
         $validationerrors = [];
         $skipped = [];
+        $availabilityadapter = adapter_manager::get_availability_adapter($course);
 
         foreach ($updates as $up) {
             $key = $up['id'] ?? '';
@@ -517,8 +588,10 @@ class manager {
             }
 
             $item = $itemmap[$key];
-            $newstart = (int)($up['datestart'] ?? 0);
-            $newend = (int)($up['dateend'] ?? 0);
+            $currentstart = ($item['startenabled'] ?? true) ? (int)$item['datestart'] : 0;
+            $currentend = ($item['endenabled'] ?? true) ? (int)$item['dateend'] : 0;
+            $newstart = array_key_exists('datestart', $up) ? (int)$up['datestart'] : $currentstart;
+            $newend = array_key_exists('dateend', $up) ? (int)$up['dateend'] : $currentend;
             $startenabled = array_key_exists('startenabled', $up) ?
                 !empty($up['startenabled']) : ($item['startenabled'] ?? true);
             $endenabled = array_key_exists('endenabled', $up) ?
@@ -528,35 +601,76 @@ class manager {
             $storedstart = $startenabled ? $newstart : 0;
             $storedend = $endenabled ? $newend : 0;
 
-            // Skip if no change in dates.
-            $currentstart = ($item['startenabled'] ?? true) ? (int)$item['datestart'] : 0;
-            $currentend = ($item['endenabled'] ?? true) ? (int)$item['dateend'] : 0;
-            if ($storedstart === $currentstart && $storedend === $currentend &&
-                    $startenabled === ($item['startenabled'] ?? true) &&
-                    $endenabled === ($item['endenabled'] ?? true)) {
+            $activitychanged = $storedstart !== $currentstart || $storedend !== $currentend ||
+                    $startenabled !== ($item['startenabled'] ?? true) ||
+                    $endenabled !== ($item['endenabled'] ?? true);
+
+            $availabilitychanged = false;
+            $availabilityupdates = null;
+            if (array_key_exists('availabilityconditions', $up)) {
+                $availabilityupdates = $up['availabilityconditions'];
+                $normalise = static function($conditions): string {
+                    if (!is_array($conditions)) {
+                        return 'invalid';
+                    }
+                    $values = [];
+                    foreach ($conditions as $condition) {
+                        if (!is_array($condition) || empty($condition['id'])) {
+                            return 'invalid';
+                        }
+                        $values[(string)$condition['id']] = [
+                            'id' => (string)$condition['id'],
+                            'direction' => (string)($condition['direction'] ?? ''),
+                            'time' => (int)($condition['time'] ?? 0),
+                        ];
+                    }
+                    ksort($values);
+                    return json_encode($values);
+                };
+                $availabilitychanged = $normalise($availabilityupdates) !==
+                    $normalise($item['availabilityconditions'] ?? []);
+            }
+
+            if (!$activitychanged && !$availabilitychanged) {
                 continue;
             }
 
-            if (($item['editable'] ?? true) === false) {
+            if ($activitychanged && ($item['editable'] ?? true) === false) {
                 $skipped[] = ($item['title'] ?? $key) . ': ' .
                     ($item['editreason'] ?? get_string('noteditable', 'local_reschedule'));
+                $activitychanged = false;
+            }
+
+            $adapter = null;
+            if ($activitychanged) {
+                $adapter = adapter_manager::get_adapter($item['table'], $course, $item);
+                // Validate against the visible range, while saving zero for disabled ends.
+                $validationstart = $startenabled ? $newstart : (int)$item['datestart'];
+                $validationend = $endenabled ? $newend : (int)$item['dateend'];
+                $errs = $adapter->validate($item, $validationstart, $validationend);
+                if (!empty($errs)) {
+                    $validationerrors = array_merge($validationerrors, $errs);
+                }
+            }
+
+            if ($availabilitychanged) {
+                $errs = $availabilityadapter->validate($item, $availabilityupdates);
+                if (!empty($errs)) {
+                    $validationerrors = array_merge($validationerrors, $errs);
+                }
+            }
+
+            if (!$activitychanged && !$availabilitychanged) {
                 continue;
             }
-
-            $adapter = adapter_manager::get_adapter($item['table'], $course, $item);
-            // Validate against the visible range, while saving zero for disabled ends.
-            $validationstart = $startenabled ? $newstart : (int)$item['datestart'];
-            $validationend = $endenabled ? $newend : (int)$item['dateend'];
-            $errs = $adapter->validate($item, $validationstart, $validationend);
-            if (!empty($errs)) {
-                $validationerrors = array_merge($validationerrors, $errs);
-            }
-
             $plan[] = [
                 'item' => $item,
                 'adapter' => $adapter,
                 'newstart' => $storedstart,
                 'newend' => $storedend,
+                'saveactivity' => $activitychanged,
+                'saveavailability' => $availabilitychanged,
+                'availabilityupdates' => $availabilityupdates,
             ];
         }
 
@@ -592,7 +706,12 @@ class manager {
         $updatedcount = 0;
 
         foreach ($plan as $task) {
-            $task['adapter']->save($task['item'], $task['newstart'], $task['newend']);
+            if ($task['saveactivity']) {
+                $task['adapter']->save($task['item'], $task['newstart'], $task['newend']);
+            }
+            if ($task['saveavailability']) {
+                $availabilityadapter->save($task['item'], $task['availabilityupdates']);
+            }
             $updatedcount++;
         }
 

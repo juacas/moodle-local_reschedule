@@ -2,7 +2,7 @@
 
 <p align="center"><a href="https://juacas.github.io/moodle-local_reschedule/"><img src="pix/icon.svg" alt="Activity Rescheduler" width="96"></a></p>
 
-<p align="center"><strong><a href="https://juacas.github.io/moodle-local_reschedule/">Project website</a></strong> · <a href="https://moodle.org/plugins/local_reschedule">Moodle Marketplace</a> · <a href="https://github.com/juacas/moodle-local_reschedule/issues">Issues</a></p>
+<p align="center"><strong><a href="https://juacas.github.io/moodle-local_reschedule/">Project website</a></strong> · <a href="hhttps://marketplace.moodle.com/plugins/local_reschedule">Moodle Marketplace</a> · <a href="https://github.com/juacas/moodle-local_reschedule/issues">Issues</a></p>
 
 **Activity Rescheduler & Interactive Timeline for Moodle**
 A local plugin for Moodle 4.x and 5.x that provides an interactive timeline (GANTT chart) and advanced tools for visual rescheduling, automated sequencing, and precise date editing of course activities with atomic, safe subsystem synchronization.
@@ -231,6 +231,40 @@ Fallback for third-party modules without a dedicated adapter or extractor:
   - `{$modname}_update_events($record)`
   - `{$modname}_grade_item_update($record)`
 - Triggers the canonical Moodle event `\core\event\course_module_updated::create_from_cm($cm)->trigger()`.
+
+#### Date availability restrictions
+
+`availability_date_adapter` is deliberately a second adapter layer. The
+module adapter continues to own the activity's native start/end fields, while
+the availability adapter reads and saves Moodle's conditional-availability
+tree through `core_availability\info_module`, `tree::get_all_children()` and
+`tree::save()`.
+
+The first safe editing boundary is:
+
+- positive `>=` (from) and `<` (until) date conditions;
+- one or more ranges, paired in Moodle tree order;
+- date conditions below AND groups, including AND groups containing other
+  non-date conditions;
+- a root `OR` whose alternatives are simple `AND` blocks. Each alternative
+  is rendered as its own date range, without pairing conditions across blocks.
+
+Other date conditions below OR or NOT groups are rendered as locked
+decorations but are not draggable. This avoids changing the meaning of an
+access expression until a future boolean-tree editor can represent that logic
+explicitly. An open range endpoint remains visible with `<<` or `>>`; native
+activity dates continue to use the same markers when their own start or end is
+disabled.
+If a course module has date restrictions but no recognised native-date mapping,
+it is still added as a course-wide (`<<`/`>>`) Gantt row with native dates
+read-only, so its availability decoration can be inspected and, when safe,
+edited.
+
+The browser submits condition IDs and timestamps only. On save, the server
+re-reads the current CM, verifies the IDs, directions, positive timestamps and
+range ordering, then updates the decoded Moodle tree in the same delegated
+transaction as native activity dates. Unknown or stale conditions are rejected
+and no partial schedule is committed.
 
 ---
 

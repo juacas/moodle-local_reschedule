@@ -24,6 +24,7 @@ use local_reschedule\adapter\quest_adapter;
 use local_reschedule\adapter\kuet_adapter;
 use local_reschedule\adapter\editdates_bridge;
 use local_reschedule\adapter\generic_adapter;
+use local_reschedule\adapter\availability_date_adapter;
 
 /**
  * Adapter Manager for resolving the appropriate date adapter.
@@ -36,6 +37,9 @@ use local_reschedule\adapter\generic_adapter;
 class adapter_manager {
     /** @var array Cache of instantiated adapters by course id and adapter class. */
     private static array $adapters = [];
+
+    /** @var array Cache of availability adapters by course id. */
+    private static array $availabilityadapters = [];
 
     /**
      * Resolve the most appropriate adapter for the given item.
@@ -77,6 +81,24 @@ class adapter_manager {
 
         // 3. Generic safe fallback.
         return self::get_instance(generic_adapter::class, $course);
+    }
+
+    /**
+     * Get the adapter responsible for core date-availability conditions.
+     *
+     * Availability restrictions are a separate date source from the module's
+     * own start/end fields, so they must not replace the normal activity
+     * adapter selected by get_adapter().
+     *
+     * @param \stdClass $course Course record.
+     * @return availability_date_adapter
+     */
+    public static function get_availability_adapter(\stdClass $course): availability_date_adapter {
+        $key = (int)$course->id;
+        if (!isset(self::$availabilityadapters[$key])) {
+            self::$availabilityadapters[$key] = new availability_date_adapter($course);
+        }
+        return self::$availabilityadapters[$key];
     }
 
     /**
