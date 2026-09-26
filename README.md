@@ -260,6 +260,19 @@ it is still added as a course-wide (`<<`/`>>`) Gantt row with native dates
 read-only, so its availability decoration can be inspected and, when safe,
 edited.
 
+Dates exposed by `report_editdates` are initially shown as milestones. The
+manager probes `validate_dates()` with positive early/late timestamps to infer
+pairwise ordering constraints. A single inferred pair becomes an activity
+interval when it is the first declared date relationship; later pairs become
+child date intervals. When independent dates precede the first pair, the first
+date is treated as an open-ended activity start and the dependent pair becomes
+a child interval. Dates without an inferred relationship remain milestones.
+For each child interval, the manager also probes each parent boundary
+independently. Dragging and manual date edits are constrained only by the
+parent edges that `validate_dates()` rejects; unrelated intervals can therefore
+move outside the activity dates. If the probe cannot establish a valid baseline,
+the UI conservatively keeps the corresponding parent boundary.
+
 The browser submits condition IDs and timestamps only. On save, the server
 re-reads the current CM, verifies the IDs, directions, positive timestamps and
 range ordering, then updates the decoded Moodle tree in the same delegated

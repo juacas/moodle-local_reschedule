@@ -468,6 +468,269 @@ class manager {
             }
         }
 
+        // Modules without a configured interval still have dates worth editing
+        // (for example, forum due dates). Give their milestones a parent row.
+        foreach ($modinfo->get_cms() as $cm) {
+            $parentkey = 'main_' . $cm->modname . '_' . $cm->instance;
+            if (isset($items[$parentkey])) {
+                continue;
+            }
+            $extractor = \local_reschedule\adapter\editdates_bridge::get_extractor($cm->modname, $course);
+            if (!$extractor) {
+                continue;
+            }
+            try {
+                $settings = $extractor->get_settings($cm);
+            } catch (\Throwable $e) {
+                debugging('Could not read activity date settings: ' . $e->getMessage(), DEBUG_DEVELOPER);
+                continue;
+            }
+            if (!is_array($settings) || !$settings) {
+                continue;
+            }
+            $items[$parentkey] = [
+                'id' => $parentkey,
+                'recordid' => (int)$cm->instance,
+                'cmid' => (int)$cm->id,
+                'table' => (string)$cm->modname,
+                'parentkey' => null,
+                'parenttitle' => null,
+                'issubtype' => false,
+                'haschildren' => false,
+                'childrencount' => 0,
+                'iconurl' => $cm->get_icon_url()->out(false),
+                'viewurl' => $cm->get_url() ? $cm->get_url()->out(false) : '',
+                'editable' => false,
+                'derived' => false,
+                'interactive' => false,
+                'title' => (string)$cm->name,
+                'typelabel' => (string)$cm->modname,
+                'startcol' => '',
+                'endcol' => '',
+                'startenabled' => false,
+                'endenabled' => false,
+                'datestart' => $coursestart,
+                'dateend' => $courseend,
+            ];
+            $itemorders[$parentkey] = $cmorder[(int)$cm->id] ?? PHP_INT_MAX;
+        }
+
+        $rangedatefields = [];
+        foreach ($rules as $rule) {
+            $rangedatefields[$rule['table']][$rule['startcol']] = true;
+            $rangedatefields[$rule['table']][$rule['endcol']] = true;
+        }
+
+        // Infer interval dependencies in report_editdates settings by probing
+        // validate_dates() with opposite timestamp extremes. Retain unpaired
+        // dates as point milestones.
+        foreach ($items as $parentkey => &$parentitem) {
+            $cmid = (int)($parentitem['cmid'] ?? 0);
+            if ($cmid <= 0) {
+                continue;
+            }
+            $cm = $modinfo->get_cm($cmid);
+            $extractor = \local_reschedule\adapter\editdates_bridge::get_extractor($cm->modname, $course);
+            if (!$extractor) {
+                continue;
+            }
+            try {
+                $settings = $extractor->get_settings($cm);
+            } catch (\Throwable $e) {
+                debugging('Could not read activity date settings: ' . $e->getMessage(), DEBUG_DEVELOPER);
+                continue;
+            }
+            if (!is_array($settings)) {
+                continue;
+            }
+
+            $datefields = [];
+            foreach ($settings as $field => $setting) {
+                if (preg_match('/^[a-z][a-z0-9_]*$/i', (string)$field) &&
+                        $dbman->field_exists($cm->modname, $field) &&
+                        isset($setting->currentvalue, $setting->type) &&
+                        in_array($setting->type, ['date_selector', 'date_time_selector'], true)) {
+                    $datefields[] = $field;
+                }
+            }
+            if (!$datefields) {
+                continue;
+            }
+
+            $dependencies = \local_reschedule\adapter\editdates_bridge::discover_date_dependencies(
+                $cm, $extractor, $settings);
+            $datefieldmap = array_fill_keys($datefields, true);
+            $dependencies = array_values(array_filter($dependencies, static function(array $dependency) use ($datefieldmap): bool {
+                return isset($datefieldmap[$dependency['startfield']]) &&
+                    isset($datefieldmap[$dependency['endfield']]);
+            }));
+            usort($dependencies, static function(array $left, array $right): int {
+                return $left['declarationstart'] <=> $right['declarationstart'] ?:
+                    $left['declarationend'] <=> $right['declarationend'];
+            });
+
+            $record = $DB->get_record($cm->modname, ['id' => $cm->instance]);
+            if (!$record) {
+                continue;
+            }
+            $getdate = static function(string $field) use ($record, $settings): int {
+                return isset($record->{$field}) ? (int)$record->{$field} :
+                    (int)($settings[$field]->currentvalue ?? 0);
+            };
+
+            $mappedrange = !empty($parentitem['startcol']) && !empty($parentitem['endcol']);
+            $usedfields = [];
+
+            // For an unmapped activity, the earliest dependency pair defines
+            // the activity interval. If earlier declarations are independent,
+            // the first such date is the activity opening and is open-ended.
+            // Later dependent pairs become child intervals.
+            if (!$mappedrange && !empty($dependencies)) {
+                $firstfield = $datefields[0];
+                $firstdependencyindex = min(array_column($dependencies, 'declarationstart'));
+                $firstfieldispaired = false;
+                foreach ($dependencies as $dependency) {
+                    if ($dependency['startfield'] === $firstfield || $dependency['endfield'] === $firstfield) {
+                        $firstfieldispaired = true;
+                        break;
+                    }
+                }
+
+                if (!$firstfieldispaired && array_search($firstfield, $datefields, true) < $firstdependencyindex) {
+                    $startfield = $firstfield;
+                    $startvalue = $getdate($startfield);
+                    $parentitem['startcol'] = $startfield;
+                    $parentitem['endcol'] = '';
+                    $parentitem['startenabled'] = $startvalue > 0;
+                    $parentitem['endenabled'] = false;
+                    $parentitem['datestart'] = $startvalue > 0 ? $startvalue : $coursestart;
+                    $parentitem['dateend'] = $courseend;
+                    $parentitem['isopenended'] = true;
+                    $parentitem['editable'] = true;
+                    $parentitem['interactive'] = true;
+                    $parentitem['derived'] = false;
+                    $usedfields[$startfield] = true;
+                } else {
+                    $primary = $dependencies[0];
+                    $startfield = $primary['startfield'];
+                    $endfield = $primary['endfield'];
+                    $startvalue = $getdate($startfield);
+                    $endvalue = $getdate($endfield);
+                    $parentitem['startcol'] = $startfield;
+                    $parentitem['endcol'] = $endfield;
+                    $parentitem['startenabled'] = $startvalue > 0;
+                    $parentitem['endenabled'] = $endvalue > 0;
+                    $parentitem['datestart'] = $startvalue > 0 ? $startvalue : $coursestart;
+                    $parentitem['dateend'] = $endvalue > 0 ? $endvalue : $courseend;
+                    if ($parentitem['dateend'] <= $parentitem['datestart']) {
+                        $parentitem['dateend'] = min($courseend, $parentitem['datestart'] + 3600);
+                    }
+                    $parentitem['editable'] = true;
+                    $parentitem['interactive'] = true;
+                    $parentitem['derived'] = false;
+                    $usedfields[$startfield] = true;
+                    $usedfields[$endfield] = true;
+                    $parentitem['title'] = (string)$cm->name;
+                }
+            }
+
+            foreach ($dependencies as $dependency) {
+                $startfield = $dependency['startfield'];
+                $endfield = $dependency['endfield'];
+                if (isset($usedfields[$startfield]) || isset($usedfields[$endfield]) ||
+                        isset($rangedatefields[$cm->modname][$startfield]) ||
+                        isset($rangedatefields[$cm->modname][$endfield])) {
+                    continue;
+                }
+                $startvalue = $getdate($startfield);
+                $endvalue = $getdate($endfield);
+                $parentbounds = \local_reschedule\adapter\editdates_bridge::discover_parent_interval_bounds(
+                    $cm, $extractor, $settings, $parentitem, [
+                        'startcol' => $startfield,
+                        'endcol' => $endfield,
+                    ]);
+                $startlabel = (string)($settings[$startfield]->label ?? $startfield);
+                $endlabel = (string)($settings[$endfield]->label ?? $endfield);
+                $itemid = 'interval_' . $cm->modname . '_' . $cm->instance . '_' . $startfield . '_' . $endfield;
+                $childrenbyparent[$parentkey][] = [
+                    'id' => $itemid,
+                    'recordid' => (int)$cm->instance,
+                    'cmid' => $cmid,
+                    'table' => (string)$cm->modname,
+                    'parentkey' => $parentkey,
+                    'parenttitle' => $parentitem['title'],
+                    'issubtype' => true,
+                    'isdateinterval' => true,
+                    'boundtoparentstart' => $parentbounds['start'],
+                    'boundtoparentend' => $parentbounds['end'],
+                    'haschildren' => false,
+                    'childrencount' => 0,
+                    'iconurl' => $parentitem['iconurl'],
+                    'viewurl' => $parentitem['viewurl'],
+                    'editable' => true,
+                    'derived' => false,
+                    'interactive' => true,
+                    'title' => $startlabel . ' - ' . $endlabel,
+                    'typelabel' => get_string('dateinterval', 'local_reschedule'),
+                    'startcol' => $startfield,
+                    'endcol' => $endfield,
+                    'startenabled' => $startvalue > 0,
+                    'endenabled' => $endvalue > 0,
+                    'datestart' => $startvalue > 0 ? $startvalue : (int)$parentitem['datestart'],
+                    'dateend' => $endvalue > 0 ? $endvalue : (int)$parentitem['dateend'],
+                ];
+                $usedfields[$startfield] = true;
+                $usedfields[$endfield] = true;
+                $parentitem['haschildren'] = true;
+                $parentitem['childrencount']++;
+            }
+
+            foreach ($settings as $field => $setting) {
+                if (isset($usedfields[$field]) || isset($rangedatefields[$cm->modname][$field]) ||
+                        !preg_match('/^[a-z][a-z0-9_]*$/i', $field) ||
+                        !$dbman->field_exists($cm->modname, $field) ||
+                        !isset($setting->currentvalue, $setting->type) ||
+                        !in_array($setting->type, ['date_selector', 'date_time_selector'], true)) {
+                    continue;
+                }
+
+                $timestamp = (int)$setting->currentvalue;
+                $enabled = $timestamp > 0;
+                $drawtime = $enabled ? $timestamp : (int)$parentitem['datestart'];
+                $itemid = 'milestone_' . $cm->modname . '_' . $cm->instance . '_' . $field;
+                $childrenbyparent[$parentkey][] = [
+                    'id' => $itemid,
+                    'recordid' => (int)$cm->instance,
+                    'cmid' => $cmid,
+                    'table' => (string)$cm->modname,
+                    'parentkey' => $parentkey,
+                    'parenttitle' => $parentitem['title'],
+                    'issubtype' => true,
+                    'ismilestone' => true,
+                    'haschildren' => false,
+                    'childrencount' => 0,
+                    'iconurl' => $parentitem['iconurl'],
+                    'viewurl' => $parentitem['viewurl'],
+                    'editable' => true,
+                    'derived' => false,
+                    'interactive' => true,
+                    'title' => (string)$setting->label,
+                    'typelabel' => get_string('milestone', 'local_reschedule'),
+                    'startcol' => $field,
+                    'endcol' => $field,
+                    'startenabled' => $enabled,
+                    'endenabled' => $enabled,
+                    'optional' => (bool)$setting->isoptional,
+                    'dateonly' => $setting->type === 'date_selector',
+                    'datestart' => $drawtime,
+                    'dateend' => $drawtime,
+                ];
+                $parentitem['haschildren'] = true;
+                $parentitem['childrencount']++;
+            }
+        }
+        unset($parentitem);
+
         // Availability is a Moodle-level capability, so it can expose an
         // activity even when no local date adapter knows how to read that
         // module's native scheduling fields. Such rows deliberately use the
@@ -581,6 +844,33 @@ class manager {
         $skipped = [];
         $availabilityadapter = adapter_manager::get_availability_adapter($course);
 
+        // The extractor validates related dates together, so prepare the final
+        // values of every editable module date before checking individual rows.
+        $proposeddates = [];
+        foreach ($updates as $up) {
+            $candidate = $itemmap[$up['id'] ?? ''] ?? null;
+            if (!$candidate || empty($candidate['cmid']) || empty($candidate['startcol']) ||
+                    ($candidate['editable'] ?? true) === false ||
+                    (!empty($candidate['issubtype']) && empty($candidate['ismilestone']) &&
+                        empty($candidate['isdateinterval']))) {
+                continue;
+            }
+            $cmid = (int)$candidate['cmid'];
+            $startenabled = array_key_exists('startenabled', $up) ?
+                !empty($up['startenabled']) : ($candidate['startenabled'] ?? true);
+            $endenabled = array_key_exists('endenabled', $up) ?
+                !empty($up['endenabled']) : ($candidate['endenabled'] ?? true);
+            if (!empty($candidate['startcol'])) {
+                $proposeddates[$cmid][$candidate['startcol']] = $startenabled ?
+                    (int)($up['datestart'] ?? $candidate['datestart']) : 0;
+            }
+            if (empty($candidate['ismilestone']) && empty($candidate['isopenended']) &&
+                    !empty($candidate['endcol'])) {
+                $proposeddates[$cmid][$candidate['endcol']] = $endenabled ?
+                    (int)($up['dateend'] ?? $candidate['dateend']) : 0;
+            }
+        }
+
         foreach ($updates as $up) {
             $key = $up['id'] ?? '';
             if (!isset($itemmap[$key])) {
@@ -600,6 +890,11 @@ class manager {
             // A disabled endpoint is represented by zero in the module table.
             $storedstart = $startenabled ? $newstart : 0;
             $storedend = $endenabled ? $newend : 0;
+            if (!empty($item['ismilestone'])) {
+                // A milestone has one stored timestamp, never an interval.
+                $storedend = $storedstart;
+                $endenabled = $startenabled;
+            }
 
             $activitychanged = $storedstart !== $currentstart || $storedend !== $currentend ||
                     $startenabled !== ($item['startenabled'] ?? true) ||
@@ -647,7 +942,15 @@ class manager {
                 // Validate against the visible range, while saving zero for disabled ends.
                 $validationstart = $startenabled ? $newstart : (int)$item['datestart'];
                 $validationend = $endenabled ? $newend : (int)$item['dateend'];
-                $errs = $adapter->validate($item, $validationstart, $validationend);
+                if (!empty($item['ismilestone'])) {
+                    $validationstart = $storedstart;
+                    $validationend = $storedend;
+                }
+                $validationitem = $item;
+                if (isset($proposeddates[(int)($item['cmid'] ?? 0)])) {
+                    $validationitem['proposeddates'] = $proposeddates[(int)$item['cmid']] ?? [];
+                }
+                $errs = $adapter->validate($validationitem, $validationstart, $validationend);
                 if (!empty($errs)) {
                     $validationerrors = array_merge($validationerrors, $errs);
                 }
@@ -702,6 +1005,11 @@ class manager {
         }
 
         // Phase 2: Atomic transactional execution.
+        // Main activity adapters can shift dependent dates; explicit milestone
+        // edits must run afterwards regardless of the client's row order.
+        usort($plan, static function(array $left, array $right): int {
+            return (int)!empty($left['item']['ismilestone']) <=> (int)!empty($right['item']['ismilestone']);
+        });
         $transaction = $DB->start_delegated_transaction();
         $updatedcount = 0;
 

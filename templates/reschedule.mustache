@@ -43,7 +43,8 @@
     data-subactivity-parent-bounds="{{#str}}subactivityparentbounds, local_reschedule{{/str}}"
     data-kuet-activity-derived-hint="{{#str}}kuetactivityderivedhint, local_reschedule{{/str}}"
     data-availability-restriction="{{#str}}availabilityrestriction, local_reschedule{{/str}}"
-    data-availability-restriction-hint="{{#str}}availabilityrestrictionhint, local_reschedule{{/str}}">
+    data-availability-restriction-hint="{{#str}}availabilityrestrictionhint, local_reschedule{{/str}}"
+    data-milestone-date="{{#str}}milestonedate, local_reschedule{{/str}}">
     <!-- Header card with controls -->
     <div class="card shadow-sm border-0 mb-4">
         <div class="card-body p-4">
@@ -166,7 +167,8 @@
                                 </span>
                             </td>
                             <td class="col-datestart text-nowrap {{^interactive}}date-cell-disabled{{/interactive}}"{{#interactive}} role="button" title="{{#interactreason}}{{interactreason}}{{/interactreason}}{{^interactreason}}{{#str}}clicktoeditdate, local_reschedule{{/str}}{{/interactreason}}" tabindex="0"{{/interactive}}{{^interactive}} aria-disabled="true" title="{{#editreason}}{{editreason}}{{/editreason}}{{^editreason}}{{#str}}noteditable, local_reschedule{{/str}}{{/editreason}}"{{/interactive}}><span class="date-text">{{startformatted}}</span>{{#editable}} <i class="fa fa-pencil text-muted ms-1 col-edit-icon small opacity-50" aria-hidden="true"></i>{{/editable}}{{#derived}} <i class="fa fa-arrows-alt text-muted ms-1 col-edit-icon small opacity-50" aria-hidden="true"></i>{{/derived}}</td>
-                            <td class="col-dateend text-nowrap {{^interactive}}date-cell-disabled{{/interactive}}"{{#interactive}} role="button" title="{{#interactreason}}{{interactreason}}{{/interactreason}}{{^interactreason}}{{#str}}clicktoeditdate, local_reschedule{{/str}}{{/interactreason}}" tabindex="0"{{/interactive}}{{^interactive}} aria-disabled="true" title="{{#editreason}}{{editreason}}{{/editreason}}{{^editreason}}{{#str}}noteditable, local_reschedule{{/str}}{{/editreason}}"{{/interactive}}><span class="date-text">{{endformatted}}</span>{{#editable}} <i class="fa fa-pencil text-muted ms-1 col-edit-icon small opacity-50" aria-hidden="true"></i>{{/editable}}{{#derived}} <i class="fa fa-arrows-alt text-muted ms-1 col-edit-icon small opacity-50" aria-hidden="true"></i>{{/derived}}</td>
+                            {{#ismilestone}}<td class="text-muted" aria-label="{{#str}}milestone, local_reschedule{{/str}}">—</td>{{/ismilestone}}
+                            {{^ismilestone}}<td class="col-dateend text-nowrap {{^interactive}}date-cell-disabled{{/interactive}}"{{#interactive}} role="button" title="{{#interactreason}}{{interactreason}}{{/interactreason}}{{^interactreason}}{{#str}}clicktoeditdate, local_reschedule{{/str}}{{/interactreason}}" tabindex="0"{{/interactive}}{{^interactive}} aria-disabled="true" title="{{#editreason}}{{editreason}}{{/editreason}}{{^editreason}}{{#str}}noteditable, local_reschedule{{/str}}{{/editreason}}"{{/interactive}}><span class="date-text">{{endformatted}}</span>{{#editable}} <i class="fa fa-pencil text-muted ms-1 col-edit-icon small opacity-50" aria-hidden="true"></i>{{/editable}}{{#derived}} <i class="fa fa-arrows-alt text-muted ms-1 col-edit-icon small opacity-50" aria-hidden="true"></i>{{/derived}}</td>{{/ismilestone}}
                             <td class="col-duration text-center text-nowrap">
                                 <span class="badge bg-light text-secondary border">{{durationformatted}}</span>
                             </td>
@@ -316,11 +318,15 @@
                     <div class="mb-3">
                         <label for="date-modal-start" class="form-label fw-bold small text-secondary">
                             <i class="fa fa-play text-success me-1" aria-hidden="true"></i>
-                            {{#str}}datestart, local_reschedule{{/str}}
+                            <span id="date-modal-start-label">{{#str}}datestart, local_reschedule{{/str}}</span>
                         </label>
                         <input type="datetime-local" class="form-control" id="date-modal-start" required>
                     </div>
-                    <div class="mb-3">
+                    <div class="form-check mb-3 d-none" id="date-modal-milestone-toggle">
+                        <input type="checkbox" class="form-check-input" id="date-modal-milestone-enabled">
+                        <label for="date-modal-milestone-enabled" class="form-check-label">{{#str}}enablemilestone, local_reschedule{{/str}}</label>
+                    </div>
+                    <div class="mb-3" id="date-modal-end-group">
                         <label for="date-modal-end" class="form-label fw-bold small text-secondary">
                             <i class="fa fa-stop text-danger me-1" aria-hidden="true"></i>
                             {{#str}}dateend, local_reschedule{{/str}}

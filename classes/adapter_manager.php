@@ -25,6 +25,7 @@ use local_reschedule\adapter\kuet_adapter;
 use local_reschedule\adapter\editdates_bridge;
 use local_reschedule\adapter\generic_adapter;
 use local_reschedule\adapter\availability_date_adapter;
+use local_reschedule\adapter\milestone_adapter;
 
 /**
  * Adapter Manager for resolving the appropriate date adapter.
@@ -56,6 +57,13 @@ class adapter_manager {
      */
     public static function get_adapter(string $modname, \stdClass $course, array $item): adapter_interface {
         $courseid = (int)$course->id;
+
+        if (!empty($item['ismilestone'])) {
+            return self::get_instance(milestone_adapter::class, $course);
+        }
+        if (!empty($item['isdateinterval']) || !empty($item['isopenended'])) {
+            return self::get_instance(editdates_bridge::class, $course);
+        }
 
         // 1. Specific local_reschedule adapters.
         $specificclasses = [

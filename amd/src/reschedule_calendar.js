@@ -97,11 +97,11 @@ define(['core/notification'], function(Notification) {
             return 0;
         }
         var parts = str.split('T');
-        if (parts.length < 2) {
+        var dateParts = parts[0].split('-');
+        if (dateParts.length !== 3) {
             return 0;
         }
-        var dateParts = parts[0].split('-');
-        var timeParts = parts[1].split(':');
+        var timeParts = parts.length > 1 ? parts[1].split(':') : ['0', '0'];
         var d = new Date(
             parseInt(dateParts[0], 10),
             parseInt(dateParts[1], 10) - 1,
@@ -111,6 +111,31 @@ define(['core/notification'], function(Notification) {
             0
         );
         return Math.floor(d.getTime() / 1000);
+    }
+
+    /**
+     * Format a date-only milestone without introducing a visible time.
+     *
+     * @param {number} sec Unix timestamp in seconds.
+     * @param {string} [locale] Active locale.
+     * @return {string} Local date.
+     */
+    function formatDateOnly(sec, locale) {
+        return new Intl.DateTimeFormat(locale || undefined, {
+            day: '2-digit', month: '2-digit', year: 'numeric'
+        }).format(new Date(sec * 1000));
+    }
+
+    /**
+     * Keep date-selector milestones at the browser's local midnight.
+     *
+     * @param {number} sec Unix timestamp in seconds.
+     * @return {number} Midnight timestamp.
+     */
+    function startOfLocalDay(sec) {
+        var date = new Date(sec * 1000);
+        date.setHours(0, 0, 0, 0);
+        return Math.floor(date.getTime() / 1000);
     }
 
     /**
@@ -204,7 +229,8 @@ define(['core/notification'], function(Notification) {
                     ['data-subactivity-parent-bounds', 'subactivityparentbounds'],
                     ['data-kuet-activity-derived-hint', 'kuetactivityderivedhint'],
                     ['data-availability-restriction', 'availabilityrestriction'],
-                    ['data-availability-restriction-hint', 'availabilityrestrictionhint']
+                    ['data-availability-restriction-hint', 'availabilityrestrictionhint'],
+                    ['data-milestone-date', 'milestonedate']
                 ].forEach(function(mapping) {
                     cfg.strings[mapping[1]] = getRootData(mapping[0], cfg.strings[mapping[1]] || '');
                 });
@@ -229,6 +255,11 @@ define(['core/notification'], function(Notification) {
             var timelineEnd = Number(cfg.timelineEnd || cfg.courseEnd);
             this.items = (rawItems || []).map(function(item) {
                 var copy = Object.assign({}, item);
+                if (copy.ismilestone) {
+                    copy.datestart = copy.startenabled === false ? timelineStart : copy.datestart;
+                    copy.dateend = copy.datestart;
+                    return copy;
+                }
                 // Disabled endpoints occupy the complete visible timeline without
                 // turning the display boundary into a stored date.
                 if (copy.startenabled === false) {
@@ -509,7 +540,7 @@ define(['core/notification'], function(Notification) {
                 if (!self.isItemEditable(item) && item.editreason) {
                     rowLabel.setAttribute('title', item.interactreason || item.editreason);
                 }
-                var dur = formatDuration(item.dateend - item.datestart);
+                var dur = item.ismilestone ? item.typelabel : formatDuration(item.dateend - item.datestart);
 
                 var expanderHtml = '';
                 if (item.haschildren) {
@@ -751,6 +782,7 @@ define(['core/notification'], function(Notification) {
         createBarElement: function(item, totalSec, cStart) {
             var bar = document.createElement('div');
             bar.className = 'quest-calendar-bar' + (item.issubtype ? ' is-subtype' : '') +
+                (item.ismilestone ? ' is-milestone' : '') +
                 (this.isItemInteractive(item) ? '' : ' is-disabled');
             if (!this.isItemInteractive(item)) {
                 bar.setAttribute('aria-disabled', 'true');
@@ -760,13 +792,16 @@ define(['core/notification'], function(Notification) {
                 (item.interactreason || item.editreason)) ?
                 (item.interactreason || item.editreason) : '');
 
-            var sFrac = Math.max(0, Math.min(1, (item.datestart - cStart) / totalSec));
-            var eFrac = Math.max(0, Math.min(1, (item.dateend - cStart) / totalSec));
-            var wFrac = Math.max(0.005, eFrac - sFrac);
+            this.positionBar(bar, item, totalSec, cStart);
 
-            bar.style.left = (sFrac * 100) + '%';
-            bar.style.width = (wFrac * 100) + '%';
-            this.updateBarOverflow(bar, item, totalSec, cStart);
+            if (item.ismilestone) {
+                bar.setAttribute('aria-label', item.title);
+                var markerLabel = document.createElement('span');
+                markerLabel.className = 'visually-hidden';
+                markerLabel.textContent = item.title;
+                bar.appendChild(markerLabel);
+                return bar;
+            }
 
             var hStart = document.createElement('div');
             hStart.className = 'quest-bar-handle quest-bar-handle-start';
@@ -777,11 +812,37 @@ define(['core/notification'], function(Notification) {
             content.textContent = item.title;
             bar.appendChild(content);
 
-            var hEnd = document.createElement('div');
-            hEnd.className = 'quest-bar-handle quest-bar-handle-end';
-            bar.appendChild(hEnd);
+            if (!item.isopenended) {
+                var hEnd = document.createElement('div');
+                hEnd.className = 'quest-bar-handle quest-bar-handle-end';
+                bar.appendChild(hEnd);
+            }
 
             return bar;
+        },
+
+        /**
+         * Position either an interval bar or a single-date milestone.
+         *
+         * @param {HTMLElement} bar Timeline element.
+         * @param {Object} item Schedule item.
+         * @param {number} totalSec Visible timeline duration.
+         * @param {number} cStart Visible timeline start.
+         */
+        positionBar: function(bar, item, totalSec, cStart) {
+            var start = Math.max(0, Math.min(1, (item.datestart - cStart) / totalSec));
+            if (item.ismilestone) {
+                bar.style.left = (start * 100) + '%';
+                bar.style.width = '20px';
+                bar.classList.toggle('d-none', item.startenabled === false);
+            } else {
+                var end = Math.max(0, Math.min(1, (item.dateend - cStart) / totalSec));
+                bar.style.left = (start * 100) + '%';
+                bar.style.width = (Math.max(0.005, end - start) * 100) + '%';
+            }
+            bar.classList.toggle('is-undated-item', !item.ismilestone &&
+                item.startenabled === false && item.endenabled === false);
+            this.updateBarOverflow(bar, item, totalSec, cStart);
         },
 
         /**
@@ -798,7 +859,6 @@ define(['core/notification'], function(Notification) {
             if (!item.hasavailabilitydates || !ranges.length) {
                 return;
             }
-            var cEnd = cStart + totalSec;
             ranges.forEach(function(range, index) {
                 var overlay = document.createElement('div');
                 overlay.className = 'quest-availability-range' +
@@ -1382,11 +1442,11 @@ define(['core/notification'], function(Notification) {
 
                 var mode = 'move';
                 // If bar has very small width (< 24px) or if either handle was clicked:
-                if (isStartHandle || isEndHandle || barW < 24) {
+                if (!item.ismilestone && (isStartHandle || isEndHandle || barW < 24)) {
                     if (barW < 24) {
                         // When handles overlap or bar is very narrow, determine direction based on click position.
                         // Left half allows stretching start; right half allows stretching end.
-                        mode = (clickX < barW / 2) ? 'resize-start' : 'resize-end';
+                        mode = item.isopenended || clickX < barW / 2 ? 'resize-start' : 'resize-end';
                     } else if (isStartHandle) {
                         mode = 'resize-start';
                     } else if (isEndHandle) {
@@ -1529,9 +1589,13 @@ define(['core/notification'], function(Notification) {
                 if (drag.mode === 'move') {
                     var minShift = cStart - drag.initialStart;
                     var maxShift = cEnd - drag.initialEnd;
-                    if (drag.parent && !drag.parent.derived) {
-                        minShift = Math.max(minShift, drag.parent.datestart - drag.initialStart);
-                        maxShift = Math.min(maxShift, drag.parent.dateend - drag.initialEnd);
+                    if (drag.parent && !drag.parent.derived && !drag.item.ismilestone) {
+                        if (drag.item.boundtoparentstart !== false) {
+                            minShift = Math.max(minShift, drag.parent.datestart - drag.initialStart);
+                        }
+                        if (drag.item.boundtoparentend !== false) {
+                            maxShift = Math.min(maxShift, drag.parent.dateend - drag.initialEnd);
+                        }
                     }
                     if (drag.children && drag.children.length > 0) {
                         drag.children.forEach(function(c) {
@@ -1540,9 +1604,11 @@ define(['core/notification'], function(Notification) {
                         });
                     }
                     if (minShift > maxShift) {
-                        if (drag.parent && !drag.parent.derived) {
-                            minShift = drag.parent.datestart - drag.initialStart;
-                            maxShift = drag.parent.dateend - drag.initialEnd;
+                        if (drag.parent && !drag.parent.derived && !drag.item.ismilestone) {
+                            minShift = drag.item.boundtoparentstart !== false ?
+                                drag.parent.datestart - drag.initialStart : cStart - drag.initialStart;
+                            maxShift = drag.item.boundtoparentend !== false ?
+                                drag.parent.dateend - drag.initialEnd : cEnd - drag.initialEnd;
                         } else {
                             minShift = cStart - drag.initialStart;
                             maxShift = cEnd - drag.initialEnd;
@@ -1551,6 +1617,10 @@ define(['core/notification'], function(Notification) {
                     var shift = Math.max(minShift, Math.min(maxShift, dt));
                     newStart = drag.initialStart + shift;
                     newEnd = drag.initialEnd + shift;
+                    if (drag.item.ismilestone && drag.item.dateonly) {
+                        newStart = startOfLocalDay(newStart);
+                        newEnd = newStart;
+                    }
 
                     // Synchronously shift subactivities by the exact same amount.
                     if (drag.children && drag.children.length > 0) {
@@ -1559,26 +1629,21 @@ define(['core/notification'], function(Notification) {
                             c.item.dateend = c.initialEnd + shift;
 
                             if (c.barEl) {
-                                var cSFrac = Math.max(0, Math.min(1, (c.item.datestart - timelineStart) / drag.totalSec));
-                                var cEFrac = Math.max(0, Math.min(1, (c.item.dateend - timelineStart) / drag.totalSec));
-                                var cWFrac = Math.max(0.005, cEFrac - cSFrac);
-                                c.barEl.style.left = (cSFrac * 100) + '%';
-                                c.barEl.style.width = (cWFrac * 100) + '%';
-                                self.updateBarOverflow(c.barEl, c.item, drag.totalSec, timelineStart);
+                                self.positionBar(c.barEl, c.item, drag.totalSec, timelineStart);
                             }
                             self.updateTableRow(c.item);
                         });
                     }
                 } else if (drag.mode === 'resize-start') {
                     var minStart = cStart;
-                    if (drag.parent && !drag.parent.derived) {
+                    if (drag.parent && !drag.parent.derived && drag.item.boundtoparentstart !== false) {
                         minStart = Math.max(minStart, drag.parent.datestart);
                     }
                     newStart = Math.min(drag.initialEnd - minDur, Math.max(minStart, drag.initialStart + dt));
                     newEnd = drag.initialEnd;
                 } else if (drag.mode === 'resize-end') {
                     var maxEnd = cEnd;
-                    if (drag.parent && !drag.parent.derived) {
+                    if (drag.parent && !drag.parent.derived && drag.item.boundtoparentend !== false) {
                         maxEnd = Math.min(maxEnd, drag.parent.dateend);
                     }
                     newStart = drag.initialStart;
@@ -1589,7 +1654,7 @@ define(['core/notification'], function(Notification) {
                 drag.item.dateend = newEnd;
 
                 // Proportionally resize subactivities when parent activity is resized.
-                if ((drag.mode === 'resize-start' || drag.mode === 'resize-end') &&
+                if (!drag.item.isopenended && (drag.mode === 'resize-start' || drag.mode === 'resize-end') &&
                     drag.children && drag.children.length > 0) {
                     var pInitDur = Math.max(1, drag.initialEnd - drag.initialStart);
                     var pNewDur = Math.max(1, newEnd - newStart);
@@ -1605,6 +1670,16 @@ define(['core/notification'], function(Notification) {
                         var step = (pNewDur >= 7200) ? 3600 : 60;
                         newCStart = Math.round(newCStart / step) * step;
                         newCEnd = Math.round(newCEnd / step) * step;
+
+                        if (c.item.ismilestone) {
+                            c.item.datestart = c.item.dateonly ? startOfLocalDay(newCStart) : newCStart;
+                            c.item.dateend = c.item.datestart;
+                            if (c.barEl) {
+                                self.positionBar(c.barEl, c.item, drag.totalSec, timelineStart);
+                            }
+                            self.updateTableRow(c.item);
+                            return;
+                        }
 
                         // Preserve exact boundary alignment if originally aligned with parent.
                         if (c.initialStart === drag.initialStart) {
@@ -1633,24 +1708,13 @@ define(['core/notification'], function(Notification) {
                         c.item.dateend = newCEnd;
 
                         if (c.barEl) {
-                            var cSFrac = Math.max(0, Math.min(1, (newCStart - timelineStart) / drag.totalSec));
-                            var cEFrac = Math.max(0, Math.min(1, (newCEnd - timelineStart) / drag.totalSec));
-                            var cWFrac = Math.max(0.005, cEFrac - cSFrac);
-                            c.barEl.style.left = (cSFrac * 100) + '%';
-                            c.barEl.style.width = (cWFrac * 100) + '%';
-                            self.updateBarOverflow(c.barEl, c.item, drag.totalSec, timelineStart);
+                            self.positionBar(c.barEl, c.item, drag.totalSec, timelineStart);
                         }
                         self.updateTableRow(c.item);
                     });
                 }
 
-                var sFrac = Math.max(0, Math.min(1, (newStart - timelineStart) / drag.totalSec));
-                var eFrac = Math.max(0, Math.min(1, (newEnd - timelineStart) / drag.totalSec));
-                var wFrac = Math.max(0.005, eFrac - sFrac);
-
-                drag.barEl.style.left = (sFrac * 100) + '%';
-                drag.barEl.style.width = (wFrac * 100) + '%';
-                self.updateBarOverflow(drag.barEl, drag.item, drag.totalSec, timelineStart);
+                self.positionBar(drag.barEl, drag.item, drag.totalSec, timelineStart);
 
                 self.updateHUD(e.clientX, e.clientY, drag.item);
                 self.updateTableRow(drag.item);
@@ -1758,9 +1822,13 @@ define(['core/notification'], function(Notification) {
             }
             this.hud.classList.remove('d-none');
             this.hud.style.transform = 'translate3d(' + (x + 15) + 'px, ' + (y - 50) + 'px, 0)';
-            this.hudTitle.textContent = item.title + ' (' + formatDuration(item.dateend - item.datestart) + ')';
-            this.hudDates.textContent = formatDateTime(item.datestart, this.locale) + '  \u2192  ' +
-                formatDateTime(item.dateend, this.locale);
+            this.hudTitle.textContent = item.title + ' (' +
+                (item.ismilestone ? item.typelabel : formatDuration(item.dateend - item.datestart)) + ')';
+            this.hudDates.textContent = item.ismilestone ?
+                (item.dateonly ? formatDateOnly(item.datestart, this.locale) :
+                    formatDateTime(item.datestart, this.locale)) :
+                (formatDateTime(item.datestart, this.locale) + '  \u2192  ' +
+                    formatDateTime(item.dateend, this.locale));
         },
 
         /**
@@ -1817,7 +1885,9 @@ define(['core/notification'], function(Notification) {
             var colEnd = row.querySelector('.col-dateend');
             var colDur = row.querySelector('.col-duration .badge');
 
-            var startStr = item.startenabled === false ? '' : formatDateTime(item.datestart, this.locale);
+            var startStr = item.startenabled === false ? '' :
+                (item.dateonly ? formatDateOnly(item.datestart, this.locale) :
+                    formatDateTime(item.datestart, this.locale));
             var endStr = item.endenabled === false ? '' : formatDateTime(item.dateend, this.locale);
 
             if (colStart) {
@@ -1837,12 +1907,14 @@ define(['core/notification'], function(Notification) {
                 }
             }
             if (colDur) {
-                colDur.textContent = formatDuration(item.dateend - item.datestart);
+                colDur.textContent = item.ismilestone ? item.typelabel :
+                    formatDuration(item.dateend - item.datestart);
             }
 
             var leftLabel = document.querySelector('.quest-left-row[data-itemid="' + item.id + '"] .quest-lbl-dur');
             if (leftLabel) {
-                leftLabel.textContent = formatDuration(item.dateend - item.datestart);
+                leftLabel.textContent = item.ismilestone ? item.typelabel :
+                    formatDuration(item.dateend - item.datestart);
             }
         },
 
@@ -1968,12 +2040,7 @@ define(['core/notification'], function(Notification) {
             var totalSec = Math.max(3600, self.getTimelineEnd() - cStart);
             var bar = self.board.querySelector('.quest-calendar-bar[data-itemid="' + parent.id + '"]');
             if (bar) {
-                var sFrac = Math.max(0, Math.min(1, (newStart - cStart) / totalSec));
-                var eFrac = Math.max(0, Math.min(1, (newEnd - cStart) / totalSec));
-                var wFrac = Math.max(0.005, eFrac - sFrac);
-                bar.style.left = (sFrac * 100) + '%';
-                bar.style.width = (wFrac * 100) + '%';
-                self.updateBarOverflow(bar, parent, totalSec, cStart);
+                self.positionBar(bar, parent, totalSec, cStart);
             }
             self.updateTableRow(parent);
         },
@@ -2175,6 +2242,20 @@ define(['core/notification'], function(Notification) {
                 if (!dateModalStartInput || !dateModalEndInput) {
                     return;
                 }
+                var modalItemId = document.getElementById('date-modal-itemid').value;
+                var modalItem = self.items.find(function(it) {
+                    return it.id === modalItemId;
+                });
+                if (modalItem && modalItem.ismilestone) {
+                    var milestoneEnabled = document.getElementById('date-modal-milestone-enabled');
+                    var valid = (!modalItem.optional || milestoneEnabled.checked) ?
+                        !!dateTimeLocalToTimestamp(dateModalStartInput.value) : true;
+                    dateModalStartInput.classList.toggle('is-invalid', !valid);
+                    if (dateModalErrorEl) {
+                        dateModalErrorEl.classList.toggle('d-none', valid);
+                    }
+                    return;
+                }
                 var sTs = dateTimeLocalToTimestamp(dateModalStartInput.value);
                 var eTs = dateTimeLocalToTimestamp(dateModalEndInput.value);
                 if (sTs && eTs && eTs > sTs) {
@@ -2201,6 +2282,13 @@ define(['core/notification'], function(Notification) {
             if (dateModalEndInput) {
                 dateModalEndInput.addEventListener('input', handleDateModalInputChange);
                 dateModalEndInput.addEventListener('change', handleDateModalInputChange);
+            }
+            var milestoneEnabledInput = document.getElementById('date-modal-milestone-enabled');
+            if (milestoneEnabledInput) {
+                milestoneEnabledInput.addEventListener('change', function() {
+                    dateModalStartInput.disabled = !milestoneEnabledInput.checked;
+                    handleDateModalInputChange();
+                });
             }
 
             window.addEventListener('beforeunload', function(e) {
@@ -2297,6 +2385,28 @@ define(['core/notification'], function(Notification) {
             var startInput = document.getElementById('date-modal-start');
             var endInput = document.getElementById('date-modal-end');
             var errorEl = document.getElementById('date-modal-error');
+            var milestoneToggle = document.getElementById('date-modal-milestone-toggle');
+            var milestoneEnabled = document.getElementById('date-modal-milestone-enabled');
+            var endGroup = document.getElementById('date-modal-end-group');
+            var startLabel = document.getElementById('date-modal-start-label');
+
+            if (milestoneToggle) {
+                milestoneToggle.classList.toggle('d-none', !item.ismilestone || !item.optional);
+            }
+            if (milestoneEnabled) {
+                milestoneEnabled.checked = item.startenabled !== false;
+            }
+            if (endGroup) {
+                endGroup.classList.toggle('d-none', !!item.ismilestone || !!item.isopenended);
+            }
+            if (startLabel) {
+                if (!startLabel.dataset.rangeLabel) {
+                    startLabel.dataset.rangeLabel = startLabel.textContent;
+                }
+                startLabel.textContent = item.ismilestone ?
+                    (self.strings.milestonedate || 'Milestone date') :
+                    startLabel.dataset.rangeLabel;
+            }
 
             if (idInput) {
                 idInput.value = item.id;
@@ -2308,10 +2418,15 @@ define(['core/notification'], function(Notification) {
                 typeBadge.textContent = item.typelabel || (item.issubtype ? 'Phase' : 'Activity');
             }
             if (durBadge) {
-                durBadge.textContent = formatDuration(item.dateend - item.datestart);
+                durBadge.textContent = item.ismilestone ? item.typelabel :
+                    formatDuration(item.dateend - item.datestart);
             }
             if (startInput) {
-                startInput.value = timestampToDateTimeLocal(item.datestart);
+                startInput.type = item.ismilestone && item.dateonly ? 'date' : 'datetime-local';
+                startInput.value = item.ismilestone && item.dateonly ?
+                    timestampToDateTimeLocal(item.datestart).split('T')[0] :
+                    timestampToDateTimeLocal(item.datestart);
+                startInput.disabled = !!item.ismilestone && item.optional && item.startenabled === false;
                 startInput.classList.remove('is-invalid');
             }
             if (endInput) {
@@ -2343,7 +2458,7 @@ define(['core/notification'], function(Notification) {
             }
 
             setTimeout(function() {
-                if (fieldToFocus === 'end' && endInput) {
+                if (fieldToFocus === 'end' && endInput && !item.isopenended) {
                     endInput.focus();
                 } else if (startInput) {
                     startInput.focus();
@@ -2403,23 +2518,54 @@ define(['core/notification'], function(Notification) {
                 return;
             }
 
+            if (item.ismilestone) {
+                var milestoneEnabled = document.getElementById('date-modal-milestone-enabled');
+                var enabled = !item.optional || milestoneEnabled.checked;
+                var timestamp = enabled ? dateTimeLocalToTimestamp(startInput.value) : 0;
+                if (enabled && !timestamp) {
+                    startInput.classList.add('is-invalid');
+                    if (errorEl) {
+                        errorEl.classList.remove('d-none');
+                    }
+                    return;
+                }
+                item.startenabled = enabled;
+                item.endenabled = enabled;
+                item.datestart = enabled ? timestamp : self.getTimelineStart();
+                item.dateend = item.datestart;
+                var milestoneBar = self.board.querySelector('.quest-calendar-bar[data-itemid="' + item.id + '"]');
+                if (milestoneBar) {
+                    self.positionBar(milestoneBar, item,
+                        Math.max(3600, self.getTimelineEnd() - self.getTimelineStart()), self.getTimelineStart());
+                }
+                self.updateTableRow(item);
+                self.markDirty();
+                self.closeDateModal();
+                return;
+            }
+
             var newStart = dateTimeLocalToTimestamp(startInput.value);
-            var newEnd = dateTimeLocalToTimestamp(endInput.value);
+            var newEnd = item.isopenended ? Number(item.dateend) : dateTimeLocalToTimestamp(endInput.value);
 
             var parent = self.getParentItem(item);
             if (parent && !parent.derived) {
-                newStart = Math.max(newStart, Number(parent.datestart));
-                newEnd = Math.min(newEnd, Number(parent.dateend));
+                if (item.boundtoparentstart !== false) {
+                    newStart = Math.max(newStart, Number(parent.datestart));
+                }
+                if (item.boundtoparentend !== false) {
+                    newEnd = Math.min(newEnd, Number(parent.dateend));
+                }
                 startInput.value = timestampToDateTimeLocal(newStart);
                 endInput.value = timestampToDateTimeLocal(newEnd);
             }
 
-            if (!newStart || !newEnd || newEnd <= newStart) {
+            if (!newStart || !newEnd || (!item.isopenended && newEnd <= newStart)) {
                 if (errorEl) {
                     errorEl.classList.remove('d-none');
                 }
                 var errorText = document.getElementById('date-modal-error-text');
-                if (errorText && parent && !parent.derived) {
+                if (errorText && parent && !parent.derived &&
+                        (item.boundtoparentstart !== false || item.boundtoparentend !== false)) {
                     errorText.textContent = (self.strings && self.strings.subactivityparentbounds) ||
                         'The subactivity must remain within the parent activity timeframe.';
                 }
@@ -2439,7 +2585,7 @@ define(['core/notification'], function(Notification) {
             if (startChanged) {
                 item.startenabled = true;
             }
-            if (endChanged) {
+            if (endChanged && !item.isopenended) {
                 item.endenabled = true;
             }
 
@@ -2447,7 +2593,7 @@ define(['core/notification'], function(Notification) {
             var totalSec = Math.max(3600, self.getTimelineEnd() - cStart);
 
             // If item is a parent activity, proportionally scale its subactivities
-            var children = self.items.filter(function(it) {
+            var children = item.isopenended ? [] : self.items.filter(function(it) {
                     return it.parentkey === item.id && self.isItemEditable(it);
             });
 
@@ -2465,6 +2611,17 @@ define(['core/notification'], function(Notification) {
                     var step = (pNewDur >= 7200) ? 3600 : 60;
                     newCStart = Math.round(newCStart / step) * step;
                     newCEnd = Math.round(newCEnd / step) * step;
+
+                    if (c.ismilestone) {
+                        c.datestart = newCStart;
+                        c.dateend = newCStart;
+                        var pointBar = self.board.querySelector('.quest-calendar-bar[data-itemid="' + c.id + '"]');
+                        if (pointBar) {
+                            self.positionBar(pointBar, c, totalSec, cStart);
+                        }
+                        self.updateTableRow(c);
+                        return;
+                    }
 
                     if (c.datestart === oldStart) {
                         newCStart = newStart;
@@ -2491,12 +2648,7 @@ define(['core/notification'], function(Notification) {
 
                     var cBar = self.board.querySelector('.quest-calendar-bar[data-itemid="' + c.id + '"]');
                     if (cBar) {
-                        var cSFrac = Math.max(0, Math.min(1, (c.datestart - cStart) / totalSec));
-                        var cEFrac = Math.max(0, Math.min(1, (c.dateend - cStart) / totalSec));
-                        var cWFrac = Math.max(0.005, cEFrac - cSFrac);
-                        cBar.style.left = (cSFrac * 100) + '%';
-                        cBar.style.width = (cWFrac * 100) + '%';
-                        self.updateBarOverflow(cBar, c, totalSec, cStart);
+                        self.positionBar(cBar, c, totalSec, cStart);
                     }
                     self.updateTableRow(c);
                 });
@@ -2505,12 +2657,7 @@ define(['core/notification'], function(Notification) {
             // Update bar element for this item
             var bar = self.board.querySelector('.quest-calendar-bar[data-itemid="' + item.id + '"]');
             if (bar) {
-                var sFrac = Math.max(0, Math.min(1, (newStart - cStart) / totalSec));
-                var eFrac = Math.max(0, Math.min(1, (newEnd - cStart) / totalSec));
-                var wFrac = Math.max(0.005, eFrac - sFrac);
-                bar.style.left = (sFrac * 100) + '%';
-                bar.style.width = (wFrac * 100) + '%';
-                self.updateBarOverflow(bar, item, totalSec, cStart);
+                self.positionBar(bar, item, totalSec, cStart);
             }
 
             self.updateTableRow(item);
@@ -2607,6 +2754,10 @@ define(['core/notification'], function(Notification) {
             var mainItems = self.items.filter(function(it) {
                 return !it.issubtype;
             });
+            var oldParentRanges = {};
+            mainItems.forEach(function(it) {
+                oldParentRanges[it.id] = {start: it.datestart, end: it.dateend};
+            });
 
             if (!mainItems.length) {
                 return;
@@ -2660,8 +2811,24 @@ define(['core/notification'], function(Notification) {
 
             // Distribute subtasks/phases within their respective parent activity timeframe.
             mainItems.forEach(function(parent) {
-                var children = self.items.filter(function(it) {
+                var allChildren = self.items.filter(function(it) {
                     return it.parentkey === parent.id && self.isItemEditable(it);
+                });
+                var children = allChildren.filter(function(it) {
+                    return !it.ismilestone;
+                });
+
+                var oldRange = oldParentRanges[parent.id];
+                var oldDuration = Math.max(1, oldRange.end - oldRange.start);
+                allChildren.filter(function(it) {
+                    return it.ismilestone && it.startenabled !== false;
+                }).forEach(function(point) {
+                    var ratio = (point.datestart - oldRange.start) / oldDuration;
+                    point.datestart = Math.round(parent.datestart + ratio * (parent.dateend - parent.datestart));
+                    if (point.dateonly) {
+                        point.datestart = startOfLocalDay(point.datestart);
+                    }
+                    point.dateend = point.datestart;
                 });
 
                 if (!children.length) {
@@ -2724,7 +2891,8 @@ define(['core/notification'], function(Notification) {
             var courseEnd = Number(self.config.courseEnd);
             var courseDuration = Math.max(3600, courseEnd - courseStart);
             var datedItems = self.items.filter(function(item) {
-                return Number(item.dateend) > Number(item.datestart);
+                return (item.ismilestone && item.startenabled !== false) ||
+                    Number(item.dateend) > Number(item.datestart);
             });
             var transformableItems = datedItems.filter(function(item) {
                 return self.isItemEditable(item) || item.derived;
@@ -2756,8 +2924,12 @@ define(['core/notification'], function(Notification) {
                 var newEnd = Math.round(courseStart + (oldEnd - originalStart) * scale);
 
                 // Rounding must not turn a valid interval into a zero-length one.
-                if (newEnd <= newStart) {
+                if (!item.ismilestone && newEnd <= newStart) {
                     newEnd = newStart + 1;
+                }
+                if (item.ismilestone && item.dateonly) {
+                    newStart = startOfLocalDay(newStart);
+                    newEnd = newStart;
                 }
 
                 if (oldStart !== newStart || oldEnd !== newEnd) {

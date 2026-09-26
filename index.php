@@ -113,6 +113,15 @@ $dateformat = get_string('strftimedatetimeshort', 'langconfig');
 $itemsforview = [];
 
 foreach ($items as $item) {
+    if (!empty($item['ismilestone'])) {
+        $itemsforview[] = array_merge($item, [
+            'startformatted' => !empty($item['startenabled']) ? userdate($item['datestart'],
+                !empty($item['dateonly']) ? get_string('strftimedate', 'langconfig') : $dateformat) : '',
+            'endformatted' => '',
+            'durationformatted' => get_string('milestone', 'local_reschedule'),
+        ]);
+        continue;
+    }
     $dursec = max(0, $item['dateend'] - $item['datestart']);
     $durdays = floor($dursec / 86400);
     $durhours = round(($dursec % 86400) / 3600);

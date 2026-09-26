@@ -286,12 +286,12 @@
     box-sizing: border-box;
     color: #fff;
     cursor: grab;
-    height: 25px;
+    height: 50px;
     min-width: 22px;
     position: absolute;
     top: 3px;
     touch-action: none;
-    z-index: 7;
+    z-index: 2;
 }
 
 .quest-availability-range.is-readonly {
@@ -330,10 +330,10 @@
 .quest-availability-handle {
     background: #fbbf24;
     border: 2px solid #92400e;
-    bottom: -2px;
+    bottom: -1px;
     cursor: ew-resize;
     position: absolute;
-    top: -2px;
+    top: -1px;
     width: 9px;
     z-index: 2;
 }
@@ -369,6 +369,37 @@
 
 .quest-calendar-bar.is-subtype {
     background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+}
+
+.quest-calendar-bar.is-undated-item {
+    background: #9ca3af;
+    color: #f8fafc;
+}
+
+/* A date without duration is a draggable point, not a tiny interval bar. */
+.quest-calendar-bar.is-milestone {
+    background: transparent;
+    border-radius: 0;
+    height: 38px;
+    min-width: 20px;
+    transform: translateX(-50%);
+}
+
+.quest-calendar-bar.is-milestone::before {
+    background: #b45309;
+    border: 2px solid #78350f;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.3);
+    content: '';
+    height: 16px;
+    left: 2px;
+    position: absolute;
+    top: 11px;
+    transform: rotate(45deg);
+    width: 16px;
+}
+
+.quest-calendar-bar.is-milestone.is-dragging::before {
+    background: #f59e0b;
 }
 
 .quest-calendar-bar.is-dragging {
