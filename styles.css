@@ -24,7 +24,7 @@
     align-items: stretch;
     background: #fff;
     display: flex;
-    height: 84px;
+    height: 156px;
     overflow: hidden;
     position: relative;
     z-index: 30;
@@ -46,7 +46,7 @@
     display: block;
 }
 
-.quest-timeline-sticky-header>.quest-left-header {
+.quest-timeline-sticky-header > .quest-left-header {
     flex: 0 0 280px;
     position: relative;
     top: auto;
@@ -105,10 +105,68 @@
     border-bottom: 2px solid #cbd5e1;
     border-right: 1px solid #e2e8f0;
     box-sizing: border-box;
-    height: 84px;
+    height: 156px;
     position: sticky;
     top: 0;
     z-index: 21;
+}
+
+.quest-left-drops-label {
+    align-items: center;
+    background: #eff6ff;
+    border-bottom: 1px solid #bfdbfe;
+    color: #1d4ed8;
+    display: flex;
+    height: 72px;
+    justify-content: space-between;
+    margin: -0.5rem -0.5rem 0;
+    padding: 0 0.75rem;
+}
+
+.quest-effort-settings {
+    color: inherit;
+    font-size: 1rem;
+    min-height: 2rem;
+    min-width: 2rem;
+}
+
+.quest-effort-settings:hover,
+.quest-effort-settings:focus-visible {
+    background-color: #dbeafe;
+    color: #1e40af;
+}
+
+.quest-effort-academic-summary {
+    cursor: pointer;
+    list-style: none;
+}
+
+.quest-effort-academic-summary::-webkit-details-marker {
+    display: none;
+}
+
+.quest-effort-academic-summary:hover {
+    background-color: #e2e8f0;
+}
+
+.quest-effort-academic-summary:focus-visible {
+    outline: 2px solid #1d4ed8;
+    outline-offset: -2px;
+}
+
+.quest-effort-academic-chevron {
+    transition: transform 0.2s ease;
+}
+
+.quest-effort-academic[open] .quest-effort-academic-chevron {
+    transform: rotate(180deg);
+}
+
+.quest-left-header-summary {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    justify-content: center;
 }
 
 .quest-left-row {
@@ -135,11 +193,25 @@
 .quest-bands-header {
     background: #fff;
     box-sizing: border-box;
-    height: 84px;
+    height: 156px;
     box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
     position: sticky;
     top: 0;
     z-index: 5;
+}
+
+.quest-drops-row {
+    background: #eff6ff;
+    border-bottom: 1px solid #bfdbfe;
+    height: 72px;
+    overflow: hidden;
+    width: 100%;
+}
+
+.quest-drops-canvas {
+    display: block;
+    height: 100%;
+    width: 100%;
 }
 
 .quest-band-row {
@@ -274,13 +346,14 @@
  * separately from the module's own draggable bar. */
 .quest-availability-range {
     background-color: #facc1520;
-    background-image: repeating-linear-gradient(
-        135deg,
-        #11182720 0,
-        #11182720 8px,
-        #facc1520 8px,
-        #facc1520 16px
-    );
+    background-image:
+        repeating-linear-gradient(
+            135deg,
+            #11182720 0,
+            #11182720 8px,
+            #facc1520 8px,
+            #facc1520 16px
+        );
     border: 2px solid #111827;
     border-radius: 3px;
     box-sizing: border-box;
@@ -302,11 +375,14 @@
 
 .quest-availability-range.is-dragging {
     background-color: #facc1510;
-    background-image: repeating-linear-gradient(135deg,
+    background-image:
+        repeating-linear-gradient(
+            135deg,
             #11182710 0,
             #11182710 8px,
             #facc1510 8px,
-            #facc1510 16px);
+            #facc1510 16px
+        );
     box-shadow: 0 3px 10px rgba(15, 23, 42, 0.45);
     cursor: grabbing;
 }
@@ -318,7 +394,7 @@
     font-size: 18px;
     left: 50%;
     line-height: 14px;
-    padding: 0 0px;
+    padding: 0;
     pointer-events: none;
     position: absolute;
     text-shadow: 0 1px 1px rgba(0, 0, 0, 0.7);
@@ -450,6 +526,16 @@
 
 .quest-bar-handle-end::before {
     right: -4px;
+}
+
+.quest-calendar-bar.is-narrow .quest-bar-handle {
+    max-width: 25%;
+}
+
+.quest-calendar-bar.is-narrow .quest-bar-handle::before {
+    left: 0;
+    right: 0;
+    width: 100%;
 }
 
 .quest-bar-content {
@@ -587,6 +673,7 @@
     color: #64748b;
     display: flex;
     font-size: 0.72rem;
+    gap: 0.2rem;
     justify-content: space-between;
     line-height: 1.2;
     margin-top: 2px;
@@ -594,9 +681,16 @@
 
 .quest-row-typename {
     color: #64748b;
+    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.quest-lbl-effort {
+    font-size: 0.65rem;
+    padding: 0.2em 0.35em;
 }
 
 .quest-timeline-wrapper img.activityicon,

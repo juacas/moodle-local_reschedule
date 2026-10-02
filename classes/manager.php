@@ -808,6 +808,7 @@ class manager {
         // CM and would otherwise render and submit the same conditions more
         // than once.
         foreach ($ordereditems as &$ordereditem) {
+            $ordereditem['effort'] = 10;
             if (!empty($ordereditem['issubtype']) || (int)($ordereditem['cmid'] ?? 0) <= 0) {
                 continue;
             }
@@ -841,7 +842,9 @@ class manager {
         // Phase 1: Pre-validation of all proposed updates using adapters.
         $plan = [];
         $validationerrors = [];
+        $validationitemerrors = [];
         $skipped = [];
+        $skippeditemerrors = [];
         $availabilityadapter = adapter_manager::get_availability_adapter($course);
 
         // The extractor validates related dates together, so prepare the final
@@ -931,8 +934,10 @@ class manager {
             }
 
             if ($activitychanged && ($item['editable'] ?? true) === false) {
-                $skipped[] = ($item['title'] ?? $key) . ': ' .
+                $message = ($item['title'] ?? $key) . ': ' .
                     ($item['editreason'] ?? get_string('noteditable', 'local_reschedule'));
+                $skipped[] = $message;
+                $skippeditemerrors[] = ['id' => $key, 'message' => $message];
                 $activitychanged = false;
             }
 
@@ -953,6 +958,9 @@ class manager {
                 $errs = $adapter->validate($validationitem, $validationstart, $validationend);
                 if (!empty($errs)) {
                     $validationerrors = array_merge($validationerrors, $errs);
+                    foreach ($errs as $error) {
+                        $validationitemerrors[] = ['id' => $key, 'message' => $error];
+                    }
                 }
             }
 
@@ -960,6 +968,9 @@ class manager {
                 $errs = $availabilityadapter->validate($item, $availabilityupdates);
                 if (!empty($errs)) {
                     $validationerrors = array_merge($validationerrors, $errs);
+                    foreach ($errs as $error) {
+                        $validationitemerrors[] = ['id' => $key, 'message' => $error];
+                    }
                 }
             }
 
@@ -983,6 +994,7 @@ class manager {
                 'success' => false,
                 'message' => implode("\n", array_unique($validationerrors)),
                 'errors' => array_values(array_unique($validationerrors)),
+                'itemerrors' => $validationitemerrors,
             ];
         }
 
@@ -993,6 +1005,7 @@ class manager {
                     'updated' => 0,
                     'message' => implode("\n", array_unique($skipped)),
                     'errors' => array_values(array_unique($skipped)),
+                    'itemerrors' => $skippeditemerrors,
                     'skipped' => array_values(array_unique($skipped)),
                 ];
             }
@@ -1038,6 +1051,7 @@ class manager {
             'updated' => $updatedcount,
             'message' => $message,
             'warnings' => array_values(array_unique($skipped)),
+            'itemwarnings' => $skippeditemerrors,
         ];
     }
 }

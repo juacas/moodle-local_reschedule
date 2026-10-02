@@ -92,6 +92,7 @@ final class milestone_test extends advanced_testcase {
             ['id' => $cutoffid, 'datestart' => -1, 'dateend' => -1],
         ]);
         $this->assertFalse($invalid['success']);
+        $this->assertSame($cutoffid, $invalid['itemerrors'][0]['id']);
         $this->assertEquals($newcutoff, $DB->get_field('assign', 'cutoffdate', ['id' => $assign->id]));
 
         $disable = manager::save_schedule($course->id, [

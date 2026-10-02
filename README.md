@@ -24,6 +24,7 @@ Deeply inspired by [report_editdates](https://marketplace.moodle.com/plugins/rep
    - [Interactive Jump from GANTT to Detail Table](#interactive-jump-from-gantt-to-detail-table)
    - [Manual Date & Time Editing (Standard Modal)](#manual-date--time-editing-standard-modal)
    - [Auto-Sequencing Strategies](#auto-sequencing-strategies)
+   - [Weekify for Weekly Courses](#weekify-for-weekly-courses)
 4. [Configuration & Activity Mapping](#4-configuration--activity-mapping)
 5. [Installation & Deployment](#5-installation--deployment)
 6. [ANNEX: Software design notes](#annex-software-design-notes)
@@ -58,6 +59,7 @@ In university and corporate training courses, Moodle courses often comprise doze
   - *Sequential chaining*: Chains activities consecutively while preserving their current durations.
   - *Bounded proportional*: Distributes time according to the relative weights of each activity while capping outsized values.
   - *Relative scaling*: Applies one common shift and scale to the existing timeline, preserving its gaps and relative positions while fitting it to the course timeframe.
+- **Weekify for weekly courses**: Previews and moves displayed activities into the existing week containing their saved start date, without changing activity dates. An activity without its own start date uses its earliest dated subactivity. Save pending timeline changes first; modules without a usable date or matching week are skipped.
 - **Total autonomy**: Does not require the `report_editdates` plugin to be installed, replicating and isolating the entire extractor subsystem.
 
 ---
@@ -73,21 +75,33 @@ The timeline can be accessed from the course secondary navigation: **More > Resc
 - `datestart=UNIX_TIMESTAMP&dateend=UNIX_TIMESTAMP`: use a concrete visible GANTT window. The real course timeframe remains the validation boundary when dates are saved.
 
 For example: `/local/reschedule/index.php?id=6&instances=quest:55,quiz:123&datestart=1764547200&dateend=1767225600`.
-- **Top time header**: Displays the timeline divided into 3 tiers (Year, Month, Day for long periods; Month, Day, Hours for short periods $\le 7$ days).
+- **Top time header**: Displays summed daily effort above 3 date tiers (Year, Month, Day for long periods; Month, Day, Hours for short periods $\le 7$ days) on a fixed vertical scale from 0 to 4. Its vertical fill is green through effort 1, yellow at 2, and red from 3 upward. Each dated activity without duration subactivities, and each dated duration subactivity, contributes 10 points of total effort. The Gantt activity column shows the effort value before the duration badge. Point milestones contribute no effort and do not suppress their parent's effort. The gear button switches between realistic deadline pressure (a slow exponential rise peaking at the activity end) and an ideal bell-shaped daily workload derived from a cumulative S curve. Both have a short exponential residual after the end and keep the same total effort. Activities without both dates contribute no effort. The selected model is saved in browser local storage. The graph uses Moodle's bundled Chart.js and updates as dates move.
+
 - **Weekend bands**: Saturdays and Sundays are subtly shaded across the lane background according to the user's active locale (`Intl.Locale`).
 - **Fixed left column**: Lists activities with their official icon, title, type, and current duration.
+
+#### El desafío de la distribución del tiempo en el aula
+
+> La asignación de una tarea escolar abre una ventana de tiempo en la que interactúan dos ideas de gestión: la **Ley de Parkinson (Parkinson, 1957)** y el **Síndrome del Estudiante (Goldratt, 1997)**. La primera describe cómo el trabajo tiende a expandirse hasta ocupar el plazo disponible; el segundo, cómo se puede posponer el esfuerzo hasta que la fecha límite parece urgente.
+>
+> La investigación relaciona los plazos lejanos con una mayor tendencia a posponer las tareas **(Steel, 2007)**. En estudios longitudinales con estudiantes, la procrastinación se asoció con más estrés al final del curso y notas más bajas **(Tice y Baumeister, 1997)**. El aumento exponencial de la gráfica es un modelo ilustrativo: no establece una concentración universal en las últimas 48 horas.
+>
+> Para distribuir el esfuerzo de forma más saludable, conviene diseñar **entregas parciales y secuenciales**. Los plazos intermedios pueden reducir la procrastinación y mejorar el rendimiento **(Ariely y Wertenbroch, 2002)**; la práctica distribuida también favorece la retención de lo aprendido **(Cepeda et al., 2006)**.
+
+Referencias: [Parkinson (1957)](https://books.google.com/books/about/Parkinson_s_Law_and_Other_Studies_in_Adm.html?id=_PAaAAAAMAAJ), [Goldratt (1997)](https://www.routledge.com/Critical-Chain-A-Business-Novel/Goldratt/p/book/9781138461079), [Steel (2007)](https://pubmed.ncbi.nlm.nih.gov/17201571/), [Tice y Baumeister (1997)](https://journals.sagepub.com/doi/10.1111/j.1467-9280.1997.tb00460.x), [Ariely y Wertenbroch (2002)](https://www.psychologicalscience.org/journals/psychological-science/1467-9280.00441/) y [Cepeda et al. (2006)](https://pubmed.ncbi.nlm.nih.gov/16719566/).
 
 ### Dragging and Resizing
 - **Moving an activity**: Click and hold the center body of the GANTT bar. Drag left or right. A floating HUD displays updated start and end dates in real time. Movement automatically snaps to hours or minutes.
 - **Resizing start date**: Hover over the left edge of the bar (`col-resize` cursor) and drag.
 - **Resizing end date**: Hover over the right edge and drag.
-- **Narrow or very short bars**: If a bar is narrower than 24 pixels and handles overlap, the system detects whether the click occurred on the left or right half of the bar, allowing stretch in either direction without blockage.
+- **Narrow or very short bars**: If a bar is narrower than 24 pixels, drag its middle half to move it or an outer quarter to resize the corresponding end.
 
 ### Subactivity and Phase Management
 For compound activities (e.g., `workshop` with submission and assessment phases, or `quest` with `quest_submissions` challenges):
 - **`+` / `-` toggle button**: Allows folding or unfolding subtasks both in the GANTT column and in the detail table.
 - **Synchronized movement**: Moving the parent activity shifts all its subactivities by the exact same number of hours/days in parallel.
 - **Proportional resizing**: Expanding or shrinking the parent activity scales subactivities proportionally, preserving their relative positions within the parent's time window.
+- **Undated milestones**: Point milestones without an enabled date are placeholders and do not move or constrain their parent while dragging or resizing it.
 
 ### Interactive Jump from GANTT to Detail Table
 - Clicking once (**single click** without dragging) on any GANTT bar or row in the left column:
@@ -106,10 +120,14 @@ In the activity table below:
 
 ### Auto-Sequencing Strategies
 Clicking the **Auto-sequence** button in the top bar opens the strategy selector:
+Only activities and subactivities with both start and end dates take part in range distribution. Dated milestones can move with their parent. Rows whose displayed Gantt limits stand in for missing dates are skipped by every strategy.
 1. **Equal distribution (`equal`)**: Divides the course duration into $N$ identical blocks and distributes primary activities in a continuous chain.
 2. **Sequential chaining (`sequential`)**: Concatenates activities one after another starting from course start, preserving each activity's existing duration.
 3. **Bounded proportional (`proportional`)**: Calculates total relative duration and scales all activities to fill the course period, applying containment thresholds to prevent outliers from monopolizing the timeline.
 4. **Relative scaling (`relative`)**: Applies one affine transformation to all editable activities, preserving gaps and relative positions while adapting the existing timeline to the current course timeframe.
+
+### Weekify for Weekly Courses
+The **Weekify** button appears beside Auto-sequence when the course format is `weeks`. Save any pending date edits first. The confirmation dialog previews the displayed activities that will move, along with counts skipped for missing dates, dates outside existing weeks, and activities already in the correct section. Confirming uses Moodle's course format API to move each course module; dates do not change. If a parent activity lacks a start date, Weekify uses its earliest dated subactivity. Moving into a hidden week may hide the activity.
 
 ---
 
@@ -165,7 +183,7 @@ If you make changes to `amd/src/reschedule_calendar.js`:
 node -e '
 const fs = require("fs");
 let src = fs.readFileSync("amd/src/reschedule_calendar.js", "utf8");
-src = src.replace("define([\x27core/notification\x27],", "define(\x27local_reschedule/reschedule_calendar\x27, [\x27core/notification\x27],");
+src = src.replace("define([\x27core/notification\x27, \x27core/chartjs\x27],", "define(\x27local_reschedule/reschedule_calendar\x27, [\x27core/notification\x27, \x27core/chartjs\x27],");
 fs.writeFileSync("/tmp/reschedule_calendar.named.js", src);
 ' && npx terser /tmp/reschedule_calendar.named.js --comments "/@license|@copyright|@author|@package|@module/" -o amd/build/reschedule_calendar.min.js --source-map "url=reschedule_calendar.min.js.map,filename=amd/build/reschedule_calendar.min.js.map"
 ```

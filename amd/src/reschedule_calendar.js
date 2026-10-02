@@ -20,7 +20,7 @@
  * @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-define(['core/notification'], function(Notification) {
+define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
     'use strict';
 
     /**
@@ -175,6 +175,131 @@ define(['core/notification'], function(Notification) {
     }
 
     /**
+     * Choose a bar gesture. Narrow bars reserve a central area for moving;
+     * their outer quarters remain resize targets.
+     *
+     * @param {Object} item Activity item.
+     * @param {number} width Rendered bar width in pixels.
+     * @param {number} clickX Pointer position within the bar in pixels.
+     * @param {boolean} startHandle Whether the start handle received the event.
+     * @param {boolean} endHandle Whether the end handle received the event.
+     * @return {string} Move or resize mode.
+     */
+    function getBarDragMode(item, width, clickX, startHandle, endHandle) {
+        if (item.ismilestone) {
+            return 'move';
+        }
+        if (width < 24) {
+            if (clickX <= width * 0.25) {
+                return 'resize-start';
+            }
+            if (!item.isopenended && clickX >= width * 0.75) {
+                return 'resize-end';
+            }
+            return 'move';
+        }
+        if (startHandle || (endHandle && clickX < 12 && clickX < width / 2)) {
+            return 'resize-start';
+        }
+        return endHandle ? 'resize-end' : 'move';
+    }
+
+    var EFFORT_DAY = 86400;
+    var EFFORT_DEFAULT = 10;
+    var EFFORT_TAIL_DAYS = 2;
+    var EFFORT_SCALE_MAX = 4;
+    var EFFORT_STORAGE_KEY = 'local_reschedule_effort_model';
+
+    /**
+     * Fill the fixed 0–4 effort scale with green, yellow and red bands.
+     * Rebuild the canvas gradient when Chart.js lays out or resizes the plot.
+     *
+     * @param {Object} context Chart.js scriptable option context.
+     * @return {CanvasGradient|string} Effort fill colour.
+     */
+    function effortFillGradient(context) {
+        var chart = context.chart;
+        if (!chart.chartArea || !chart.scales || !chart.scales.y) {
+            return 'rgba(34, 197, 94, 0.42)';
+        }
+        var top = chart.scales.y.getPixelForValue(EFFORT_SCALE_MAX);
+        var bottom = chart.scales.y.getPixelForValue(0);
+        var cached = chart.$rescheduleEffortGradient;
+        if (cached && cached.top === top && cached.bottom === bottom) {
+            return cached.gradient;
+        }
+        var gradient = chart.ctx.createLinearGradient(0, top, 0, bottom);
+        gradient.addColorStop(0, 'rgba(239, 68, 68, 0.60)');
+        gradient.addColorStop(0.25, 'rgba(239, 68, 68, 0.60)');
+        gradient.addColorStop(0.5, 'rgba(250, 204, 21, 0.55)');
+        gradient.addColorStop(0.75, 'rgba(34, 197, 94, 0.42)');
+        gradient.addColorStop(1, 'rgba(34, 197, 94, 0.42)');
+        chart.$rescheduleEffortGradient = {top: top, bottom: bottom, gradient: gradient};
+        return gradient;
+    }
+
+    /**
+     * Unscaled daily effort. The real model peaks at the scheduled end;
+     * the ideal model is the derivative of a logistic cumulative S curve.
+     * Both keep a short exponential residual after the scheduled end.
+     *
+     * @param {number} time Timestamp in seconds.
+     * @param {Object} period Scheduled activity period.
+     * @return {number} Relative daily effort at this timestamp.
+     */
+    function effortShape(time, period) {
+        if (time <= period.start || time > period.tailEnd) {
+            return 0;
+        }
+        if (period.model === 'ideal') {
+            var idealEnd = 4 * Math.exp(-4.5) / Math.pow(1 + Math.exp(-4.5), 2) * (1 - Math.exp(-20));
+            if (time > period.end) {
+                return idealEnd * Math.exp(-4 * (time - period.end) / EFFORT_DAY);
+            }
+            var u = (time - period.start) / (period.end - period.start);
+            var z = Math.exp(-9 * (u - 0.5));
+            return 4 * z / Math.pow(1 + z, 2) * (1 - Math.exp(-20 * u));
+        }
+        if (time <= period.end) {
+            var rise = (time - period.start) / (period.end - period.start);
+            return Math.expm1(5 * rise) / Math.expm1(5);
+        }
+        return Math.exp(-4 * (time - period.end) / EFFORT_DAY);
+    }
+
+    /**
+     * Scale the curve so its integral in days equals the item's effort.
+     *
+     * @param {Object} period Scheduled activity period.
+     * @return {Object} Scaled activity period.
+     */
+    function prepareEffortPeriod(period) {
+        var area = 0;
+        var boundaries = period.model === 'real' ?
+            [period.start, period.end, period.tailEnd] :
+            [period.start, period.peak, period.end, period.tailEnd];
+        for (var segment = 0; segment < boundaries.length - 1; segment++) {
+            var width = (boundaries[segment + 1] - boundaries[segment]) / 64;
+            for (var sample = 0; sample < 64; sample++) {
+                area += effortShape(boundaries[segment] + (sample + 0.5) * width, period) * width / EFFORT_DAY;
+            }
+        }
+        period.scale = area > 0 ? period.effort / area : 0;
+        return period;
+    }
+
+    /**
+     * Daily effort contributed by one activity.
+     *
+     * @param {number} time Timestamp in seconds.
+     * @param {Object} period Scaled activity period.
+     * @return {number} Daily effort.
+     */
+    function effortAtTime(time, period) {
+        return effortShape(time, period) * period.scale;
+    }
+
+    /**
      * RescheduleCalendar controller object.
      */
     var RescheduleCalendar = {
@@ -191,6 +316,9 @@ define(['core/notification'], function(Notification) {
         pointerPositions: {},
         backgroundPan: null,
         pinchState: null,
+        effortChart: null,
+        effortModel: 'real',
+        effortUpdatePending: false,
         locale: undefined,
 
         /**
@@ -213,6 +341,7 @@ define(['core/notification'], function(Notification) {
                 cfg.timelineStart = Number(getRootData('data-timeline-start', cfg.timelineStart || cfg.courseStart));
                 cfg.timelineEnd = Number(getRootData('data-timeline-end', cfg.timelineEnd || cfg.courseEnd));
                 cfg.saveUrl = getRootData('data-save-url', cfg.saveUrl || '');
+                cfg.weekifyUrl = getRootData('data-weekify-url', cfg.weekifyUrl || '');
                 cfg.sesskey = getRootData('data-sesskey', cfg.sesskey || '');
                 cfg.lang = getRootData('data-lang', cfg.lang || '');
                 cfg.strings = cfg.strings || {};
@@ -220,6 +349,8 @@ define(['core/notification'], function(Notification) {
                 [
                     ['data-error-saving', 'error_saving'],
                     ['data-error-saving-header', 'error_saving_header'],
+                    ['data-error-saving-affected', 'error_saving_affected'],
+                    ['data-error-saving-pending', 'error_saving_pending'],
                     ['data-schedulesaved', 'schedulesaved'],
                     ['data-activity-before-timeline', 'activitybeforetimeline'],
                     ['data-activity-after-timeline', 'activityaftertimeline'],
@@ -230,7 +361,19 @@ define(['core/notification'], function(Notification) {
                     ['data-kuet-activity-derived-hint', 'kuetactivityderivedhint'],
                     ['data-availability-restriction', 'availabilityrestriction'],
                     ['data-availability-restriction-hint', 'availabilityrestrictionhint'],
-                    ['data-milestone-date', 'milestonedate']
+                    ['data-milestone-date', 'milestonedate'],
+                    ['data-effort-drops', 'effortdrops'],
+                    ['data-effort-scale', 'effortscale'],
+                    ['data-effort-settings', 'effortsettings'],
+                    ['data-effort-label', 'effortlabel'],
+                    ['data-effort-points', 'effortpoints'],
+                    ['data-weekify-save-first', 'weekifysavefirst'],
+                    ['data-weekify-loading', 'weekifyloading'],
+                    ['data-weekify-error', 'weekifyerror'],
+                    ['data-weekify-moved', 'weekifymoved'],
+                    ['data-weekify-failed', 'weekifyfailed'],
+                    ['data-weekify-more', 'weekifymore'],
+                    ['data-weekify-moves', 'weekifymoves']
                 ].forEach(function(mapping) {
                     cfg.strings[mapping[1]] = getRootData(mapping[0], cfg.strings[mapping[1]] || '');
                 });
@@ -238,6 +381,14 @@ define(['core/notification'], function(Notification) {
 
             this.config = cfg;
             this.strings = cfg.strings || {};
+            this.effortModel = 'real';
+            try {
+                if (window.localStorage.getItem(EFFORT_STORAGE_KEY) === 'ideal') {
+                    this.effortModel = 'ideal';
+                }
+            } catch (e) {
+                // Storage can be disabled by browser policy.
+            }
             this.locale = cfg.lang || (typeof M !== 'undefined' && M.cfg && M.cfg.lang) ||
                 document.documentElement.lang || undefined;
 
@@ -256,7 +407,8 @@ define(['core/notification'], function(Notification) {
             this.items = (rawItems || []).map(function(item) {
                 var copy = Object.assign({}, item);
                 if (copy.ismilestone) {
-                    copy.datestart = copy.startenabled === false ? timelineStart : copy.datestart;
+                    // The server places an undated point at its parent's start
+                    // for editing; it must not inherit the visible timeline start.
                     copy.dateend = copy.datestart;
                     return copy;
                 }
@@ -282,6 +434,7 @@ define(['core/notification'], function(Notification) {
             this.saveBtn = document.getElementById('btn-save');
             this.resetBtn = document.getElementById('btn-reset');
             this.autoSeqBtn = document.getElementById('btn-autosequence');
+            this.weekifyBtn = document.getElementById('btn-weekify');
             this.unsavedAlert = document.getElementById('reschedule-unsaved-alert');
             this.expandedParents = {};
 
@@ -499,6 +652,10 @@ define(['core/notification'], function(Notification) {
          */
         renderTimeline: function() {
             var self = this;
+            if (self.effortChart) {
+                self.effortChart.destroy();
+                self.effortChart = null;
+            }
             var cStart = self.getTimelineStart();
             var cEnd = self.getTimelineEnd();
             var totalSec = Math.max(3600, cEnd - cStart);
@@ -522,8 +679,16 @@ define(['core/notification'], function(Notification) {
 
             var leftHeader = document.createElement('div');
             leftHeader.className = 'quest-left-header p-2 border-bottom border-end d-flex flex-column justify-content-center';
-            leftHeader.innerHTML = '<div class="fw-bold small text-dark"><i class="fa fa-tasks me-1 text-primary"></i> ' +
-                self.items.length + ' Items</div><div class="smaller text-muted">Drag bars to adjust schedule</div>';
+            leftHeader.innerHTML = '<div class="quest-left-drops-label fw-bold small"><span>' +
+                '<i class="fa fa-tint me-1" aria-hidden="true"></i>' +
+                self.escapeHtml(self.strings.effortdrops || 'Effort drops') + '</span>' +
+                '<button type="button" class="quest-effort-settings btn btn-sm" aria-label="' +
+                self.escapeHtml(self.strings.effortsettings || 'Effort chart settings') + '" title="' +
+                self.escapeHtml(self.strings.effortsettings || 'Effort chart settings') + '">' +
+                '<i class="fa fa-cog" aria-hidden="true"></i></button></div>' +
+                '<div class="quest-left-header-summary"><div class="fw-bold small text-dark">' +
+                '<i class="fa fa-tasks me-1 text-primary" aria-hidden="true"></i> ' +
+                self.items.length + ' Items</div><div class="smaller text-muted">Drag bars to adjust schedule</div></div>';
 
             self.items.forEach(function(item) {
                 var rowLabel = document.createElement('div');
@@ -541,6 +706,13 @@ define(['core/notification'], function(Notification) {
                     rowLabel.setAttribute('title', item.interactreason || item.editreason);
                 }
                 var dur = item.ismilestone ? item.typelabel : formatDuration(item.dateend - item.datestart);
+                var effort = item.effort === null || typeof item.effort === 'undefined' ?
+                    EFFORT_DEFAULT : Number(item.effort);
+                var effortBadge = !item.ismilestone && isFinite(effort) && effort > 0 ?
+                    '<span class="badge bg-light text-primary border quest-lbl-effort flex-shrink-0">' +
+                    self.escapeHtml(self.strings.effortlabel || 'Effort') + ': ' +
+                    self.escapeHtml(String(effort)) + ' ' +
+                    self.escapeHtml(self.strings.effortpoints || 'pts') + '</span>' : '';
 
                 var expanderHtml = '';
                 if (item.haschildren) {
@@ -580,6 +752,7 @@ define(['core/notification'], function(Notification) {
                     'title="' + self.escapeHtml(item.typelabel || '') + '">' +
                     self.escapeHtml(item.typelabel || '') +
                     '</span>' +
+                    effortBadge +
                     '<span class="badge bg-light text-secondary border quest-lbl-dur flex-shrink-0">' +
                     dur +
                     '</span>' +
@@ -597,6 +770,15 @@ define(['core/notification'], function(Notification) {
 
             var bandsHeader = document.createElement('div');
             bandsHeader.className = 'quest-bands-header border-bottom position-relative';
+
+            var dropsRow = document.createElement('div');
+            dropsRow.className = 'quest-drops-row position-relative';
+            var dropsCanvas = document.createElement('canvas');
+            dropsCanvas.className = 'quest-drops-canvas';
+            dropsCanvas.setAttribute('role', 'img');
+            dropsCanvas.setAttribute('aria-label', self.strings.effortdrops || 'Effort drops');
+            dropsRow.appendChild(dropsCanvas);
+            bandsHeader.appendChild(dropsRow);
 
             // Level 1 Band
             var band1Row = document.createElement('div');
@@ -720,6 +902,7 @@ define(['core/notification'], function(Notification) {
             self.scrollContainer = scrollContainer;
             self.headerViewport = headerViewport;
             self.headerTrack = bandsHeader;
+            self.renderEffortDrops(dropsCanvas);
 
             var syncHeaderScroll = function() {
                 self.headerTrack.style.transform = 'translateX(-' + self.scrollContainer.scrollLeft + 'px)';
@@ -727,6 +910,165 @@ define(['core/notification'], function(Notification) {
             self.scrollContainer.addEventListener('scroll', syncHeaderScroll, {passive: true});
             syncHeaderScroll();
             self.updatePageStickyHeader();
+        },
+
+        /**
+         * Build the summed effort curve from dated activities without interval
+         * subactivities. Point milestones neither contribute nor suppress
+         * their parent's effort.
+         *
+         * @return {Object} Line and peak markers in timeline seconds.
+         */
+        getEffortDropsData: function() {
+            var start = this.getTimelineStart();
+            var end = this.getTimelineEnd();
+            var day = EFFORT_DAY;
+            var periods = [];
+            var sampleTimes = [start, end];
+            var drops = [];
+            var model = this.effortModel;
+            var parentsWithSubactivities = Object.create(null);
+            this.items.forEach(function(item) {
+                if (item.issubtype && !item.ismilestone && item.parentkey) {
+                    parentsWithSubactivities[String(item.parentkey)] = true;
+                }
+            });
+            this.items.forEach(function(item) {
+                var itemStart = Number(item.datestart);
+                var itemEnd = Number(item.dateend);
+                var effort = item.effort === null || typeof item.effort === 'undefined' ?
+                    EFFORT_DEFAULT : Number(item.effort);
+                if (parentsWithSubactivities[String(item.id)] || item.ismilestone ||
+                        item.startenabled === false || item.endenabled === false ||
+                        !isFinite(itemStart) || !isFinite(itemEnd) || !isFinite(effort) ||
+                        itemStart <= 0 || itemEnd <= itemStart || effort <= 0 ||
+                        itemEnd + EFFORT_TAIL_DAYS * day <= start || itemStart >= end) {
+                    return;
+                }
+                var duration = itemEnd - itemStart;
+                var peak = model === 'ideal' ? itemStart + duration / 2 : itemEnd;
+                var period = prepareEffortPeriod({start: itemStart, peak: peak, end: itemEnd,
+                    tailEnd: itemEnd + EFFORT_TAIL_DAYS * day, effort: effort, model: model});
+                periods.push(period);
+                sampleTimes.push(itemStart, peak, itemEnd, period.tailEnd);
+                if (peak >= start && peak <= end) {
+                    drops.push({x: peak, title: item.title});
+                }
+            });
+
+            // Sample at regular screen intervals and at each period boundary.
+            // Boundaries preserve short drops even in a long course timeline.
+            var steps = Math.min(720, Math.max(240, Math.ceil(this.trackWidthPx / 4)));
+            for (var step = 1; step < steps; step++) {
+                sampleTimes.push(start + (end - start) * step / steps);
+            }
+            sampleTimes.sort(function(a, b) {
+                return a - b;
+            });
+
+            var line = [];
+            var values = {};
+            sampleTimes.forEach(function(time, index) {
+                if (time < start || time > end || (index > 0 && time === sampleTimes[index - 1])) {
+                    return;
+                }
+                var value = 0;
+                periods.forEach(function(period) {
+                    value += effortAtTime(time, period);
+                });
+                line.push({x: time, y: value});
+                values[time] = value;
+            });
+            drops.sort(function(a, b) {
+                return a.x - b.x;
+            });
+            drops.forEach(function(point) {
+                point.y = values[point.x] || 0;
+            });
+            return {line: line, drops: drops};
+        },
+
+        /**
+         * Draw the effort row with Moodle's local Chart.js package.
+         *
+         * @param {HTMLCanvasElement} canvas The row canvas.
+         */
+        renderEffortDrops: function(canvas) {
+            var self = this;
+            var data = self.getEffortDropsData();
+            var colors = self.getEffortColors();
+            self.effortChart = new Chart(canvas, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: self.strings.effortscale || 'Effort',
+                        data: data.line,
+                        parsing: false,
+                        borderColor: colors.line,
+                        backgroundColor: effortFillGradient,
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: 'origin',
+                        tension: 0
+                    }, {
+                        type: 'scatter',
+                        label: self.strings.effortdrops || 'Effort drops',
+                        data: data.drops,
+                        parsing: false,
+                        backgroundColor: colors.marker,
+                        borderColor: '#fff',
+                        borderWidth: 1,
+                        pointRadius: 5,
+                        pointHoverRadius: 7
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    layout: {autoPadding: false, padding: 0},
+                    plugins: {
+                        legend: {display: false},
+                        tooltip: {
+                            callbacks: {
+                                title: function(points) {
+                                    return points.length ? formatDateTime(points[0].parsed.x, self.locale) : '';
+                                },
+                                label: function(point) {
+                                    var name = point.raw.title || (self.strings.effortscale || 'Effort');
+                                    return name + ': ' + point.parsed.y.toFixed(3);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {type: 'linear', display: false, min: self.getTimelineStart(), max: self.getTimelineEnd()},
+                        y: {type: 'linear', display: false, min: 0, max: EFFORT_SCALE_MAX}
+                    }
+                }
+            });
+        },
+
+        /** Redraw the curve after an in-place schedule edit. */
+        updateEffortDrops: function() {
+            if (!this.effortChart) {
+                return;
+            }
+            var data = this.getEffortDropsData();
+            var colors = this.getEffortColors();
+            this.effortChart.data.datasets[0].data = data.line;
+            this.effortChart.data.datasets[1].data = data.drops;
+            this.effortChart.data.datasets[0].borderColor = colors.line;
+            this.effortChart.data.datasets[1].backgroundColor = colors.marker;
+            this.effortChart.options.scales.y.max = EFFORT_SCALE_MAX;
+            this.effortChart.update('none');
+        },
+
+        /** Palette matching the selected daily effort model. */
+        getEffortColors: function() {
+            return this.effortModel === 'ideal' ?
+                {line: '#2563eb', marker: '#1d4ed8'} :
+                {line: '#ea8700', marker: '#b96500'};
         },
 
         /**
@@ -838,7 +1180,9 @@ define(['core/notification'], function(Notification) {
             } else {
                 var end = Math.max(0, Math.min(1, (item.dateend - cStart) / totalSec));
                 bar.style.left = (start * 100) + '%';
-                bar.style.width = (Math.max(0.005, end - start) * 100) + '%';
+                var fraction = Math.max(0.005, end - start);
+                bar.style.width = (fraction * 100) + '%';
+                bar.classList.toggle('is-narrow', Math.max(14, fraction * this.trackWidthPx) < 24);
             }
             bar.classList.toggle('is-undated-item', !item.ismilestone &&
                 item.startenabled === false && item.endenabled === false);
@@ -1440,24 +1784,7 @@ define(['core/notification'], function(Notification) {
                 var isStartHandle = !!e.target.closest('.quest-bar-handle-start');
                 var isEndHandle = !!e.target.closest('.quest-bar-handle-end');
 
-                var mode = 'move';
-                // If bar has very small width (< 24px) or if either handle was clicked:
-                if (!item.ismilestone && (isStartHandle || isEndHandle || barW < 24)) {
-                    if (barW < 24) {
-                        // When handles overlap or bar is very narrow, determine direction based on click position.
-                        // Left half allows stretching start; right half allows stretching end.
-                        mode = item.isopenended || clickX < barW / 2 ? 'resize-start' : 'resize-end';
-                    } else if (isStartHandle) {
-                        mode = 'resize-start';
-                    } else if (isEndHandle) {
-                        // Even if handle-end caught the event due to DOM stacking, check if click is on left half.
-                        if (clickX < 12 && clickX < barW / 2) {
-                            mode = 'resize-start';
-                        } else {
-                            mode = 'resize-end';
-                        }
-                    }
-                }
+                var mode = getBarDragMode(item, barW, clickX, isStartHandle, isEndHandle);
 
                 // An activity with a disabled endpoint has no movable interval yet.
                 // Its handles are still active so dragging one enables that endpoint.
@@ -1474,9 +1801,7 @@ define(['core/notification'], function(Notification) {
                 }
 
                 // Capture subactivities if this item is a parent activity.
-                var childItems = self.items.filter(function(it) {
-                    return it.parentkey === item.id && self.isItemEditable(it);
-                });
+                var childItems = self.getAdjustableChildren(item);
                 var childSnapshots = childItems.map(function(child) {
                     var childBar = self.board.querySelector('.quest-calendar-bar[data-itemid="' + child.id + '"]');
                     return {
@@ -1848,7 +2173,7 @@ define(['core/notification'], function(Notification) {
          */
         scrollToTableRow: function(itemId) {
             var self = this;
-            var row = document.querySelector('#reschedule-table tr[data-itemid="' + itemId + '"]');
+            var row = document.getElementById('reschedule-row-' + itemId);
             if (!row) {
                 return;
             }
@@ -1944,6 +2269,41 @@ define(['core/notification'], function(Notification) {
          */
         isItemEditable: function(item) {
             return !!item && item.editable !== false;
+        },
+
+        /**
+         * Return children whose dates should follow a parent's manual edit.
+         * Disabled point milestones have no stored date and are only placeholders.
+         *
+         * @param {Object} parent Parent activity.
+         * @return {Array<Object>} Editable children with an active date if point milestones.
+         */
+        getAdjustableChildren: function(parent) {
+            var self = this;
+            return this.items.filter(function(child) {
+                return child.parentkey === parent.id && self.isItemEditable(child) &&
+                    (!child.ismilestone || child.startenabled !== false);
+            });
+        },
+
+        /**
+         * Return whether an item has the real dates needed for sequencing.
+         * Disabled endpoints only use course limits for drawing the Gantt.
+         * A milestone needs its single date rather than a date range.
+         *
+         * @param {Object} item Activity item.
+         * @return {boolean} Whether its scheduled date or range is defined.
+         */
+        hasDefinedSchedule: function(item) {
+            if (!item || item.startenabled === false || !isFinite(Number(item.datestart)) ||
+                    Number(item.datestart) <= 0) {
+                return false;
+            }
+            if (item.ismilestone) {
+                return true;
+            }
+            return item.endenabled !== false && isFinite(Number(item.dateend)) &&
+                Number(item.dateend) > Number(item.datestart);
         },
 
         /**
@@ -2050,6 +2410,14 @@ define(['core/notification'], function(Notification) {
          */
         markDirty: function() {
             this.isDirty = true;
+            if (!this.effortUpdatePending) {
+                var self = this;
+                this.effortUpdatePending = true;
+                window.requestAnimationFrame(function() {
+                    self.effortUpdatePending = false;
+                    self.updateEffortDrops();
+                });
+            }
             if (this.saveBtn) {
                 this.saveBtn.disabled = false;
             }
@@ -2063,6 +2431,51 @@ define(['core/notification'], function(Notification) {
          */
         bindActions: function() {
             var self = this;
+
+            document.addEventListener('click', function(event) {
+                var link = event.target.closest('a[data-reschedule-error-itemid]');
+                if (link) {
+                    event.preventDefault();
+                    self.scrollToTableRow(link.getAttribute('data-reschedule-error-itemid'));
+                }
+            });
+
+            self.board.addEventListener('click', function(event) {
+                if (event.target.closest('.quest-effort-settings')) {
+                    self.openEffortModelModal();
+                }
+            });
+
+            document.querySelectorAll('#effort-model-list .list-group-item').forEach(function(item) {
+                item.addEventListener('click', function() {
+                    self.selectEffortModel(item.getAttribute('data-model'));
+                });
+                item.querySelector('input').addEventListener('change', function() {
+                    self.selectEffortModel(item.getAttribute('data-model'));
+                });
+            });
+            var effortApply = document.getElementById('btn-effort-model-apply');
+            if (effortApply) {
+                effortApply.addEventListener('click', function() {
+                    var selected = document.querySelector('input[name="effort_model"]:checked');
+                    self.effortModel = selected && selected.value === 'ideal' ? 'ideal' : 'real';
+                    try {
+                        window.localStorage.setItem(EFFORT_STORAGE_KEY, self.effortModel);
+                    } catch (e) {
+                        // The current page still uses the selected model.
+                    }
+                    self.updateEffortDrops();
+                    self.closeEffortModelModal();
+                });
+            }
+            var effortModal = document.getElementById('reschedule-effort-model-modal');
+            if (effortModal) {
+                effortModal.querySelectorAll('[data-effort-dismiss]').forEach(function(button) {
+                    button.addEventListener('click', function() {
+                        self.closeEffortModelModal();
+                    });
+                });
+            }
 
             if (self.resetBtn) {
                 self.resetBtn.addEventListener('click', function() {
@@ -2086,6 +2499,21 @@ define(['core/notification'], function(Notification) {
             if (self.autoSeqBtn) {
                 self.autoSeqBtn.addEventListener('click', function() {
                     self.openAutoSequenceModal();
+                });
+            }
+
+            if (self.weekifyBtn) {
+                self.weekifyBtn.addEventListener('click', function() {
+                    self.openWeekifyModal();
+                });
+                document.getElementById('btn-weekify-apply').addEventListener('click', function() {
+                    self.applyWeekify();
+                });
+                document.getElementById('btn-weekify-cancel').addEventListener('click', function() {
+                    self.closeWeekifyModal();
+                });
+                document.querySelector('#reschedule-weekify-modal .btn-close').addEventListener('click', function() {
+                    self.closeWeekifyModal();
                 });
             }
 
@@ -2296,6 +2724,259 @@ define(['core/notification'], function(Notification) {
                     e.preventDefault();
                     e.returnValue = '';
                 }
+            });
+        },
+
+        /**
+         * Render links to rows associated with a failed save. The server supplies
+         * exact item IDs for validation errors; other failures list pending edits.
+         *
+         * @param {Object} data Save response, when available.
+         * @param {Array<Object>} changedItems Items submitted in the save request.
+         * @return {string} Escaped HTML list of table links.
+         */
+        renderSaveErrorLinks: function(data, changedItems) {
+            var self = this;
+            var exactIds = Object.create(null);
+            if (data && Array.isArray(data.itemerrors)) {
+                data.itemerrors.forEach(function(error) {
+                    if (error && typeof error.id !== 'undefined') {
+                        exactIds[String(error.id)] = true;
+                    }
+                });
+            }
+            var specific = Object.keys(exactIds).length > 0;
+            var items = specific ? changedItems.filter(function(item) {
+                return !!exactIds[String(item.id)];
+            }) : changedItems;
+            if (!items.length) {
+                items = changedItems;
+                specific = false;
+            }
+            if (!items.length) {
+                return '';
+            }
+            var label = specific ? (self.strings.error_saving_affected || 'Activities to review in the table:') :
+                (self.strings.error_saving_pending || 'Activities with changes pending in the table:');
+            var html = '<div class="mt-2"><span class="fw-bold">' + self.escapeHtml(label) + '</span>' +
+                '<ul class="mb-0 ps-3">';
+            items.forEach(function(item) {
+                html += '<li><a href="#reschedule-row-' + encodeURIComponent(String(item.id)) +
+                    '" data-reschedule-error-itemid="' + self.escapeHtml(String(item.id)) + '">' +
+                    self.escapeHtml(item.title || item.id) + '</a></li>';
+            });
+            return html + '</ul></div>';
+        },
+
+        /**
+         * Show the explanation for one effort model and check its option.
+         *
+         * @param {string} model Selected model.
+         */
+        selectEffortModel: function(model) {
+            var selected = model === 'ideal' ? 'ideal' : 'real';
+            document.querySelectorAll('#effort-model-list .list-group-item').forEach(function(item) {
+                var active = item.getAttribute('data-model') === selected;
+                item.classList.toggle('active', active);
+                item.querySelector('input').checked = active;
+            });
+            document.querySelectorAll('.effort-model-desc').forEach(function(panel) {
+                panel.classList.toggle('d-none', panel.id !== 'effort-model-desc-' + selected);
+            });
+        },
+
+        /** Open the model picker using Moodle's Bootstrap modal when available. */
+        openEffortModelModal: function() {
+            var modalEl = document.getElementById('reschedule-effort-model-modal');
+            if (!modalEl) {
+                return;
+            }
+            this.selectEffortModel(this.effortModel);
+            if (window.bootstrap && window.bootstrap.Modal) {
+                var modal = typeof window.bootstrap.Modal.getOrCreateInstance === 'function' ?
+                    window.bootstrap.Modal.getOrCreateInstance(modalEl) :
+                    (window.bootstrap.Modal.getInstance(modalEl) || new window.bootstrap.Modal(modalEl));
+                modal.show();
+            } else if (window.jQuery && typeof window.jQuery(modalEl).modal === 'function') {
+                window.jQuery(modalEl).modal('show');
+            } else {
+                modalEl.classList.add('show');
+                modalEl.style.display = 'block';
+                modalEl.removeAttribute('aria-hidden');
+                modalEl.setAttribute('aria-modal', 'true');
+                var backdrop = document.createElement('div');
+                backdrop.id = 'reschedule-effort-model-backdrop';
+                backdrop.className = 'modal-backdrop fade show';
+                document.body.appendChild(backdrop);
+            }
+        },
+
+        /** Close the model picker. */
+        closeEffortModelModal: function() {
+            var modalEl = document.getElementById('reschedule-effort-model-modal');
+            if (!modalEl) {
+                return;
+            }
+            if (window.bootstrap && window.bootstrap.Modal) {
+                var modal = window.bootstrap.Modal.getInstance(modalEl);
+                if (modal) {
+                    modal.hide();
+                }
+            } else if (window.jQuery && typeof window.jQuery(modalEl).modal === 'function') {
+                window.jQuery(modalEl).modal('hide');
+            } else {
+                modalEl.classList.remove('show');
+                modalEl.style.display = 'none';
+                modalEl.setAttribute('aria-hidden', 'true');
+                modalEl.removeAttribute('aria-modal');
+                var backdrop = document.getElementById('reschedule-effort-model-backdrop');
+                if (backdrop) {
+                    backdrop.remove();
+                }
+            }
+        },
+
+        /**
+         * Send a Weekify preview or apply request for the activities shown here.
+         * The server recalculates every destination from saved dates.
+         *
+         * @param {string} action Preview or apply.
+         * @return {Promise<Object>} Server result.
+         */
+        requestWeekify: function(action) {
+            var selected = {};
+            this.items.forEach(function(item) {
+                if (Number(item.cmid) > 0) {
+                    selected[item.cmid] = true;
+                }
+            });
+            var body = new URLSearchParams({
+                courseid: String(this.config.courseid),
+                sesskey: this.config.sesskey,
+                action: action,
+                cmids: Object.keys(selected).join(',')
+            });
+            return fetch(this.config.weekifyUrl, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
+                body: body.toString()
+            }).then(function(response) {
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status);
+                }
+                return response.json();
+            });
+        },
+
+        /** Show the confirmation dialog after loading an actual move preview. */
+        openWeekifyModal: function() {
+            var self = this;
+            if (self.isDirty) {
+                Notification.addNotification({message: self.strings.weekifysavefirst, type: 'warning'});
+                return;
+            }
+            var modalEl = document.getElementById('reschedule-weekify-modal');
+            var status = document.getElementById('weekify-preview-status');
+            var list = document.getElementById('weekify-preview-list');
+            var applyBtn = document.getElementById('btn-weekify-apply');
+            list.innerHTML = '';
+            status.textContent = self.strings.weekifyloading;
+            applyBtn.disabled = true;
+            ['undated', 'outofrange', 'already', 'unsupported'].forEach(function(reason) {
+                document.getElementById('weekify-' + reason).textContent = '0';
+            });
+            if (window.bootstrap && window.bootstrap.Modal) {
+                var modal = typeof window.bootstrap.Modal.getOrCreateInstance === 'function' ?
+                    window.bootstrap.Modal.getOrCreateInstance(modalEl) :
+                    (window.bootstrap.Modal.getInstance(modalEl) || new window.bootstrap.Modal(modalEl));
+                modal.show();
+            } else if (window.jQuery && typeof window.jQuery(modalEl).modal === 'function') {
+                window.jQuery(modalEl).modal('show');
+            } else {
+                modalEl.classList.add('show');
+                modalEl.style.display = 'block';
+                modalEl.removeAttribute('aria-hidden');
+                modalEl.setAttribute('aria-modal', 'true');
+                var backdrop = document.createElement('div');
+                backdrop.id = 'reschedule-weekify-backdrop';
+                backdrop.className = 'modal-backdrop fade show';
+                document.body.appendChild(backdrop);
+            }
+            self.requestWeekify('preview').then(function(data) {
+                if (!data.success) {
+                    throw new Error(data.message || self.strings.weekifyerror);
+                }
+                status.textContent = data.count + ' ' + self.strings.weekifymoves;
+                (data.moves || []).forEach(function(move) {
+                    var row = document.createElement('li');
+                    row.className = 'list-group-item';
+                    row.textContent = move.title + ': ' + move.from + ' \u2192 ' + move.to;
+                    list.appendChild(row);
+                });
+                if (data.count > data.moves.length) {
+                    var more = document.createElement('li');
+                    more.className = 'list-group-item text-muted';
+                    more.textContent = (data.count - data.moves.length) + ' ' + self.strings.weekifymore;
+                    list.appendChild(more);
+                }
+                Object.keys(data.skipped || {}).forEach(function(reason) {
+                    var count = document.getElementById('weekify-' + reason);
+                    if (count) {
+                        count.textContent = data.skipped[reason];
+                    }
+                });
+                applyBtn.disabled = data.count === 0;
+            }).catch(function(error) {
+                status.textContent = error.message || self.strings.weekifyerror;
+            });
+        },
+
+        /** Close the Weekify dialog. */
+        closeWeekifyModal: function() {
+            var modalEl = document.getElementById('reschedule-weekify-modal');
+            if (window.bootstrap && window.bootstrap.Modal) {
+                var modal = window.bootstrap.Modal.getInstance(modalEl);
+                if (modal) {
+                    modal.hide();
+                }
+            } else if (window.jQuery && typeof window.jQuery(modalEl).modal === 'function') {
+                window.jQuery(modalEl).modal('hide');
+            } else {
+                modalEl.classList.remove('show');
+                modalEl.style.display = 'none';
+                modalEl.setAttribute('aria-hidden', 'true');
+                modalEl.removeAttribute('aria-modal');
+                var backdrop = document.getElementById('reschedule-weekify-backdrop');
+                if (backdrop) {
+                    backdrop.remove();
+                }
+            }
+        },
+
+        /** Move the previewed activities after confirmation. */
+        applyWeekify: function() {
+            var self = this;
+            if (self.isDirty) {
+                Notification.addNotification({message: self.strings.weekifysavefirst, type: 'warning'});
+                return;
+            }
+            var applyBtn = document.getElementById('btn-weekify-apply');
+            var status = document.getElementById('weekify-preview-status');
+            applyBtn.disabled = true;
+            status.textContent = self.strings.weekifyloading;
+            self.requestWeekify('apply').then(function(data) {
+                var message = self.strings.weekifymoved + ': ' + (data.moved || 0);
+                if (data.failed) {
+                    message += '. ' + self.strings.weekifyfailed + ': ' + data.failed;
+                }
+                self.closeWeekifyModal();
+                Notification.addNotification({
+                    message: data.message || message,
+                    type: data.success ? 'success' : 'warning'
+                });
+            }).catch(function(error) {
+                status.textContent = error.message || self.strings.weekifyerror;
+                applyBtn.disabled = false;
             });
         },
 
@@ -2593,9 +3274,7 @@ define(['core/notification'], function(Notification) {
             var totalSec = Math.max(3600, self.getTimelineEnd() - cStart);
 
             // If item is a parent activity, proportionally scale its subactivities
-            var children = item.isopenended ? [] : self.items.filter(function(it) {
-                    return it.parentkey === item.id && self.isItemEditable(it);
-            });
+            var children = item.isopenended ? [] : self.getAdjustableChildren(item);
 
             if (children.length > 0) {
                 var pInitDur = Math.max(1, oldEnd - oldStart);
@@ -2752,7 +3431,7 @@ define(['core/notification'], function(Notification) {
 
             // Separate main items from subtypes.
             var mainItems = self.items.filter(function(it) {
-                return !it.issubtype;
+                return !it.issubtype && !it.ismilestone && self.hasDefinedSchedule(it);
             });
             var oldParentRanges = {};
             mainItems.forEach(function(it) {
@@ -2812,7 +3491,7 @@ define(['core/notification'], function(Notification) {
             // Distribute subtasks/phases within their respective parent activity timeframe.
             mainItems.forEach(function(parent) {
                 var allChildren = self.items.filter(function(it) {
-                    return it.parentkey === parent.id && self.isItemEditable(it);
+                    return it.parentkey === parent.id && self.isItemEditable(it) && self.hasDefinedSchedule(it);
                 });
                 var children = allChildren.filter(function(it) {
                     return !it.ismilestone;
@@ -2891,8 +3570,7 @@ define(['core/notification'], function(Notification) {
             var courseEnd = Number(self.config.courseEnd);
             var courseDuration = Math.max(3600, courseEnd - courseStart);
             var datedItems = self.items.filter(function(item) {
-                return (item.ismilestone && item.startenabled !== false) ||
-                    Number(item.dateend) > Number(item.datestart);
+                return self.hasDefinedSchedule(item);
             });
             var transformableItems = datedItems.filter(function(item) {
                 return self.isItemEditable(item) || item.derived;
@@ -3062,9 +3740,14 @@ define(['core/notification'], function(Notification) {
                     var successMsg = data.message ||
                         (self.strings && self.strings.schedulesaved) ||
                         'Schedule successfully saved.';
+                    var hasWarnings = !!(data.warnings && data.warnings.length);
+                    var notice = self.escapeHtml(successMsg).replace(/\n/g, '<br>');
+                    if (hasWarnings) {
+                        notice += self.renderSaveErrorLinks({itemerrors: data.itemwarnings}, changedItems);
+                    }
                     Notification.addNotification({
-                        message: successMsg,
-                        type: data.warnings && data.warnings.length ? 'warning' : 'success'
+                        message: notice,
+                        type: hasWarnings ? 'warning' : 'success'
                     });
                 } else {
                     self.saveBtn.disabled = false;
@@ -3099,6 +3782,7 @@ define(['core/notification'], function(Notification) {
                     if (data && data.debuginfo) {
                         html += '<div class="text-muted smaller mt-1 font-monospace">' + self.escapeHtml(data.debuginfo) + '</div>';
                     }
+                    html += self.renderSaveErrorLinks(data, changedItems);
                     html += '</div>';
 
                     Notification.addNotification({
@@ -3114,7 +3798,8 @@ define(['core/notification'], function(Notification) {
                     self.strings.error_saving_header : 'Could not save schedule';
                 var errText = (err && err.message) ? err.message : String(err);
                 var html = '<div><strong>' + self.escapeHtml(headerText) + '</strong>' +
-                    '<div class="mt-1">' + self.escapeHtml(errText) + '</div></div>';
+                    '<div class="mt-1">' + self.escapeHtml(errText) + '</div>' +
+                    self.renderSaveErrorLinks(null, changedItems) + '</div>';
                 Notification.addNotification({
                     message: html,
                     type: 'error'

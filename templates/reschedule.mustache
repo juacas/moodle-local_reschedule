@@ -30,10 +30,13 @@
     data-timeline-start="{{timelineStart}}"
     data-timeline-end="{{timelineEnd}}"
     data-save-url="{{saveurl}}"
+    data-weekify-url="{{weekifyurl}}"
     data-sesskey="{{sesskey}}"
     data-lang="{{language}}"
     data-error-saving="{{#str}}error_saving, local_reschedule{{/str}}"
     data-error-saving-header="{{#str}}error_saving_header, local_reschedule{{/str}}"
+    data-error-saving-affected="{{#str}}error_saving_affected, local_reschedule{{/str}}"
+    data-error-saving-pending="{{#str}}error_saving_pending, local_reschedule{{/str}}"
     data-schedulesaved="{{#str}}schedulesaved, local_reschedule{{/str}}"
     data-activity-before-timeline="{{#str}}activitybeforetimeline, local_reschedule{{/str}}"
     data-activity-after-timeline="{{#str}}activityaftertimeline, local_reschedule{{/str}}"
@@ -44,7 +47,19 @@
     data-kuet-activity-derived-hint="{{#str}}kuetactivityderivedhint, local_reschedule{{/str}}"
     data-availability-restriction="{{#str}}availabilityrestriction, local_reschedule{{/str}}"
     data-availability-restriction-hint="{{#str}}availabilityrestrictionhint, local_reschedule{{/str}}"
-    data-milestone-date="{{#str}}milestonedate, local_reschedule{{/str}}">
+    data-milestone-date="{{#str}}milestonedate, local_reschedule{{/str}}"
+    data-effort-drops="{{#str}}effortdrops, local_reschedule{{/str}}"
+    data-effort-scale="{{#str}}effortscale, local_reschedule{{/str}}"
+    data-effort-settings="{{#str}}effortsettings, local_reschedule{{/str}}"
+    data-effort-label="{{#str}}effortlabel, local_reschedule{{/str}}"
+    data-effort-points="{{#str}}effortpoints, local_reschedule{{/str}}"
+    data-weekify-save-first="{{#str}}weekifysavefirst, local_reschedule{{/str}}"
+    data-weekify-loading="{{#str}}weekifyloading, local_reschedule{{/str}}"
+    data-weekify-error="{{#str}}weekifyerror, local_reschedule{{/str}}"
+    data-weekify-moved="{{#str}}weekifymoved, local_reschedule{{/str}}"
+    data-weekify-failed="{{#str}}weekifyfailed, local_reschedule{{/str}}"
+    data-weekify-more="{{#str}}weekifymore, local_reschedule{{/str}}"
+    data-weekify-moves="{{#str}}weekifymoves, local_reschedule{{/str}}">
     <!-- Header card with controls -->
     <div class="card shadow-sm border-0 mb-4">
         <div class="card-body p-4">
@@ -65,6 +80,11 @@
                     <button type="button" class="btn btn-outline-primary btn-sm" id="btn-autosequence">
                         <i class="fa fa-magic me-1" aria-hidden="true"></i>{{#str}}autosequence, local_reschedule{{/str}}
                     </button>
+                    {{#showweekify}}
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="btn-weekify">
+                        <i class="fa fa-calendar me-1" aria-hidden="true"></i>{{#str}}weekify, local_reschedule{{/str}}
+                    </button>
+                    {{/showweekify}}
                     <button type="button" class="btn btn-outline-danger btn-sm" id="btn-reset">
                         <i class="fa fa-undo me-1" aria-hidden="true"></i>{{#str}}resetschedule, local_reschedule{{/str}}
                     </button>
@@ -140,7 +160,7 @@
                     </thead>
                     <tbody class="small">
                         {{#items}}
-                        <tr data-itemid="{{id}}" {{#issubtype}}data-parentkey="{{parentkey}}"{{/issubtype}} class="{{#issubtype}}table-light text-muted subtask-row d-none{{/issubtype}}{{^interactive}} reschedule-item-disabled{{/interactive}}">
+                        <tr id="reschedule-row-{{id}}" data-itemid="{{id}}" {{#issubtype}}data-parentkey="{{parentkey}}"{{/issubtype}} class="{{#issubtype}}table-light text-muted subtask-row d-none{{/issubtype}}{{^interactive}} reschedule-item-disabled{{/interactive}}">
                             <td class="{{#issubtype}}ps-4{{/issubtype}} text-nowrap">
                                 {{#haschildren}}
                                 <button type="button" class="btn btn-xs btn-outline-secondary py-0 px-1 me-2 toggle-subtasks" data-parentkey="{{id}}" aria-expanded="false" title="{{#str}}togglesubtasks, local_reschedule{{/str}}">
@@ -179,6 +199,108 @@
             </div>
         </div>
     </div>
+    <div class="modal fade" id="reschedule-effort-model-modal" tabindex="-1" aria-labelledby="effortModelModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content shadow border-0">
+                <div class="modal-header bg-light border-bottom">
+                    <h5 class="modal-title fw-bold" id="effortModelModalLabel">
+                        <i class="fa fa-cog text-primary me-2" aria-hidden="true"></i>{{#str}}effortmodeltitle, local_reschedule{{/str}}
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" data-effort-dismiss aria-label="{{#str}}closebuttontitle, moodle{{/str}}"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <div class="row g-0">
+                        <div class="col-md-5 border-end bg-light p-3">
+                            <div class="text-uppercase small fw-bold text-dark mb-2 px-1">{{#str}}effortmodelchoose, local_reschedule{{/str}}</div>
+                            <div class="list-group" id="effort-model-list">
+                                <label class="list-group-item list-group-item-action active p-3 border rounded mb-2 d-flex align-items-center" data-model="real">
+                                    <input class="form-check-input me-3 flex-shrink-0" type="radio" name="effort_model" value="real" checked>
+                                    <span><strong>{{#str}}effortmodelreal, local_reschedule{{/str}}</strong><br><small>{{#str}}effortmodelrealshort, local_reschedule{{/str}}</small></span>
+                                </label>
+                                <label class="list-group-item list-group-item-action p-3 border rounded d-flex align-items-center" data-model="ideal">
+                                    <input class="form-check-input me-3 flex-shrink-0" type="radio" name="effort_model" value="ideal">
+                                    <span><strong>{{#str}}effortmodelideal, local_reschedule{{/str}}</strong><br><small>{{#str}}effortmodelidealshort, local_reschedule{{/str}}</small></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-7 p-4">
+                            <div id="effort-model-desc-real" class="effort-model-desc">
+                                <h5 class="fw-bold text-dark">{{#str}}effortmodelreal, local_reschedule{{/str}}</h5>
+                                <p class="text-dark mb-2">{{#str}}effortmodelrealdesc, local_reschedule{{/str}}</p>
+                            </div>
+                            <div id="effort-model-desc-ideal" class="effort-model-desc d-none">
+                                <h5 class="fw-bold text-primary">{{#str}}effortmodelideal, local_reschedule{{/str}}</h5>
+                                <p class="text-dark mb-2">{{#str}}effortmodelidealdesc, local_reschedule{{/str}}</p>
+                            </div>
+                            <div class="alert alert-info small mb-0" role="note">{{#str}}effortmodelnote, local_reschedule{{/str}}</div>
+                        </div>
+                    </div>
+                    <details class="quest-effort-academic border-top bg-light">
+                        <summary class="quest-effort-academic-summary d-flex align-items-center justify-content-between px-4 py-3 text-dark">
+                            <span class="h6 fw-bold mb-0">{{#str}}effortchallengeheading, local_reschedule{{/str}}</span>
+                            <i class="fa fa-chevron-down quest-effort-academic-chevron ms-2" aria-hidden="true"></i>
+                        </summary>
+                        <div class="px-4 pb-3 text-dark">
+                            <blockquote class="border-start border-3 border-primary ps-3 mb-0 small">
+                                <p class="mb-2">{{#str}}effortchallengeintro, local_reschedule{{/str}}</p>
+                                <p class="mb-2">{{#str}}effortchallengeevidence, local_reschedule{{/str}}</p>
+                                <p class="mb-0">{{#str}}effortchallengeaction, local_reschedule{{/str}}</p>
+                            </blockquote>
+                            <div class="small mt-2">
+                                {{#str}}effortchallengerefs, local_reschedule{{/str}}:
+                                <a href="https://books.google.com/books/about/Parkinson_s_Law_and_Other_Studies_in_Adm.html?id=_PAaAAAAMAAJ" target="_blank" rel="noopener noreferrer">Parkinson (1957)</a>,
+                                <a href="https://www.routledge.com/Critical-Chain-A-Business-Novel/Goldratt/p/book/9781138461079" target="_blank" rel="noopener noreferrer">Goldratt (1997)</a>,
+                                <a href="https://pubmed.ncbi.nlm.nih.gov/17201571/" target="_blank" rel="noopener noreferrer">Steel (2007)</a>,
+                                <a href="https://journals.sagepub.com/doi/10.1111/j.1467-9280.1997.tb00460.x" target="_blank" rel="noopener noreferrer">Tice &amp; Baumeister (1997)</a>,
+                                <a href="https://www.psychologicalscience.org/journals/psychological-science/1467-9280.00441/" target="_blank" rel="noopener noreferrer">Ariely &amp; Wertenbroch (2002)</a>,
+                                <a href="https://pubmed.ncbi.nlm.nih.gov/16719566/" target="_blank" rel="noopener noreferrer">Cepeda et al. (2006)</a>.
+                            </div>
+                        </div>
+                    </details>
+                </div>
+                <div class="modal-footer bg-light border-top">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal" data-effort-dismiss>{{#str}}cancel, moodle{{/str}}</button>
+                    <button type="button" class="btn btn-primary btn-sm" id="btn-effort-model-apply">{{#str}}apply, local_reschedule{{/str}}</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{#showweekify}}
+    <div class="modal fade" id="reschedule-weekify-modal" tabindex="-1" aria-labelledby="weekifyModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content shadow border-0">
+                <div class="modal-header bg-light border-bottom">
+                    <h5 class="modal-title fw-bold" id="weekifyModalLabel">
+                        <i class="fa fa-calendar text-primary me-2" aria-hidden="true"></i>{{#str}}weekifytitle, local_reschedule{{/str}}
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{#str}}closebuttontitle, moodle{{/str}}"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p>{{#str}}weekifyintro, local_reschedule{{/str}}</p>
+                    <div class="alert alert-info small" role="note">{{#str}}weekifynote, local_reschedule{{/str}}</div>
+                    <div id="weekify-preview-status" class="mb-2" role="status"></div>
+                    <ul class="list-group small mb-3" id="weekify-preview-list"></ul>
+                    <div class="small text-muted" id="weekify-preview-skipped">
+                        <span id="weekify-undated">0</span> {{#str}}weekifyundated, local_reschedule{{/str}} ·
+                        <span id="weekify-outofrange">0</span> {{#str}}weekifyoutofrange, local_reschedule{{/str}} ·
+                        <span id="weekify-already">0</span> {{#str}}weekifyalready, local_reschedule{{/str}} ·
+                        <span id="weekify-unsupported">0</span> {{#str}}weekifyunsupported, local_reschedule{{/str}}
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top">
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-weekify-cancel" data-bs-dismiss="modal">
+                        {{#str}}cancel, moodle{{/str}}
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm" id="btn-weekify-apply" disabled>
+                        {{#str}}weekifyconfirm, local_reschedule{{/str}}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {{/showweekify}}
+
     <!-- Auto-sequence Strategy Chooser Modal (Question-type chooser style) -->
     <div class="modal fade" id="reschedule-autosequence-modal" tabindex="-1" aria-labelledby="autosequenceModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -226,6 +348,9 @@
                                             <div class="smaller text-muted">{{#str}}strategy_relative_short, local_reschedule{{/str}}</div>
                                         </div>
                                     </label>
+                                </div>
+                                <div class="alert alert-info small mt-3 mb-0" role="note">
+                                    {{#str}}autosequenceonlydated, local_reschedule{{/str}}
                                 </div>
                             </div>
                             <!-- Right Column: Strategy Description -->
