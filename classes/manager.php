@@ -808,7 +808,11 @@ class manager {
         // CM and would otherwise render and submit the same conditions more
         // than once.
         foreach ($ordereditems as &$ordereditem) {
-            $ordereditem['effort'] = 10;
+            // Subactivity tables inherit the activity type of their parent CM.
+            $parentkey = (string)($ordereditem['parentkey'] ?? '');
+            $modname = $parentkey !== '' && isset($items[$parentkey]) ?
+                (string)$items[$parentkey]['table'] : (string)$ordereditem['table'];
+            $ordereditem['effort'] = adapter_manager::get_effort($modname);
             if (!empty($ordereditem['issubtype']) || (int)($ordereditem['cmid'] ?? 0) <= 0) {
                 continue;
             }
@@ -952,6 +956,8 @@ class manager {
                     $validationend = $storedend;
                 }
                 $validationitem = $item;
+                $validationitem['startenabled'] = $startenabled;
+                $validationitem['endenabled'] = $endenabled;
                 if (isset($proposeddates[(int)($item['cmid'] ?? 0)])) {
                     $validationitem['proposeddates'] = $proposeddates[(int)$item['cmid']] ?? [];
                 }

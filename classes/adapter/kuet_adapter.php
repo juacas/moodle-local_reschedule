@@ -93,8 +93,8 @@ class kuet_adapter extends base_adapter {
             $session->enddate = $newend;
             $session->timemodified = time();
 
-            // When scheduling dates, activate automatic start.
-            $session->automaticstart = 1;
+            // A session with an open boundary cannot run automatically.
+            $session->automaticstart = $newstart > 0 && $newend > 0 ? 1 : 0;
 
             // If session was marked finished (0) but is being rescheduled for future, reactivate it (1 = SESSION_ACTIVE).
             if ((int)$session->status === 0 && $newstart > time()) {

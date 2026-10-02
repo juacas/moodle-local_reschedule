@@ -19,8 +19,9 @@
       <span>Activity Rescheduler</span>
     </a>
     <nav class="nav-links" aria-label="Primary navigation">
-      <a href="#features">Features</a>
       <a href="#how-it-works">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#effort">Effort chart</a>
       <a href="#install">Install</a>
       <a class="nav-github" href="https://github.com/juacas/moodle-local_reschedule">GitHub ↗</a>
       <a href="es/">ES</a>
@@ -35,7 +36,7 @@
         <p class="hero-lede">A visual Gantt timeline for Moodle that makes course-wide date changes clear, fast and safe.</p>
         <div class="hero-actions">
           <a class="button button-primary" href="https://github.com/juacas/moodle-local_reschedule">Explore on GitHub <span>↗</span></a>
-          <a class="button button-quiet" href="#features">Discover the workflow <span>↓</span></a>
+          <a class="button button-quiet" href="#how-it-works">Discover the workflow <span>↓</span></a>
         </div>
         <div class="compatibility"><span>Moodle 4.5+</span><span>PHP 8.1+</span><span>Touch ready</span></div>
       </div>
@@ -55,16 +56,6 @@
       <div><strong>Open source</strong><span>built for educators</span></div>
     </section>
 
-    <section class="section-shell section-block" id="features">
-      <div class="section-heading"><p class="eyebrow">Designed for real course changes</p><h2>Less calendar juggling.<br><em>More teaching clarity.</em></h2></div>
-      <div class="feature-grid">
-        <article class="feature-card feature-card-wide"><div class="feature-icon">↔</div><h3>Drag, resize, understand</h3><p>Move activities directly on a responsive Gantt timeline. See dates, durations, weekends and dependencies at a glance.</p><span class="feature-number">01</span></article>
-        <article class="feature-card feature-card-teal"><div class="feature-icon">⌁</div><h3>Keep phases together</h3><p>Parent activities and subactivities move in harmony, with proportional resizing for complex modules.</p><span class="feature-number">02</span></article>
-        <article class="feature-card feature-card-blue"><div class="feature-icon">✓</div><h3>Save safely</h3><p>Official calendar events, gradebook dates and course caches stay synchronized through Moodle-aware adapters.</p><span class="feature-number">03</span></article>
-        <article class="feature-card feature-card-dark"><div class="feature-icon">✦</div><h3>Sequence in seconds</h3><p>Choose equal, sequential, proportional or relative scheduling strategies when the academic calendar shifts.</p><span class="feature-number">04</span></article>
-      </div>
-    </section>
-
     <section class="showcase section-shell section-block" id="how-it-works">
       <div class="section-heading"><p class="eyebrow">A calmer way to reschedule</p><h2>From course overview<br><em>to confident change.</em></h2></div>
       <div class="steps">
@@ -76,6 +67,61 @@
         <figure class="gallery-main"><img src="assets/screenshot1.png" alt="Activity Rescheduler detailed timeline view" loading="lazy" width="1780" height="756"><figcaption>Bird's-eye course planning</figcaption></figure>
         <figure><img src="assets/screenshot2.png" alt="Activity Rescheduler date editing view" loading="lazy" width="730" height="577"><figcaption>Precise date editing</figcaption></figure>
       </div>
+    </section>
+
+    <section class="section-shell section-block" id="features">
+      <div class="section-heading"><p class="eyebrow">Designed for real course changes</p><h2>Less calendar juggling.<br><em>More teaching clarity.</em></h2></div>
+      <div class="feature-grid">
+        <article class="feature-card feature-card-wide"><div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 12h16M4 12l4-4M4 12l4 4M20 12l-4-4M20 12l-4 4"/></svg></div><h3>Drag, resize, understand</h3><p>Move activities directly on a responsive Gantt timeline. See dates, durations, weekends and dependencies at a glance.</p><span class="feature-number">01</span></article>
+        <article class="feature-card feature-card-teal"><div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="2" y="4" width="8" height="6" rx="1"/><rect x="14" y="14" width="8" height="6" rx="1"/><path d="M10 7h4v10"/></svg></div><h3>Keep phases together</h3><p>Parent activities and subactivities move in harmony, with proportional resizing for complex modules.</p><span class="feature-number">02</span></article>
+        <article class="feature-card feature-card-blue"><div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 12l5 5L20 5"/></svg></div><h3>Save safely</h3><p>Official calendar events, gradebook dates and course caches stay synchronized through Moodle-aware adapters.</p><span class="feature-number">03</span></article>
+        <article class="feature-card feature-card-weekify"><div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4M8 14h3M14 14h3"/></svg></div><h3>Weekify weekly courses</h3><p>Preview and confirm moving each activity into the course section matching its saved start week. The activity dates stay in place.</p><span class="feature-number">04</span></article>
+        <article class="feature-card feature-card-effort"><div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 19h20M3 16c4 0 5-8 9-8s5 3 8-4"/></svg></div><h3>See the workload build</h3><p>The effort graph sums dated activities across the course. Compare deadline pressure with a planned pace and spot busy periods early.</p><a class="feature-link" href="#effort">Explore the effort chart ↗</a><figure class="feature-preview"><img src="assets/effort_plot.png" alt="Course Gantt with accumulated daily effort curve" loading="lazy" width="1240" height="505"><figcaption>Daily workload summed across the course</figcaption></figure><span class="feature-number">05</span></article>
+        <article class="feature-card feature-card-availability"><div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="7" y="11" width="10" height="9" rx="2"/><path d="M9 11V8a3 3 0 0 1 6 0v3"/></svg></div><h3>Edit availability restrictions</h3><p>See Moodle date restrictions directly on the Gantt. Drag a lock or resize its handles to adjust supported availability windows.</p><figure class="feature-preview"><a href="assets/availability_edit.png" aria-label="Open the availability restriction editing screenshot"><img src="assets/availability_edit.png" alt="Gantt showing striped date availability ranges with lock icons and resize handles" loading="lazy" width="1042" height="370"></a><figcaption>Availability windows shown over activity bars</figcaption></figure><span class="feature-number">06</span></article>
+        <article class="feature-card feature-card-dark feature-card-sequence"><div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 6h12m0 0-3-3m3 3-3 3M21 18H9m0 0 3-3m-3 3 3 3"/></svg></div><h3>Sequence in seconds</h3><p>Choose the scheduling rule that fits your course. Auto-sequence uses dated activities and distributes their time by one of four strategies.</p><div class="sequence-gallery">
+          <figure><img src="assets/sequence_equal.svg" alt="Four activities redistributed into equal time blocks" loading="lazy" width="420" height="130"><figcaption>Equal distribution</figcaption></figure>
+          <figure><img src="assets/sequence_sequential.svg" alt="Activities chained together while keeping their original durations" loading="lazy" width="420" height="130"><figcaption>Sequential chaining</figcaption></figure>
+          <figure><img src="assets/sequence_proportional.svg" alt="Activities fill the course period according to bounded relative durations" loading="lazy" width="420" height="130"><figcaption>Bounded proportional</figcaption></figure>
+          <figure><img src="assets/sequence_relative.svg" alt="Activities shifted and scaled together while retaining relative gaps" loading="lazy" width="420" height="130"><figcaption>Relative scaling</figcaption></figure>
+        </div><span class="feature-number">07</span></article>
+      </div>
+    </section>
+
+    <section class="effort-section section-shell section-block" id="effort">
+      <div class="section-heading"><p class="eyebrow">A course workload view</p><h2>See how effort<br><em>builds over time.</em></h2></div>
+      <div class="effort-layout">
+        <div class="effort-chart-card">
+          <div class="effort-chart-title">Daily effort models <span>Illustrative shapes</span></div>
+          <svg viewBox="0 0 400 225" role="img" aria-label="Realistic effort rises sharply toward the deadline; ideal effort forms a bell curve">
+            <defs><linearGradient id="effort-bands-en" x1="0" y1="1" x2="0" y2="0"><stop offset="0%" stop-color="#22c55e" stop-opacity=".2"/><stop offset="50%" stop-color="#facc15" stop-opacity=".2"/><stop offset="75%" stop-color="#ef4444" stop-opacity=".2"/></linearGradient></defs>
+            <rect x="32" y="18" width="330" height="162" rx="7" fill="url(#effort-bands-en)"/>
+            <path d="M32 18V180H362" fill="none" stroke="#718096" stroke-width="1.5"/>
+            <path d="M32 180C75 179 115 174 160 158S250 105 312 22C322 68 337 143 362 178" fill="none" stroke="#f97316" stroke-width="3" stroke-linecap="round"/>
+            <path d="M32 179C75 176 99 152 135 102C170 53 209 43 245 92C281 142 323 173 362 179" fill="none" stroke="#2563eb" stroke-width="3" stroke-linecap="round"/>
+            <path d="M312 18V180" fill="none" stroke="#64748b" stroke-width="1" stroke-dasharray="4 4"/>
+            <text x="32" y="202" fill="#475569" font-size="12">Start</text><text x="289" y="202" fill="#475569" font-size="12">Deadline</text>
+          </svg>
+          <div class="effort-legend"><span><i class="effort-legend-real"></i>Deadline pressure</span><span><i class="effort-legend-ideal"></i>Planned pace</span></div>
+        </div>
+        <div class="effort-explanation">
+          <h3>One curve per dated activity</h3>
+          <p>The Gantt header adds every eligible activity's daily contribution at each point. Its weight is the <strong>total effort across the entire curve</strong>, so the daily peak changes with the activity's duration. The effort badge shows that weight before the duration badge.</p>
+          <p><strong>Deadline pressure</strong> grows slowly and peaks at the end. <strong>Planned pace</strong> follows a bell-shaped daily curve derived from cumulative S-curve progress. Both include a short exponential tail after the end. Choose a model with the gear button; the choice stays in this browser.</p>
+          <p>The vertical scale stays at <strong>0–4 daily units</strong>: green through 1, yellow at 2 and red from 3. Sums above 4 are still calculated, but the graph clips them visually.</p>
+        </div>
+      </div>
+      <article class="effort-academic" aria-labelledby="effort-academic-title">
+        <figure class="effort-academic-figure">
+          <img src="assets/effort_plot.png" alt="Gantt timeline with an accumulated daily effort curve above dated course activities" loading="lazy" width="1240" height="505">
+          <figcaption>The Gantt adds each activity's daily workload into one course-wide curve.</figcaption>
+        </figure>
+        <div class="effort-academic-copy">
+          <h3 id="effort-academic-title">The challenge of distributing classroom work over time</h3>
+          <p>When an assignment opens, two well-known ideas help describe how its workload may unfold: <strong>Parkinson's Law</strong> (<a href="https://books.google.com/books/about/Parkinson_s_Law_and_Other_Studies_in_Adm.html?id=_PAaAAAAMAAJ">Parkinson, 1957</a>) describes work expanding to fill the available time; the <strong>Student Syndrome</strong> (<a href="https://www.routledge.com/Critical-Chain-A-Business-Novel/Goldratt/p/book/9781138461079">Goldratt, 1997</a>) describes postponing substantial work until the deadline feels urgent. Together, they motivate the model in which daily effort rises slowly at first, then sharply near the deadline. The planned model spreads daily effort into a bell shape, corresponding to an S-shaped curve of cumulative progress. Both models include a short exponential decline after the deadline.</p>
+          <p>Research links distant deadlines with a greater tendency to procrastinate (<a href="https://pubmed.ncbi.nlm.nih.gov/17201571/">Steel, 2007</a>). A longitudinal study of students associated procrastination with greater stress later in the term and lower grades (<a href="https://www.psychologicalscience.org/journals/psychological-science/j.1467-9280.1997.tb00460.x/">Tice and Baumeister, 1997</a>). The exponential rise shown here is an illustrative model; it does not imply that every student concentrates work in the final 48 hours.</p>
+          <p>Partial, sequential deliverables can help distribute effort. Intermediate deadlines have been shown to reduce procrastination and improve performance (<a href="https://www.psychologicalscience.org/journals/psychological-science/1467-9280.00441/">Ariely and Wertenbroch, 2002</a>), while spaced practice supports longer-term retention (<a href="https://pubmed.ncbi.nlm.nih.gov/16719566/">Cepeda et al., 2006</a>).</p>
+        </div>
+      </article>
     </section>
 
     <section class="architecture section-block">

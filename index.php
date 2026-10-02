@@ -56,9 +56,11 @@ if ($requestedend > 0) {
 }
 $PAGE->set_url(new \moodle_url('/local/reschedule/index.php', $urlparams));
 $PAGE->set_context($context);
+$PAGE->set_other_editing_capability('moodle/course:manageactivities');
 $PAGE->set_pagelayout('incourse');
 $PAGE->set_title(get_string('rescheduletitle', 'local_reschedule'));
 $PAGE->set_heading($course->fullname);
+$editing = $PAGE->user_is_editing();
 
 $timeframe = \local_reschedule\manager::get_course_timeframe($course);
 $coursestart = $timeframe['start'];
@@ -113,6 +115,12 @@ $dateformat = get_string('strftimedatetimeshort', 'langconfig');
 $itemsforview = [];
 
 foreach ($items as $item) {
+    if (!$editing) {
+        $item['interactive'] = false;
+        $item['editable'] = false;
+        $item['derived'] = false;
+        $item['editreason'] = get_string('editmoderequired', 'local_reschedule');
+    }
     if (!empty($item['ismilestone'])) {
         $itemsforview[] = array_merge($item, [
             'startformatted' => !empty($item['startenabled']) ? userdate($item['datestart'],
@@ -133,6 +141,10 @@ foreach ($items as $item) {
         $durstr = $durdays . 'd';
     } else {
         $durstr = max(1, $durhours) . 'h';
+    }
+
+    if (empty($item['startenabled']) || empty($item['endenabled'])) {
+        $durstr = '—';
     }
 
     $itemsforview[] = array_merge($item, [
@@ -166,6 +178,8 @@ $templatecontext = [
     'saveurl' => $saveurl->out(false),
     'weekifyurl' => $weekifyurl->out(false),
     'showweekify' => $course->format === 'weeks' && !empty($itemsforview),
+    'editing' => $editing,
+    'readonly' => !$editing,
     'sesskey' => sesskey(),
     'language' => current_language(),
 ];

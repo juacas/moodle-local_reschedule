@@ -271,18 +271,19 @@ class editdates_bridge extends base_adapter {
             // Map timeline start and end cols.
             $startcol = $item['startcol'];
             $endcol = $item['endcol'] ?? '';
-            $dates[$startcol] = $newstart;
+            $dates[$startcol] = !empty($item['startenabled']) ? $newstart : 0;
             if ($endcol !== '' && empty($item['isopenended'])) {
-                $dates[$endcol] = $newend;
+                $dates[$endcol] = !empty($item['endenabled']) ? $newend : 0;
             }
 
             // Handle dependent fields for assign (e.g. cutoffdate / gradingduedate).
             if ($modname === 'assign') {
-                if (!empty($dates['cutoffdate']) && $dates['cutoffdate'] < $newend) {
-                    $dates['cutoffdate'] = $newend;
+                $storedend = $endcol !== '' ? (int)($dates[$endcol] ?? 0) : 0;
+                if ($storedend > 0 && !empty($dates['cutoffdate']) && $dates['cutoffdate'] < $storedend) {
+                    $dates['cutoffdate'] = $storedend;
                 }
-                if (!empty($dates['gradingduedate']) && $dates['gradingduedate'] < $newend) {
-                    $dates['gradingduedate'] = $newend + (7 * 86400);
+                if ($storedend > 0 && !empty($dates['gradingduedate']) && $dates['gradingduedate'] < $storedend) {
+                    $dates['gradingduedate'] = $storedend + (7 * 86400);
                 }
             }
 

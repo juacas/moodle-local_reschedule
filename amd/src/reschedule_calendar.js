@@ -71,6 +71,22 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
     }
 
     /**
+     * Show a duration only when both endpoints represent stored dates.
+     *
+     * @param {Object} item Activity or milestone.
+     * @return {string} Duration label.
+     */
+    function formatItemDuration(item) {
+        if (item.ismilestone) {
+            return item.typelabel;
+        }
+        if (item.startenabled === false || item.endenabled === false) {
+            return '—';
+        }
+        return formatDuration(item.dateend - item.datestart);
+    }
+
+    /**
      * Convert Unix timestamp in seconds to datetime-local input string format (YYYY-MM-DDTHH:mm).
      *
      * @param {number} sec Unix timestamp in seconds.
@@ -161,6 +177,23 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
         return [6, 7];
     }
 
+    /** First day of the locale's natural week, using ISO day numbers. */
+    function getLocaleFirstDay(locale) {
+        if (typeof Intl !== 'undefined' && Intl.Locale) {
+            try {
+                var tag = String(locale || 'default').replace(/_/g, '-');
+                var loc = new Intl.Locale(tag);
+                var info = loc.weekInfo || (loc.getWeekInfo ? loc.getWeekInfo() : null);
+                if (info && info.firstDay >= 1 && info.firstDay <= 7) {
+                    return info.firstDay;
+                }
+            } catch (e) {
+                // Fallback below.
+            }
+        }
+        return 1;
+    }
+
     /**
      * Check whether a given Date is on a weekend according to weekend days.
      *
@@ -205,7 +238,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
     }
 
     var EFFORT_DAY = 86400;
-    var EFFORT_DEFAULT = 10;
+    var EFFORT_DEFAULT = 5;
     var EFFORT_TAIL_DAYS = 2;
     var EFFORT_SCALE_MAX = 4;
     var EFFORT_STORAGE_KEY = 'local_reschedule_effort_model';
@@ -318,8 +351,11 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
         pinchState: null,
         effortChart: null,
         effortModel: 'real',
+        hoveredEffortItemId: null,
         effortUpdatePending: false,
         locale: undefined,
+        selectionMode: false,
+        selectedItemIds: null,
 
         /**
          * Initialize calendar timeline.
@@ -344,6 +380,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 cfg.weekifyUrl = getRootData('data-weekify-url', cfg.weekifyUrl || '');
                 cfg.sesskey = getRootData('data-sesskey', cfg.sesskey || '');
                 cfg.lang = getRootData('data-lang', cfg.lang || '');
+                cfg.editing = getRootData('data-editing', cfg.editing ? '1' : '0') === '1';
                 cfg.strings = cfg.strings || {};
 
                 [
@@ -373,13 +410,24 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     ['data-weekify-moved', 'weekifymoved'],
                     ['data-weekify-failed', 'weekifyfailed'],
                     ['data-weekify-more', 'weekifymore'],
-                    ['data-weekify-moves', 'weekifymoves']
+                    ['data-weekify-moves', 'weekifymoves'],
+                    ['data-selection-mode', 'selectionmode'],
+                    ['data-selection-activities', 'selectionactivities'],
+                    ['data-selection-drag-hint', 'selectiondraghint'],
+                    ['data-selection-selected', 'selectionselected'],
+                    ['data-select-activity', 'selectactivity'],
+                    ['data-selection-empty', 'selectionempty'],
+                    ['data-selection-weekify-empty', 'selectionweekifyempty'],
+                    ['data-readonly-notice', 'readonlynotice'],
+                    ['data-editmode-required', 'editmoderequired'],
+                    ['data-autosequence-blackout-empty', 'autosequenceblackoutempty']
                 ].forEach(function(mapping) {
                     cfg.strings[mapping[1]] = getRootData(mapping[0], cfg.strings[mapping[1]] || '');
                 });
             }
 
             this.config = cfg;
+            this.editingEnabled = cfg.editing === true;
             this.strings = cfg.strings || {};
             this.effortModel = 'real';
             try {
@@ -437,6 +485,8 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             this.weekifyBtn = document.getElementById('btn-weekify');
             this.unsavedAlert = document.getElementById('reschedule-unsaved-alert');
             this.expandedParents = {};
+            this.selectionMode = false;
+            this.selectedItemIds = new Set();
 
             if (!this.board || !this.items.length) {
                 return;
@@ -448,153 +498,143 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
         },
 
         /**
-         * Generate 3-level timeline bands and weekend blocks.
+         * Generate the visible calendar bands and weekend blocks.
          *
          * @param {number} tStartSec Timeline start timestamp.
          * @param {number} tEndSec Timeline end timestamp.
+         * @param {number} trackWidthPx Rendered track width in pixels.
          * @return {Object} Bands structure.
          */
-        calculateBands: function(tStartSec, tEndSec) {
+        calculateBands: function(tStartSec, tEndSec, trackWidthPx) {
             var self = this;
             var totalSec = Math.max(3600, tEndSec - tStartSec);
-            var totalDays = totalSec / 86400;
-            var isShort = totalDays <= 7;
+            var trackWidth = Math.max(1, Number(trackWidthPx) || self.trackWidthPx || 1000);
+            var pixelsPerHour = trackWidth * 3600 / totalSec;
+            var pixelsPerDay = trackWidth * 86400 / totalSec;
             var weekendDays = getLocaleWeekendDays(self.locale);
             var b1 = [], b2 = [], b3 = [];
-
-            if (!isShort) {
-                // Level 1: Year
-                var y0 = new Date(tStartSec * 1000).getFullYear();
-                var y1 = new Date(tEndSec * 1000).getFullYear();
-                for (var y = y0; y <= y1; y++) {
-                    var yStart = Math.max(tStartSec, Math.floor(new Date(y, 0, 1, 0, 0, 0).getTime() / 1000));
-                    var yEnd = Math.min(tEndSec, Math.floor(new Date(y + 1, 0, 1, 0, 0, 0).getTime() / 1000));
-                    if (yEnd > yStart) {
-                        b1.push({
-                            label: String(y),
-                            left: ((yStart - tStartSec) / totalSec) * 100,
-                            width: ((yEnd - yStart) / totalSec) * 100
-                        });
+            var resolution;
+            var steps;
+            var minimumCellWidth = 48;
+            var chooseStep = function(options, pixelsPerUnit, labelWidth) {
+                for (var i = 0; i < options.length; i++) {
+                    if (options[i] * pixelsPerUnit >= (labelWidth || minimumCellWidth)) {
+                        return options[i];
                     }
                 }
+                return options[options.length - 1];
+            };
+            if (pixelsPerDay >= 96) {
+                resolution = 'hour';
+                steps = chooseStep([1, 3, 6], pixelsPerHour, 24);
+            } else if (pixelsPerDay >= 24) {
+                resolution = 'day';
+                steps = 1;
+            } else if (pixelsPerDay * 7 >= 36) {
+                resolution = 'day';
+                steps = 7;
+            } else if (pixelsPerDay * 30.4375 >= minimumCellWidth) {
+                resolution = 'month';
+                steps = 1;
+            } else {
+                resolution = 'year';
+                steps = 1;
+            }
 
-                // Level 2: Month
-                var dCur = new Date(tStartSec * 1000);
-                var curY = dCur.getFullYear();
-                var curM = dCur.getMonth();
-                while (new Date(curY, curM, 1, 0, 0, 0).getTime() / 1000 < tEndSec) {
-                    var mStart = Math.max(tStartSec, Math.floor(new Date(curY, curM, 1, 0, 0, 0).getTime() / 1000));
-                    var mEnd = Math.min(tEndSec, Math.floor(new Date(curY, curM + 1, 1, 0, 0, 0).getTime() / 1000));
-                    if (mEnd > mStart) {
-                        var mDate = new Date(curY, curM, 1);
-                        var mName = mDate.toLocaleDateString(self.locale, {month: 'short'});
-                        b2.push({
-                            label: mName,
-                            left: ((mStart - tStartSec) / totalSec) * 100,
-                            width: ((mEnd - mStart) / totalSec) * 100
-                        });
-                    }
-                    curM++;
-                    if (curM > 11) {
-                        curM = 0;
-                        curY++;
-                    }
+            var addBand = function(band, start, end, label, isWeekend, title) {
+                var clippedStart = Math.max(tStartSec, Math.floor(start.getTime() / 1000));
+                var clippedEnd = Math.min(tEndSec, Math.floor(end.getTime() / 1000));
+                if (clippedEnd > clippedStart) {
+                    band.push({
+                        label: String(label),
+                        left: ((clippedStart - tStartSec) / totalSec) * 100,
+                        width: ((clippedEnd - clippedStart) / totalSec) * 100,
+                        isWeekend: !!isWeekend,
+                        title: title || ''
+                    });
                 }
-
-                // Level 3: Day scale
-                var stepDays = 1;
-                if (totalDays > 365 * 3) {
-                    stepDays = 30;
-                } else if (totalDays > 365) {
-                    stepDays = 14;
-                } else if (totalDays > 90) {
-                    stepDays = 7;
-                } else if (totalDays > 31) {
-                    stepDays = 2;
-                } else {
-                    stepDays = 1;
+            };
+            var addYears = function(band, span) {
+                var firstYear = Math.floor(new Date(tStartSec * 1000).getFullYear() / span) * span;
+                for (var year = firstYear; new Date(year, 0, 1).getTime() / 1000 < tEndSec; year += span) {
+                    var label = span === 1 ? String(year) : year + '–' + (year + span - 1);
+                    addBand(band, new Date(year, 0, 1), new Date(year + span, 0, 1), label);
                 }
+            };
+            var addMonths = function(band, span, includeYear) {
+                var pointer = new Date(tStartSec * 1000);
+                pointer = new Date(pointer.getFullYear(), Math.floor(pointer.getMonth() / span) * span, 1);
+                while (pointer.getTime() / 1000 < tEndSec) {
+                    var next = new Date(pointer.getFullYear(), pointer.getMonth() + span, 1);
+                    var label = pointer.toLocaleDateString(self.locale,
+                        includeYear ? {month: 'long', year: 'numeric'} : {month: 'short'});
+                    if (span > 1) {
+                        var last = new Date(next.getFullYear(), next.getMonth(), 0);
+                        label += '–' + last.toLocaleDateString(self.locale, {month: 'short'});
+                    }
+                    addBand(band, pointer, next, label);
+                    pointer = next;
+                }
+            };
+            var dayPointer;
+            if (resolution === 'hour') {
+                addMonths(b1, 1, true);
 
-                var dayPointer = new Date(tStartSec * 1000);
+                dayPointer = new Date(tStartSec * 1000);
                 dayPointer.setHours(0, 0, 0, 0);
-
                 while (dayPointer.getTime() / 1000 < tEndSec) {
-                    var nextDay = new Date(dayPointer.getTime() + stepDays * 86400 * 1000);
-                    var dStart = Math.max(tStartSec, Math.floor(dayPointer.getTime() / 1000));
-                    var dEnd = Math.min(tEndSec, Math.floor(nextDay.getTime() / 1000));
+                    var nextDay = new Date(dayPointer.getTime());
+                    nextDay.setDate(nextDay.getDate() + 1);
+                    addBand(b2, dayPointer, nextDay,
+                        dayPointer.toLocaleDateString(self.locale, {weekday: 'short', day: 'numeric'}),
+                        isDateWeekend(dayPointer, weekendDays));
 
-                    if (dEnd > dStart) {
-                        var isWkDay = (stepDays === 1) ? isDateWeekend(dayPointer, weekendDays) : false;
-                        var dLabel = '';
-                        if (stepDays === 1) {
-                            dLabel = dayPointer.getDate();
-                        } else if (stepDays <= 7) {
-                            dLabel = dayPointer.getDate();
-                        } else {
-                            dLabel = dayPointer.toLocaleDateString(self.locale, {day: 'numeric', month: 'numeric'});
+                    // Restart every hour band at local midnight. Absolute-hour
+                    // increments also keep repeated DST hours as separate cells.
+                    var hourBandStart = new Date(dayPointer.getTime());
+                    var hourPointer = new Date(dayPointer.getTime());
+                    while (hourPointer < nextDay) {
+                        var nextHour = new Date(Math.min(hourPointer.getTime() + 3600000, nextDay.getTime()));
+                        if (nextHour.getTime() === nextDay.getTime() || nextHour.getHours() % steps === 0) {
+                            addBand(b3, hourBandStart, nextHour, hourBandStart.getHours() + 'h',
+                                isDateWeekend(dayPointer, weekendDays));
+                            hourBandStart = nextHour;
                         }
-                        b3.push({
-                            label: String(dLabel),
-                            left: ((dStart - tStartSec) / totalSec) * 100,
-                            width: ((dEnd - dStart) / totalSec) * 100,
-                            isWeekend: isWkDay
-                        });
+                        hourPointer = nextHour;
                     }
                     dayPointer = nextDay;
                 }
+            } else if (resolution === 'day') {
+                addYears(b1, 1);
+                addMonths(b2, 1);
+                dayPointer = new Date(tStartSec * 1000);
+                dayPointer.setHours(0, 0, 0, 0);
+                if (steps === 7) {
+                    var isoDay = dayPointer.getDay() || 7;
+                    dayPointer.setDate(dayPointer.getDate() -
+                        (isoDay - getLocaleFirstDay(self.locale) + 7) % 7);
+                }
+                while (dayPointer.getTime() / 1000 < tEndSec) {
+                    var nextGridDay = new Date(dayPointer.getTime());
+                    nextGridDay.setDate(nextGridDay.getDate() + steps);
+                    if (steps === 7) {
+                        var lastGridDay = new Date(nextGridDay.getTime());
+                        lastGridDay.setDate(lastGridDay.getDate() - 1);
+                        var weekTitle = dayPointer.toLocaleDateString(self.locale) + ' – ' +
+                            lastGridDay.toLocaleDateString(self.locale);
+                        addBand(b3, dayPointer, nextGridDay,
+                            dayPointer.getDate() + '–' + lastGridDay.getDate(), false, weekTitle);
+                    } else {
+                        addBand(b3, dayPointer, nextGridDay, dayPointer.getDate(),
+                            isDateWeekend(dayPointer, weekendDays));
+                    }
+                    dayPointer = nextGridDay;
+                }
+            } else if (resolution === 'month') {
+                addYears(b1, 1);
+                addMonths(b2, 1);
             } else {
-                // Short period <= 7 days: Level 1 Month/Year, Level 2 Day, Level 3 Hours.
-                var dtS = new Date(tStartSec * 1000);
-                var dtE = new Date(tEndSec * 1000);
-                var strM1 = dtS.toLocaleDateString(self.locale, {month: 'long', year: 'numeric'});
-                var strM2 = dtE.toLocaleDateString(self.locale, {month: 'long', year: 'numeric'});
-                var topLabel = (strM1 === strM2) ? strM1 : (strM1 + ' - ' + strM2);
-                b1.push({
-                    label: topLabel,
-                    left: 0,
-                    width: 100
-                });
-
-                var dPtr = new Date(tStartSec * 1000);
-                dPtr.setHours(0, 0, 0, 0);
-                while (dPtr.getTime() / 1000 < tEndSec) {
-                    var dNextP = new Date(dPtr.getTime() + 86400 * 1000);
-                    var dayS = Math.max(tStartSec, Math.floor(dPtr.getTime() / 1000));
-                    var dayE = Math.min(tEndSec, Math.floor(dNextP.getTime() / 1000));
-                    if (dayE > dayS) {
-                        var dayName = dPtr.toLocaleDateString(self.locale, {weekday: 'short', day: 'numeric'});
-                        var isWk = isDateWeekend(dPtr, weekendDays);
-                        b2.push({
-                            label: dayName,
-                            left: ((dayS - tStartSec) / totalSec) * 100,
-                            width: ((dayE - dayS) / totalSec) * 100,
-                            isWeekend: isWk
-                        });
-                    }
-                    dPtr = dNextP;
-                }
-
-                var stepHours = (totalDays > 3) ? 6 : ((totalDays > 1) ? 4 : 2);
-                var hPtr = new Date(tStartSec * 1000);
-                var remH = hPtr.getHours() % stepHours;
-                hPtr.setHours(hPtr.getHours() - remH, 0, 0, 0);
-
-                while (hPtr.getTime() / 1000 < tEndSec) {
-                    var hNextP = new Date(hPtr.getTime() + stepHours * 3600 * 1000);
-                    var hS = Math.max(tStartSec, Math.floor(hPtr.getTime() / 1000));
-                    var hE = Math.min(tEndSec, Math.floor(hNextP.getTime() / 1000));
-                    if (hE > hS) {
-                        var hLabel = hPtr.toLocaleTimeString(self.locale, {hour: '2-digit', minute: '2-digit', hour12: false});
-                        var isHWk = isDateWeekend(hPtr, weekendDays);
-                        b3.push({
-                            label: hLabel,
-                            left: ((hS - tStartSec) / totalSec) * 100,
-                            width: ((hE - hS) / totalSec) * 100,
-                            isWeekend: isHWk
-                        });
-                    }
-                    hPtr = hNextP;
-                }
+                addYears(b1, 1);
             }
 
             // Compute contiguous weekend blocks for track backdrop shading.
@@ -607,7 +647,8 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             var wBlockEnd = 0;
 
             while (curD.getTime() / 1000 < tEndSec) {
-                var nxtD = new Date(curD.getTime() + 86400 * 1000);
+                var nxtD = new Date(curD.getTime());
+                nxtD.setDate(nxtD.getDate() + 1);
                 var curDs = Math.max(tStartSec, Math.floor(curD.getTime() / 1000));
                 var curDe = Math.min(tEndSec, Math.floor(nxtD.getTime() / 1000));
                 var isCurW = isDateWeekend(curD, weekendDays);
@@ -642,7 +683,9 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 b1: b1,
                 b2: b2,
                 b3: b3,
-                isShort: isShort,
+                isShort: resolution === 'hour',
+                resolution: resolution,
+                step: steps,
                 weekends: weekends
             };
         },
@@ -652,6 +695,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
          */
         renderTimeline: function() {
             var self = this;
+            self.hoveredEffortItemId = null;
             if (self.effortChart) {
                 self.effortChart.destroy();
                 self.effortChart = null;
@@ -660,13 +704,12 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             var cEnd = self.getTimelineEnd();
             var totalSec = Math.max(3600, cEnd - cStart);
 
-            var bands = self.calculateBands(cStart, cEnd);
-
             var wrapperWidth = self.wrapper ? Math.max(1, self.wrapper.clientWidth - 280) : 1000;
             // Keep the initial timeline inside the available viewport. The
             // horizontal scrollbar is intentionally introduced only by zoom.
             self.baseTrackWidthPx = wrapperWidth;
             self.trackWidthPx = Math.max(wrapperWidth, self.baseTrackWidthPx * self.zoomLevel);
+            var bands = self.calculateBands(cStart, cEnd, self.trackWidthPx);
 
             var board = document.createElement('div');
             board.className = 'quest-timeline-table d-flex';
@@ -686,15 +729,32 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 self.escapeHtml(self.strings.effortsettings || 'Effort chart settings') + '" title="' +
                 self.escapeHtml(self.strings.effortsettings || 'Effort chart settings') + '">' +
                 '<i class="fa fa-cog" aria-hidden="true"></i></button></div>' +
-                '<div class="quest-left-header-summary"><div class="fw-bold small text-dark">' +
-                '<i class="fa fa-tasks me-1 text-primary" aria-hidden="true"></i> ' +
-                self.items.length + ' Items</div><div class="smaller text-muted">Drag bars to adjust schedule</div></div>';
+                '<div class="quest-left-header-summary"><div class="quest-left-summary-top">' +
+                '<div class="fw-bold small text-dark"><i class="fa fa-tasks me-1 text-primary" ' +
+                'aria-hidden="true"></i> ' + self.items.length + ' ' +
+                self.escapeHtml(self.strings.selectionactivities || 'Activities') + '</div>' +
+                '<button type="button" class="quest-selection-toggle btn btn-sm ' +
+                (self.selectionMode ? 'btn-primary' : 'btn-outline-secondary') + '" aria-pressed="' +
+                (self.selectionMode ? 'true' : 'false') + '" aria-label="' +
+                self.escapeHtml(self.strings.selectionmode || 'Selection mode') + '" title="' +
+                self.escapeHtml(self.canEditSchedule() ? (self.strings.selectionmode || 'Selection mode') :
+                    (self.strings.editmoderequired || 'Turn on Edit mode to change dates.')) + '"' +
+                (self.canEditSchedule() ? '' : ' disabled aria-disabled="true"') + '>' +
+                '<i class="fa fa-check-square-o" aria-hidden="true"></i></button></div>' +
+                '<div class="smaller text-muted quest-selection-summary" aria-live="polite">' +
+                (self.selectionMode ? self.selectedItemIds.size + ' ' +
+                self.escapeHtml(self.strings.selectionselected || 'selected') :
+                self.escapeHtml(self.canEditSchedule() ?
+                    (self.strings.selectiondraghint || 'Drag bars to adjust the schedule') :
+                    (self.strings.readonlynotice || 'Read-only view'))) +
+                '</div></div>';
 
             self.items.forEach(function(item) {
                 var rowLabel = document.createElement('div');
                 var isSub = !!item.issubtype;
                 rowLabel.className = 'quest-left-row border-bottom border-end' +
-                    (isSub ? ' is-subtype ps-3' : '');
+                    (isSub ? ' is-subtype ps-3' : '') +
+                    (self.selectedItemIds.has(String(item.id)) && self.selectionMode ? ' is-selected' : '');
                 rowLabel.setAttribute('data-itemid', item.id);
                 if (isSub) {
                     rowLabel.setAttribute('data-parentkey', item.parentkey);
@@ -702,13 +762,15 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                         rowLabel.classList.add('d-none');
                     }
                 }
-                if (!self.isItemEditable(item) && item.editreason) {
+                if (!self.canEditSchedule()) {
+                    rowLabel.setAttribute('title', self.strings.editmoderequired || 'Turn on Edit mode to change dates.');
+                } else if (!self.isItemEditable(item) && item.editreason) {
                     rowLabel.setAttribute('title', item.interactreason || item.editreason);
                 }
-                var dur = item.ismilestone ? item.typelabel : formatDuration(item.dateend - item.datestart);
+                var dur = formatItemDuration(item);
                 var effort = item.effort === null || typeof item.effort === 'undefined' ?
                     EFFORT_DEFAULT : Number(item.effort);
-                var effortBadge = !item.ismilestone && isFinite(effort) && effort > 0 ?
+                var effortBadge = !item.ismilestone && isFinite(effort) && effort >= 0 ?
                     '<span class="badge bg-light text-primary border quest-lbl-effort flex-shrink-0">' +
                     self.escapeHtml(self.strings.effortlabel || 'Effort') + ': ' +
                     self.escapeHtml(String(effort)) + ' ' +
@@ -735,7 +797,12 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     iconHtml = '<i class="fa fa-cube text-primary"></i>';
                 }
 
-                rowLabel.innerHTML = '<div class="quest-row-expander">' +
+                rowLabel.innerHTML = (self.selectionMode ?
+                    '<input type="checkbox" class="quest-row-select form-check-input" data-itemid="' +
+                    self.escapeHtml(String(item.id)) + '" aria-label="' +
+                    self.escapeHtml((self.strings.selectactivity || 'Select activity') + ': ' + item.title) + '"' +
+                    (self.selectedItemIds.has(String(item.id)) ? ' checked' : '') + '>' : '') +
+                    '<div class="quest-row-expander">' +
                     expanderHtml +
                     '</div>' +
                     '<div class="quest-row-icon">' +
@@ -780,58 +847,47 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             dropsRow.appendChild(dropsCanvas);
             bandsHeader.appendChild(dropsRow);
 
-            // Level 1 Band
-            var band1Row = document.createElement('div');
-            band1Row.className = 'quest-band-row quest-band-l1 position-relative';
-            bands.b1.forEach(function(item) {
-                var cell = document.createElement('div');
-                cell.className = 'quest-band-cell quest-cell-l1 fw-bold text-center position-absolute border-end';
-                cell.style.left = item.left + '%';
-                cell.style.width = item.width + '%';
-                cell.textContent = item.label;
-                band1Row.appendChild(cell);
+            var bandRows = [
+                {items: bands.b1, level: 1},
+                {items: bands.b2, level: 2},
+                {items: bands.b3, level: 3}
+            ].filter(function(row) {
+                return row.items.length > 0;
             });
-            bandsHeader.appendChild(band1Row);
-
-            // Level 2 Band
-            var band2Row = document.createElement('div');
-            band2Row.className = 'quest-band-row quest-band-l2 position-relative';
-            bands.b2.forEach(function(item) {
-                var cell = document.createElement('div');
-                cell.className = 'quest-band-cell quest-cell-l2 text-center position-absolute border-end';
-                if (item.isWeekend) {
-                    cell.className += ' quest-cell-weekend';
+            var gridRow;
+            var gridCells;
+            var gridCellClass;
+            bandRows.forEach(function(row, index) {
+                var rowEl = document.createElement('div');
+                rowEl.className = 'quest-band-row quest-band-l' + row.level + ' position-relative';
+                var cellClass = 'quest-band-cell quest-cell-l' + row.level +
+                    ' text-center position-absolute border-end' + (row.level === 1 ? ' fw-bold' : '');
+                if (index === bandRows.length - 1) {
+                    gridRow = rowEl;
+                    gridCells = row.items;
+                    gridCellClass = cellClass;
+                } else {
+                    row.items.forEach(function(item) {
+                        var cell = document.createElement('div');
+                        cell.className = cellClass + (item.isWeekend ? ' quest-cell-weekend' : '');
+                        cell.style.left = item.left + '%';
+                        cell.style.width = item.width + '%';
+                        cell.textContent = item.label;
+                        rowEl.appendChild(cell);
+                    });
                 }
-                cell.style.left = item.left + '%';
-                cell.style.width = item.width + '%';
-                cell.textContent = item.label;
-                band2Row.appendChild(cell);
+                bandsHeader.appendChild(rowEl);
             });
-            bandsHeader.appendChild(band2Row);
-
-            // Level 3 Band
-            var band3Row = document.createElement('div');
-            band3Row.className = 'quest-band-row quest-band-l3 position-relative';
-            bands.b3.forEach(function(item) {
-                var cell = document.createElement('div');
-                cell.className = 'quest-band-cell quest-cell-l3 text-center position-absolute border-end';
-                if (item.isWeekend) {
-                    cell.className += ' quest-cell-weekend';
-                }
-                cell.style.left = item.left + '%';
-                cell.style.width = item.width + '%';
-                cell.textContent = item.label;
-                band3Row.appendChild(cell);
-            });
-            bandsHeader.appendChild(band3Row);
             bandsHeader.style.width = self.trackWidthPx + 'px';
             bandsHeader.style.minWidth = self.trackWidthPx + 'px';
 
             // Lanes for each item
+            var gridLanes = [];
             self.items.forEach(function(item) {
                 var lane = document.createElement('div');
                 lane.className = 'quest-timeline-lane position-relative border-bottom' +
-                    (item.issubtype ? ' is-subtype' : '');
+                    (item.issubtype ? ' is-subtype' : '') +
+                    (self.selectionMode && self.selectedItemIds.has(String(item.id)) ? ' is-selected' : '');
                 lane.setAttribute('data-itemid', item.id);
                 if (item.issubtype) {
                     lane.setAttribute('data-parentkey', item.parentkey);
@@ -849,22 +905,11 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     lane.appendChild(wkBlock);
                 });
 
-                // Vertical background ticks
-                bands.b3.forEach(function(tick) {
-                    var gridLine = document.createElement('div');
-                    gridLine.className = 'quest-lane-grid-tick position-absolute border-end';
-                    if (tick.isWeekend) {
-                        gridLine.className += ' quest-lane-grid-weekend';
-                    }
-                    gridLine.style.left = tick.left + '%';
-                    gridLine.style.width = tick.width + '%';
-                    lane.appendChild(gridLine);
-                });
-
                 var bar = self.createBarElement(item, totalSec, cStart);
                 lane.appendChild(bar);
                 self.createAvailabilityOverlays(lane, item, totalSec, cStart);
                 rightArea.appendChild(lane);
+                gridLanes.push(lane);
             });
 
             board.appendChild(rightArea);
@@ -886,7 +931,8 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             scrollContainer.appendChild(board);
 
             var shell = document.createElement('div');
-            shell.className = 'quest-timeline-shell';
+            shell.className = 'quest-timeline-shell' + (self.selectionMode ? ' is-selection-mode' : '');
+            shell.style.setProperty('--quest-header-height', (72 + 28 * bandRows.length) + 'px');
             var headerPlaceholder = document.createElement('div');
             headerPlaceholder.className = 'quest-timeline-sticky-placeholder';
             headerPlaceholder.setAttribute('aria-hidden', 'true');
@@ -902,14 +948,83 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             self.scrollContainer = scrollContainer;
             self.headerViewport = headerViewport;
             self.headerTrack = bandsHeader;
+            self.visibleGrid = {ticks: gridCells, header: gridRow, cellClass: gridCellClass,
+                lanes: gridLanes, start: -1, end: -1};
             self.renderEffortDrops(dropsCanvas);
+            self.items.forEach(function(item) {
+                var tableRow = document.getElementById('reschedule-row-' + item.id);
+                if (tableRow) {
+                    tableRow.classList.toggle('is-selected',
+                        self.selectionMode && self.selectedItemIds.has(String(item.id)));
+                }
+            });
 
             var syncHeaderScroll = function() {
                 self.headerTrack.style.transform = 'translateX(-' + self.scrollContainer.scrollLeft + 'px)';
+                if (!self.gridFramePending) {
+                    self.gridFramePending = true;
+                    requestAnimationFrame(function() {
+                        self.gridFramePending = false;
+                        self.renderVisibleGrid();
+                        self.updateEffortViewport();
+                    });
+                }
             };
             self.scrollContainer.addEventListener('scroll', syncHeaderScroll, {passive: true});
+            self.renderVisibleGrid();
             syncHeaderScroll();
             self.updatePageStickyHeader();
+        },
+
+        /** Render only the date ticks near the horizontal viewport. */
+        renderVisibleGrid: function() {
+            var grid = this.visibleGrid;
+            var scroll = this.getScrollContainer();
+            if (!grid || !scroll) {
+                return;
+            }
+            var viewport = Math.max(1, scroll.clientWidth - this.getLeftColumnWidth());
+            var visibleStart = scroll.scrollLeft;
+            var visibleEnd = Math.min(this.trackWidthPx, visibleStart + viewport);
+            if (grid.start <= visibleStart && grid.end >= visibleEnd) {
+                return;
+            }
+            var start = Math.max(0, visibleStart - viewport);
+            var end = Math.min(this.trackWidthPx, visibleEnd + viewport);
+            grid.start = start;
+            grid.end = end;
+            grid.header.replaceChildren();
+            grid.lanes.forEach(function(lane) {
+                lane.querySelectorAll('.quest-lane-grid-tick').forEach(function(line) {
+                    line.remove();
+                });
+            });
+            var self = this;
+            grid.ticks.forEach(function(tick) {
+                var left = tick.left * self.trackWidthPx / 100;
+                var right = (tick.left + tick.width) * self.trackWidthPx / 100;
+                if (right < start || left > end) {
+                    return;
+                }
+                var cell = document.createElement('div');
+                cell.className = grid.cellClass +
+                    (tick.isWeekend ? ' quest-cell-weekend' : '');
+                cell.style.left = tick.left + '%';
+                cell.style.width = tick.width + '%';
+                cell.textContent = tick.label;
+                if (tick.title) {
+                    cell.title = tick.title;
+                }
+                grid.header.appendChild(cell);
+                grid.lanes.forEach(function(lane) {
+                    var line = document.createElement('div');
+                    line.className = 'quest-lane-grid-tick position-absolute border-end' +
+                        (tick.isWeekend ? ' quest-lane-grid-weekend' : '');
+                    line.style.left = tick.left + '%';
+                    line.style.width = tick.width + '%';
+                    lane.appendChild(line);
+                });
+            });
         },
 
         /**
@@ -919,11 +1034,14 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
          *
          * @return {Object} Line and peak markers in timeline seconds.
          */
-        getEffortDropsData: function() {
-            var start = this.getTimelineStart();
-            var end = this.getTimelineEnd();
+        getEffortDropsData: function(viewStart, viewEnd) {
+            var start = typeof viewStart === 'number' ? viewStart : this.getTimelineStart();
+            var end = typeof viewEnd === 'number' ? viewEnd : this.getTimelineEnd();
             var day = EFFORT_DAY;
             var periods = [];
+            var hoveredPeriod = null;
+            var hoveredTitle = '';
+            var hoveredItemId = this.hoveredEffortItemId;
             var sampleTimes = [start, end];
             var drops = [];
             var model = this.effortModel;
@@ -950,6 +1068,10 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 var period = prepareEffortPeriod({start: itemStart, peak: peak, end: itemEnd,
                     tailEnd: itemEnd + EFFORT_TAIL_DAYS * day, effort: effort, model: model});
                 periods.push(period);
+                if (hoveredItemId !== null && String(item.id) === String(hoveredItemId)) {
+                    hoveredPeriod = period;
+                    hoveredTitle = item.title;
+                }
                 sampleTimes.push(itemStart, peak, itemEnd, period.tailEnd);
                 if (peak >= start && peak <= end) {
                     drops.push({x: peak, title: item.title});
@@ -958,7 +1080,8 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
 
             // Sample at regular screen intervals and at each period boundary.
             // Boundaries preserve short drops even in a long course timeline.
-            var steps = Math.min(720, Math.max(240, Math.ceil(this.trackWidthPx / 4)));
+            var steps = Math.min(720, Math.max(240,
+                Math.ceil((this.effortViewportWidth || this.trackWidthPx) / 4)));
             for (var step = 1; step < steps; step++) {
                 sampleTimes.push(start + (end - start) * step / steps);
             }
@@ -967,6 +1090,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             });
 
             var line = [];
+            var individual = [];
             var values = {};
             sampleTimes.forEach(function(time, index) {
                 if (time < start || time > end || (index > 0 && time === sampleTimes[index - 1])) {
@@ -977,6 +1101,9 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     value += effortAtTime(time, period);
                 });
                 line.push({x: time, y: value});
+                if (hoveredPeriod && time >= hoveredPeriod.start && time <= hoveredPeriod.tailEnd) {
+                    individual.push({x: time, y: effortAtTime(time, hoveredPeriod)});
+                }
                 values[time] = value;
             });
             drops.sort(function(a, b) {
@@ -985,7 +1112,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             drops.forEach(function(point) {
                 point.y = values[point.x] || 0;
             });
-            return {line: line, drops: drops};
+            return {line: line, drops: drops, individual: individual, hoveredTitle: hoveredTitle};
         },
 
         /**
@@ -995,7 +1122,14 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
          */
         renderEffortDrops: function(canvas) {
             var self = this;
-            var data = self.getEffortDropsData();
+            var range = self.getEffortViewport();
+            canvas.width = Math.round(range.width);
+            canvas.height = 72;
+            canvas.style.width = range.width + 'px';
+            canvas.style.left = range.left + 'px';
+            self.effortViewportWidth = range.width;
+            self.effortCanvas = canvas;
+            var data = self.getEffortDropsData(range.start, range.end);
             var colors = self.getEffortColors();
             self.effortChart = new Chart(canvas, {
                 type: 'line',
@@ -1004,6 +1138,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                         label: self.strings.effortscale || 'Effort',
                         data: data.line,
                         parsing: false,
+                        order: 2,
                         borderColor: colors.line,
                         backgroundColor: effortFillGradient,
                         borderWidth: 2,
@@ -1015,15 +1150,27 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                         label: self.strings.effortdrops || 'Effort drops',
                         data: data.drops,
                         parsing: false,
+                        order: -1,
                         backgroundColor: colors.marker,
                         borderColor: '#fff',
                         borderWidth: 1,
                         pointRadius: 5,
                         pointHoverRadius: 7
+                    }, {
+                        label: data.hoveredTitle,
+                        data: data.individual,
+                        parsing: false,
+                        order: 0,
+                        borderColor: '#7c3aed',
+                        borderWidth: 3,
+                        borderDash: [6, 3],
+                        pointRadius: 0,
+                        fill: false,
+                        tension: 0
                     }]
                 },
                 options: {
-                    responsive: true,
+                    responsive: false,
                     maintainAspectRatio: false,
                     animation: false,
                     layout: {autoPadding: false, padding: 0},
@@ -1035,14 +1182,15 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                                     return points.length ? formatDateTime(points[0].parsed.x, self.locale) : '';
                                 },
                                 label: function(point) {
-                                    var name = point.raw.title || (self.strings.effortscale || 'Effort');
+                                    var name = point.raw.title || point.dataset.label ||
+                                        (self.strings.effortscale || 'Effort');
                                     return name + ': ' + point.parsed.y.toFixed(3);
                                 }
                             }
                         }
                     },
                     scales: {
-                        x: {type: 'linear', display: false, min: self.getTimelineStart(), max: self.getTimelineEnd()},
+                        x: {type: 'linear', display: false, min: range.start, max: range.end},
                         y: {type: 'linear', display: false, min: 0, max: EFFORT_SCALE_MAX}
                     }
                 }
@@ -1054,14 +1202,51 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             if (!this.effortChart) {
                 return;
             }
-            var data = this.getEffortDropsData();
+            this.updateEffortViewport();
+        },
+
+        /** The time range and position of the effort canvas within the scrolled track. */
+        getEffortViewport: function() {
+            var scroll = this.getScrollContainer();
+            var width = Math.max(1, Math.min(this.trackWidthPx,
+                scroll ? scroll.clientWidth - this.getLeftColumnWidth() : this.trackWidthPx));
+            var left = scroll ? Math.max(0, Math.min(this.trackWidthPx - width, scroll.scrollLeft)) : 0;
+            var start = this.getTimelineStart();
+            var seconds = this.getTimelineEnd() - start;
+            return {left: left, width: width,
+                start: start + seconds * left / this.trackWidthPx,
+                end: start + seconds * (left + width) / this.trackWidthPx};
+        },
+
+        /** Redraw the fixed-width effort plot for the visible timeline window. */
+        updateEffortViewport: function() {
+            if (!this.effortChart || !this.effortCanvas) {
+                return;
+            }
+            var range = this.getEffortViewport();
+            this.effortCanvas.style.left = range.left + 'px';
+            var data = this.getEffortDropsData(range.start, range.end);
             var colors = this.getEffortColors();
             this.effortChart.data.datasets[0].data = data.line;
             this.effortChart.data.datasets[1].data = data.drops;
+            this.effortChart.data.datasets[2].data = data.individual;
+            this.effortChart.data.datasets[2].label = data.hoveredTitle;
             this.effortChart.data.datasets[0].borderColor = colors.line;
             this.effortChart.data.datasets[1].backgroundColor = colors.marker;
+            this.effortChart.options.scales.x.min = range.start;
+            this.effortChart.options.scales.x.max = range.end;
             this.effortChart.options.scales.y.max = EFFORT_SCALE_MAX;
             this.effortChart.update('none');
+        },
+
+        /** Show the hovered activity's contribution on the summed effort plot. */
+        setHoveredEffortItem: function(itemId) {
+            var nextId = itemId === null ? null : String(itemId);
+            if (this.hoveredEffortItemId === nextId) {
+                return;
+            }
+            this.hoveredEffortItemId = nextId;
+            this.updateEffortViewport();
         },
 
         /** Palette matching the selected daily effort model. */
@@ -1125,14 +1310,16 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             var bar = document.createElement('div');
             bar.className = 'quest-calendar-bar' + (item.issubtype ? ' is-subtype' : '') +
                 (item.ismilestone ? ' is-milestone' : '') +
-                (this.isItemInteractive(item) ? '' : ' is-disabled');
-            if (!this.isItemInteractive(item)) {
+                (this.isItemInteractive(item) ? '' : ' is-disabled') +
+                (this.canEditSchedule() ? '' : ' is-readonly');
+            if (!this.canEditSchedule() || !this.isItemInteractive(item)) {
                 bar.setAttribute('aria-disabled', 'true');
             }
             bar.setAttribute('data-itemid', item.id);
-            bar.setAttribute('data-base-title', (!this.isItemEditable(item) &&
-                (item.interactreason || item.editreason)) ?
-                (item.interactreason || item.editreason) : '');
+            bar.setAttribute('data-base-title', !this.canEditSchedule() ?
+                (this.strings.editmoderequired || 'Turn on Edit mode to change dates.') :
+                (!this.isItemEditable(item) && (item.interactreason || item.editreason) ?
+                    (item.interactreason || item.editreason) : ''));
 
             this.positionBar(bar, item, totalSec, cStart);
 
@@ -1206,13 +1393,18 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             ranges.forEach(function(range, index) {
                 var overlay = document.createElement('div');
                 overlay.className = 'quest-availability-range' +
-                    (item.availabilityeditable ? '' : ' is-readonly');
+                    (item.availabilityeditable ? '' : ' is-readonly') +
+                    (self.canEditSchedule() ? '' : ' is-viewonly');
                 overlay.setAttribute('data-availability-rangeid', range.id || ('range-' + index));
                 overlay.setAttribute('data-itemid', item.id);
                 overlay.setAttribute('aria-label', self.strings.availabilityrestriction || 'Date availability restriction');
-                overlay.setAttribute('title', item.availabilityeditable ?
+                if (!self.canEditSchedule()) {
+                    overlay.setAttribute('aria-disabled', 'true');
+                }
+                overlay.setAttribute('title', item.availabilityeditable && self.canEditSchedule() ?
                     (self.strings.availabilityrestrictionhint || 'Drag to adjust the date restriction.') :
-                    (item.availabilityreason || 'Date availability restriction'));
+                    (self.canEditSchedule() ? (item.availabilityreason || 'Date availability restriction') :
+                        (self.strings.editmoderequired || 'Turn on Edit mode to change dates.')));
                 self.positionAvailabilityOverlay(overlay, range, totalSec, cStart);
 
                 if (range.startcondition) {
@@ -1343,6 +1535,9 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
          */
         startAvailabilityDrag: function(e, target) {
             var self = this;
+            if (!self.canEditSchedule()) {
+                return false;
+            }
             var overlay = target.closest('.quest-availability-range');
             if (!overlay) {
                 return false;
@@ -1352,6 +1547,9 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 return String(candidate.id) === String(itemId);
             });
             if (!item || !item.availabilityeditable) {
+                return false;
+            }
+            if (!self.isItemInActionScope(item)) {
                 return false;
             }
             var rangeId = overlay.getAttribute('data-availability-rangeid');
@@ -1388,6 +1586,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 initialEnd: Number(range.end || 0),
                 conditionIds: conditionIds,
                 totalSec: Math.max(3600, self.getTimelineEnd() - self.getTimelineStart()),
+                scheduleSnapshot: self.snapshotSchedule(),
                 pendingPointer: null,
                 frameId: 0,
                 changed: false
@@ -1468,6 +1667,64 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
         },
 
         /**
+         * Magnetize either restriction edge to a native activity edge.
+         * Test proximity with unrounded pointer movement so hour snapping does
+         * not make a precise activity date impossible to reach.
+         *
+         * @param {Object} drag Active restriction drag.
+         * @param {number} rawDelta Pointer movement in seconds, before hour rounding.
+         * @param {number} start Proposed restriction start.
+         * @param {number} end Proposed restriction end.
+         * @param {number} timelineStart Visible timeline start.
+         * @param {number} timelineEnd Visible timeline end.
+         * @return {Object} Adjusted dates and snapped edge.
+         */
+        snapAvailabilityToActivity: function(drag, rawDelta, start, end, timelineStart, timelineEnd) {
+            var threshold = 12 * drag.totalSec / Math.max(1, drag.trackRect.width);
+            var activityStart = Number(drag.item.datestart);
+            var activityEnd = Number(drag.item.dateend);
+            var hasStart = drag.item.startenabled !== false && Number.isFinite(activityStart) &&
+                activityStart >= timelineStart && activityStart <= timelineEnd;
+            var hasEnd = drag.item.endenabled !== false && Number.isFinite(activityEnd) &&
+                activityEnd >= timelineStart && activityEnd <= timelineEnd;
+            var candidates = [];
+            var targets = [];
+            var minimumDuration = 3600;
+            if (hasStart) {
+                targets.push(activityStart);
+            }
+            if (hasEnd) {
+                targets.push(activityEnd);
+            }
+            targets.forEach(function(target) {
+                if (drag.mode === 'move' || drag.mode === 'resize-start') {
+                    var startDistance = Math.abs(target - (drag.initialStart + rawDelta));
+                    var shiftedEnd = end + target - start;
+                    if (startDistance <= threshold && (drag.mode === 'move' ?
+                            shiftedEnd <= timelineEnd && shiftedEnd > target :
+                            !end || target <= end - minimumDuration)) {
+                        candidates.push({start: target, end: drag.mode === 'move' ? shiftedEnd : end,
+                            edge: 'start', distance: startDistance});
+                    }
+                }
+                if (drag.mode === 'move' || drag.mode === 'resize-end') {
+                    var endDistance = Math.abs(target - (drag.initialEnd + rawDelta));
+                    var shiftedStart = start + target - end;
+                    if (endDistance <= threshold && (drag.mode === 'move' ?
+                            shiftedStart >= timelineStart && shiftedStart < target :
+                            !start || target >= start + minimumDuration)) {
+                        candidates.push({start: drag.mode === 'move' ? shiftedStart : start,
+                            end: target, edge: 'end', distance: endDistance});
+                    }
+                }
+            });
+            candidates.sort(function(a, b) {
+                return a.distance - b.distance;
+            });
+            return candidates[0] || {start: start, end: end, edge: null};
+        },
+
+        /**
          * Update one availability range during a drag.
          *
          * @param {PointerEvent} e Pointer event.
@@ -1478,7 +1735,8 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 return;
             }
             var dx = e.clientX - drag.startX;
-            var dt = Math.round((dx / drag.trackRect.width) * drag.totalSec / 3600) * 3600;
+            var rawDelta = (dx / Math.max(1, drag.trackRect.width)) * drag.totalSec;
+            var dt = Math.round(rawDelta / 3600) * 3600;
             var newStart = drag.initialStart;
             var newEnd = drag.initialEnd;
             var minDuration = 3600;
@@ -1503,6 +1761,13 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 }
             }
 
+            var snapped = this.snapAvailabilityToActivity(
+                drag, rawDelta, newStart, newEnd, timelineStart, timelineEnd);
+            newStart = snapped.start;
+            newEnd = snapped.end;
+            drag.overlay.classList.toggle('is-snapped-start', snapped.edge === 'start');
+            drag.overlay.classList.toggle('is-snapped-end', snapped.edge === 'end');
+
             var changed = newStart !== drag.range.start || newEnd !== drag.range.end;
             this.updateAvailabilityHUD(e.clientX, e.clientY, drag.item, drag.range);
             if (!changed) {
@@ -1521,6 +1786,8 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 }
             });
             this.positionAvailabilityOverlay(drag.overlay, drag.range, drag.totalSec, timelineStart);
+            this.applySelectedAvailabilityCompanions(drag.scheduleSnapshot, drag.item.id, drag.mode,
+                drag.mode === 'resize-end' ? newEnd - drag.initialEnd : newStart - drag.initialStart, true);
             this.updateAvailabilityHUD(e.clientX, e.clientY, drag.item, drag.range);
             if (!drag.changed) {
                 drag.changed = true;
@@ -1599,7 +1866,8 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             }
 
             var oldZoom = this.zoomLevel;
-            var newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, requestedZoom));
+            var dayZoom = (this.getTimelineEnd() - this.getTimelineStart()) / 86400;
+            var newZoom = Math.max(this.minZoom, Math.min(Math.max(this.maxZoom, dayZoom), requestedZoom));
             if (Math.abs(newZoom - oldZoom) < 0.001) {
                 return;
             }
@@ -1705,18 +1973,78 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             }
         },
 
+        /** Refit the date grid when the available viewport width changes. */
+        scheduleTimelineResize: function() {
+            var self = this;
+            if (self.timelineResizeFrame) {
+                return;
+            }
+            self.timelineResizeFrame = window.requestAnimationFrame(function() {
+                self.timelineResizeFrame = null;
+                if (!self.wrapper || !self.board || self.activeDrag || self.pinchState) {
+                    return;
+                }
+                var width = Math.max(1, self.wrapper.clientWidth - 280);
+                if (Math.abs(width - self.baseTrackWidthPx) < 2) {
+                    return;
+                }
+                var oldScroll = self.getScrollContainer();
+                var oldRatio = oldScroll ? oldScroll.scrollLeft / Math.max(1, self.trackWidthPx) : 0;
+                self.renderTimeline();
+                var newScroll = self.getScrollContainer();
+                if (newScroll) {
+                    newScroll.scrollLeft = self.clampScrollLeft(oldRatio * self.trackWidthPx);
+                }
+            });
+        },
+
         /**
          * Bind drag, pan, wheel-zoom and pinch-zoom events.
          */
         bindGlobalEvents: function() {
             var self = this;
 
+            var hoveredItemId = function(target) {
+                var row = target && target.closest ? target.closest(
+                    '.quest-left-row[data-itemid], .quest-timeline-lane[data-itemid], ' +
+                    '#reschedule-table tr[data-itemid]') : null;
+                return row ? row.getAttribute('data-itemid') : null;
+            };
+            var hoverTargets = [self.board, document.getElementById('reschedule-table')];
+            hoverTargets.forEach(function(target) {
+                if (!target) {
+                    return;
+                }
+                target.addEventListener('pointerover', function(e) {
+                    var itemId = hoveredItemId(e.target);
+                    if (itemId !== null) {
+                        self.setHoveredEffortItem(itemId);
+                    }
+                });
+                target.addEventListener('pointerout', function(e) {
+                    var itemId = hoveredItemId(e.target);
+                    var nextId = hoveredItemId(e.relatedTarget);
+                    if (itemId !== null && itemId !== nextId) {
+                        self.setHoveredEffortItem(nextId);
+                    }
+                });
+            });
+
             if (!self.pageStickyEventsBound) {
                 self.pageStickyHandler = function() {
                     self.updatePageStickyHeader();
                 };
                 window.addEventListener('scroll', self.pageStickyHandler, {passive: true});
-                window.addEventListener('resize', self.pageStickyHandler);
+                window.addEventListener('resize', function() {
+                    self.pageStickyHandler();
+                    self.scheduleTimelineResize();
+                });
+                if (typeof ResizeObserver !== 'undefined' && self.wrapper) {
+                    self.timelineResizeObserver = new ResizeObserver(function() {
+                        self.scheduleTimelineResize();
+                    });
+                    self.timelineResizeObserver.observe(self.wrapper);
+                }
                 self.pageStickyEventsBound = true;
             }
 
@@ -1737,6 +2065,9 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     '.quest-availability-range, .quest-availability-handle'
                 );
                 if (availabilityTarget && self.startAvailabilityDrag(e, availabilityTarget)) {
+                    return;
+                }
+                if (availabilityTarget && self.selectionMode) {
                     return;
                 }
 
@@ -1764,8 +2095,11 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 if (!item) {
                     return;
                 }
+                if (!self.isItemInActionScope(item)) {
+                    return;
+                }
                 // Disabled items remain clickable for navigation, but cannot be dragged.
-                if (!self.isItemInteractive(item)) {
+                if (!self.canEditSchedule() || !self.isItemInteractive(item)) {
                     self.clickCandidate = {
                         itemId: itemId,
                         startX: e.clientX,
@@ -1828,7 +2162,9 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     duration: Math.max(1, item.dateend - item.datestart),
                     parent: parentItem,
                     children: childSnapshots,
-                    totalSec: Math.max(3600, self.getTimelineEnd() - self.getTimelineStart())
+                    totalSec: Math.max(3600, self.getTimelineEnd() - self.getTimelineStart()),
+                    scheduleSnapshot: self.snapshotSchedule(),
+                    selectedRoots: self.selectionMode ? self.getSelectedDragRoots() : []
                 };
 
                 // Track potential simple click on the bar
@@ -2048,6 +2384,11 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 } else {
                     self.refreshDerivedParent(drag.item);
                 }
+                self.applySelectedDragCompanions(drag);
+                self.syncAvailabilityFromSnapshot(drag.scheduleSnapshot);
+                self.applySelectedAvailabilityCompanions(drag.scheduleSnapshot, drag.item.id, drag.mode,
+                    drag.mode === 'resize-end' ? drag.item.dateend - drag.initialEnd :
+                        drag.item.datestart - drag.initialStart, false);
                 self.markDirty();
             });
 
@@ -2070,7 +2411,8 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                         clientY: e.clientY
                     };
                     self.flushAvailabilityDrag();
-                    self.activeAvailabilityDrag.overlay.classList.remove('is-dragging');
+                    self.activeAvailabilityDrag.overlay.classList.remove(
+                        'is-dragging', 'is-snapped-start', 'is-snapped-end');
                     self.activeAvailabilityDrag = null;
                     self.hideHUD();
                     return;
@@ -2105,7 +2447,8 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 self.clickCandidate = null;
                 if (self.activeAvailabilityDrag && self.activeAvailabilityDrag.pointerId === e.pointerId) {
                     self.cancelAvailabilityDragFrame();
-                    self.activeAvailabilityDrag.overlay.classList.remove('is-dragging');
+                    self.activeAvailabilityDrag.overlay.classList.remove(
+                        'is-dragging', 'is-snapped-start', 'is-snapped-end');
                     self.activeAvailabilityDrag = null;
                     self.hideHUD();
                     return;
@@ -2147,8 +2490,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             }
             this.hud.classList.remove('d-none');
             this.hud.style.transform = 'translate3d(' + (x + 15) + 'px, ' + (y - 50) + 'px, 0)';
-            this.hudTitle.textContent = item.title + ' (' +
-                (item.ismilestone ? item.typelabel : formatDuration(item.dateend - item.datestart)) + ')';
+            this.hudTitle.textContent = item.title + ' (' + formatItemDuration(item) + ')';
             this.hudDates.textContent = item.ismilestone ?
                 (item.dateonly ? formatDateOnly(item.datestart, this.locale) :
                     formatDateTime(item.datestart, this.locale)) :
@@ -2232,14 +2574,12 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 }
             }
             if (colDur) {
-                colDur.textContent = item.ismilestone ? item.typelabel :
-                    formatDuration(item.dateend - item.datestart);
+                colDur.textContent = formatItemDuration(item);
             }
 
             var leftLabel = document.querySelector('.quest-left-row[data-itemid="' + item.id + '"] .quest-lbl-dur');
             if (leftLabel) {
-                leftLabel.textContent = item.ismilestone ? item.typelabel :
-                    formatDuration(item.dateend - item.datestart);
+                leftLabel.textContent = formatItemDuration(item);
             }
         },
 
@@ -2269,6 +2609,11 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
          */
         isItemEditable: function(item) {
             return !!item && item.editable !== false;
+        },
+
+        /** Whether Moodle course Edit mode permits schedule changes on this page. */
+        canEditSchedule: function() {
+            return this.editingEnabled === true;
         },
 
         /**
@@ -2315,6 +2660,344 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
          */
         isItemInteractive: function(item) {
             return !!item && (this.isItemEditable(item) || !!item.derived);
+        },
+
+        /** Return the explicitly selected rows, or every row outside selection mode. */
+        getActionItems: function() {
+            var self = this;
+            return self.items.filter(function(item) {
+                return !self.selectionMode || self.selectedItemIds.has(String(item.id));
+            });
+        },
+
+        /** Check whether a row is within the current action scope. */
+        isItemInActionScope: function(item) {
+            return !!item && (!this.selectionMode || this.selectedItemIds.has(String(item.id)));
+        },
+
+        /** Inform the user when an action requires at least one selected row. */
+        hasActionSelection: function() {
+            if (!this.selectionMode || this.selectedItemIds.size) {
+                return true;
+            }
+            Notification.addNotification({
+                message: this.strings.selectionempty || 'Select at least one activity first.',
+                type: 'warning'
+            });
+            return false;
+        },
+
+        /** Add or remove row checkboxes without discarding pending date edits. */
+        toggleSelectionMode: function() {
+            if (!this.canEditSchedule()) {
+                return;
+            }
+            var scrollLeft = this.getScrollContainer().scrollLeft;
+            this.selectionMode = !this.selectionMode;
+            if (!this.selectionMode) {
+                this.selectedItemIds.clear();
+            }
+            this.renderTimeline();
+            this.getScrollContainer().scrollLeft = this.clampScrollLeft(scrollLeft);
+        },
+
+        /** Update selection state in the Gantt and detail table. */
+        setItemSelected: function(itemId, selected) {
+            if (!this.canEditSchedule()) {
+                return;
+            }
+            var id = String(itemId);
+            var self = this;
+            var item = self.items.find(function(candidate) {
+                return String(candidate.id) === id;
+            });
+            var affected = [id];
+            if (item && item.haschildren) {
+                self.items.forEach(function(child) {
+                    if (String(child.parentkey) === id) {
+                        affected.push(String(child.id));
+                    }
+                });
+            } else if (!selected && item && item.parentkey &&
+                    self.selectedItemIds.has(String(item.parentkey))) {
+                affected.push(String(item.parentkey));
+            }
+            affected.forEach(function(affectedId) {
+                var checked = selected && affectedId !== String(item && item.parentkey);
+                if (checked) {
+                    self.selectedItemIds.add(affectedId);
+                } else {
+                    self.selectedItemIds.delete(affectedId);
+                }
+                var row = self.board.querySelector('.quest-left-row[data-itemid="' + affectedId + '"]');
+                var lane = self.board.querySelector('.quest-timeline-lane[data-itemid="' + affectedId + '"]');
+                var tableRow = document.getElementById('reschedule-row-' + affectedId);
+                [row, lane, tableRow].forEach(function(element) {
+                    if (element) {
+                        element.classList.toggle('is-selected', checked);
+                    }
+                });
+                if (row) {
+                    var checkbox = row.querySelector('.quest-row-select');
+                    if (checkbox) {
+                        checkbox.checked = checked;
+                    }
+                }
+            });
+            var summary = this.board.querySelector('.quest-selection-summary');
+            if (summary) {
+                summary.textContent = this.selectedItemIds.size + ' ' +
+                    (this.strings.selectionselected || 'selected');
+            }
+        },
+
+        /** Capture dates and availability before a batch operation. */
+        snapshotSchedule: function() {
+            var snapshots = Object.create(null);
+            this.items.forEach(function(item) {
+                snapshots[String(item.id)] = JSON.parse(JSON.stringify(item));
+            });
+            return snapshots;
+        },
+
+        /** Return the span of complete editable availability windows. */
+        getAvailabilityBounds: function(item) {
+            if (!item || !item.availabilityeditable) {
+                return null;
+            }
+            var ranges = (item.availabilityranges || []).filter(function(range) {
+                return Number(range.start) > 0 && Number(range.end) > Number(range.start);
+            });
+            if (!ranges.length) {
+                return null;
+            }
+            return {
+                start: Math.min.apply(null, ranges.map(function(range) { return Number(range.start); })),
+                end: Math.max.apply(null, ranges.map(function(range) { return Number(range.end); }))
+            };
+        },
+
+        /** Restore native drawing limits after sequencing availability-only rows. */
+        finishAvailabilityOnlySequence: function(rows, snapshots) {
+            var self = this;
+            rows.forEach(function(entry) {
+                var item = entry.item;
+                var original = snapshots[String(item.id)];
+                var newStart = Number(item.datestart);
+                var newDuration = Number(item.dateend) - newStart;
+                var oldDuration = entry.end - entry.start;
+                self.transformAvailabilityRanges(item, original, function(time) {
+                    return newStart + (time - entry.start) * newDuration / oldDuration;
+                });
+                item.datestart = original.datestart;
+                item.dateend = original.dateend;
+            });
+        },
+
+        /** Apply a mapping to stored availability endpoints and their Gantt overlays. */
+        transformAvailabilityRanges: function(item, original, transform) {
+            if (!item.availabilityeditable || !item.availabilityranges || !original.availabilityranges) {
+                return;
+            }
+            var conditionTimes = Object.create(null);
+            item.availabilityranges.forEach(function(range, index) {
+                var source = original.availabilityranges[index];
+                if (!source) {
+                    return;
+                }
+                range.start = source.start ? Math.round(transform(Number(source.start), 'start', source)) : 0;
+                range.end = source.end ? Math.round(transform(Number(source.end), 'end', source)) : 0;
+                if (range.start && range.end && range.end <= range.start) {
+                    range.end = range.start + 1;
+                }
+                if (range.startcondition) {
+                    conditionTimes[String(range.startcondition)] = range.start;
+                }
+                if (range.endcondition) {
+                    conditionTimes[String(range.endcondition)] = range.end;
+                }
+            });
+            (item.availabilityconditions || []).forEach(function(condition) {
+                if (Object.prototype.hasOwnProperty.call(conditionTimes, String(condition.id))) {
+                    condition.time = conditionTimes[String(condition.id)];
+                }
+            });
+            var self = this;
+            var timelineStart = self.getTimelineStart();
+            var totalSec = Math.max(3600, self.getTimelineEnd() - timelineStart);
+            self.board.querySelectorAll('.quest-availability-range[data-itemid="' + item.id + '"]').forEach(
+                function(overlay) {
+                    var rangeId = overlay.getAttribute('data-availability-rangeid');
+                    var range = item.availabilityranges.find(function(candidate) {
+                        return String(candidate.id) === rangeId;
+                    });
+                    if (range) {
+                        self.positionAvailabilityOverlay(overlay, range, totalSec, timelineStart);
+                    }
+                });
+        },
+
+        /** Apply the activity's date shift or scale to its editable availability ranges. */
+        syncAvailabilityFromSnapshot: function(snapshots) {
+            var self = this;
+            self.items.forEach(function(item) {
+                var original = snapshots[String(item.id)];
+                if (!original || !item.availabilityeditable ||
+                        (item.datestart === original.datestart && item.dateend === original.dateend)) {
+                    return;
+                }
+                var oldStart = Number(original.datestart);
+                var oldDuration = Number(original.dateend) - oldStart;
+                var newStart = Number(item.datestart);
+                var newDuration = Number(item.dateend) - newStart;
+                self.transformAvailabilityRanges(item, original, function(time) {
+                    return oldDuration > 0 ? newStart + (time - oldStart) * newDuration / oldDuration :
+                        time + newStart - oldStart;
+                });
+            });
+        },
+
+        /** Include selected rows whose only editable dates are availability conditions. */
+        applySelectedAvailabilityCompanions: function(snapshots, primaryId, mode, delta, includeDated) {
+            var self = this;
+            if (!self.selectionMode) {
+                return;
+            }
+            self.getActionItems().forEach(function(item) {
+                if (String(item.id) === String(primaryId) || !item.availabilityeditable ||
+                        (!includeDated && self.hasDefinedSchedule(item))) {
+                    return;
+                }
+                var original = snapshots[String(item.id)];
+                if (!original) {
+                    return;
+                }
+                self.transformAvailabilityRanges(item, original, function(time, side, range) {
+                    if (mode === 'move' || mode === 'resize-start' && side === 'start' ||
+                            mode === 'resize-end' && side === 'end') {
+                        var shifted = time + delta;
+                        if (mode !== 'move' && side === 'start' && range.end) {
+                            shifted = Math.min(shifted, Number(range.end) - 3600);
+                        }
+                        if (mode !== 'move' && side === 'end' && range.start) {
+                            shifted = Math.max(shifted, Number(range.start) + 3600);
+                        }
+                        return shifted;
+                    }
+                    return time;
+                });
+            });
+        },
+
+        /** Selected roots own their children so a nested selection is never transformed twice. */
+        getSelectedDragRoots: function() {
+            var self = this;
+            return self.getActionItems().filter(function(item) {
+                return self.isItemInteractive(item) && self.hasDefinedSchedule(item) &&
+                    (!item.parentkey || !self.selectedItemIds.has(String(item.parentkey)));
+            });
+        },
+
+        /** Move or resize other selected roots by the primary bar's effective delta. */
+        applySelectedDragCompanions: function(drag) {
+            if (!this.selectionMode || !drag.selectedRoots || !drag.selectedRoots.length) {
+                return;
+            }
+            var self = this;
+            var mode = drag.mode;
+            var delta = (mode === 'resize-end' ? drag.item.dateend - drag.initialEnd :
+                drag.item.datestart - drag.initialStart);
+            var cStart = Number(self.config.courseStart);
+            var cEnd = Number(self.config.courseEnd);
+            var timelineStart = self.getTimelineStart();
+            drag.selectedRoots.forEach(function(item) {
+                if (String(item.id) === String(drag.item.id) ||
+                        (item.parentkey && String(item.parentkey) === String(drag.item.id)) ||
+                        (mode !== 'move' && item.ismilestone)) {
+                    return;
+                }
+                var original = drag.scheduleSnapshot[String(item.id)];
+                if (!original) {
+                    return;
+                }
+                var parent = self.getParentItem(item);
+                var minStart = cStart;
+                var maxEnd = cEnd;
+                if (parent && !parent.derived && !self.selectedItemIds.has(String(parent.id))) {
+                    if (item.boundtoparentstart !== false) {
+                        minStart = Math.max(minStart, Number(parent.datestart));
+                    }
+                    if (item.boundtoparentend !== false) {
+                        maxEnd = Math.min(maxEnd, Number(parent.dateend));
+                    }
+                }
+                var oldStart = Number(original.datestart);
+                var oldEnd = Number(original.dateend);
+                var newStart = oldStart;
+                var newEnd = oldEnd;
+                if (mode === 'move') {
+                    var minShift = minStart - oldStart;
+                    var maxShift = maxEnd - oldEnd;
+                    if (minShift > maxShift) {
+                        return;
+                    }
+                    var shift = Math.max(minShift, Math.min(maxShift, delta));
+                    newStart += shift;
+                    newEnd += shift;
+                } else if (mode === 'resize-start') {
+                    if (minStart >= oldEnd - 3600) {
+                        return;
+                    }
+                    newStart = Math.max(minStart, Math.min(oldEnd - 3600, oldStart + delta));
+                    item.startenabled = true;
+                } else {
+                    if (maxEnd <= oldStart + 3600) {
+                        return;
+                    }
+                    newEnd = Math.min(maxEnd, Math.max(oldStart + 3600, oldEnd + delta));
+                    item.endenabled = true;
+                }
+                if (item.ismilestone && item.dateonly) {
+                    newStart = startOfLocalDay(newStart);
+                    newEnd = newStart;
+                }
+                item.datestart = newStart;
+                item.dateend = newEnd;
+
+                if (!item.isopenended) {
+                    var children = self.getAdjustableChildren(item);
+                    children.forEach(function(child) {
+                        var source = drag.scheduleSnapshot[String(child.id)];
+                        if (!source) {
+                            return;
+                        }
+                        var oldDuration = Math.max(1, oldEnd - oldStart);
+                        var newDuration = newEnd - newStart;
+                        var mappedStart = Math.round(newStart +
+                            (Number(source.datestart) - oldStart) * newDuration / oldDuration);
+                        var mappedEnd = Math.round(newStart +
+                            (Number(source.dateend) - oldStart) * newDuration / oldDuration);
+                        if (child.ismilestone) {
+                            mappedEnd = mappedStart = child.dateonly ? startOfLocalDay(mappedStart) : mappedStart;
+                        } else if (mappedEnd <= mappedStart) {
+                            mappedEnd = mappedStart + 1;
+                        }
+                        child.datestart = mappedStart;
+                        child.dateend = mappedEnd;
+                        var childBar = self.board.querySelector('.quest-calendar-bar[data-itemid="' + child.id + '"]');
+                        if (childBar) {
+                            self.positionBar(childBar, child, drag.totalSec, timelineStart);
+                        }
+                        self.updateTableRow(child);
+                    });
+                }
+                var bar = self.board.querySelector('.quest-calendar-bar[data-itemid="' + item.id + '"]');
+                if (bar) {
+                    self.positionBar(bar, item, drag.totalSec, timelineStart);
+                }
+                self.updateTableRow(item);
+                self.refreshDerivedParent(item);
+            });
         },
 
         /**
@@ -2381,18 +3064,17 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             }
 
             var children = self.items.filter(function(item) {
-                return item.parentkey === parent.id && Number(item.dateend) > Number(item.datestart);
+                return item.parentkey === parent.id && item.startenabled !== false &&
+                    item.endenabled !== false && Number(item.dateend) > Number(item.datestart);
             });
-            if (!children.length) {
-                return;
-            }
-
-            var newStart = Math.min.apply(null, children.map(function(item) {
+            var newStart = children.length ? Math.min.apply(null, children.map(function(item) {
                 return Number(item.datestart);
-            }));
-            var newEnd = Math.max.apply(null, children.map(function(item) {
+            })) : self.getTimelineStart();
+            var newEnd = children.length ? Math.max.apply(null, children.map(function(item) {
                 return Number(item.dateend);
-            }));
+            })) : self.getTimelineEnd();
+            parent.startenabled = children.length > 0;
+            parent.endenabled = children.length > 0;
             parent.datestart = newStart;
             parent.dateend = newEnd;
 
@@ -2409,6 +3091,9 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
          * Mark state as dirty and enable Save button.
          */
         markDirty: function() {
+            if (!this.canEditSchedule()) {
+                return;
+            }
             this.isDirty = true;
             if (!this.effortUpdatePending) {
                 var self = this;
@@ -2479,6 +3164,9 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
 
             if (self.resetBtn) {
                 self.resetBtn.addEventListener('click', function() {
+                    if (!self.canEditSchedule()) {
+                        return;
+                    }
                     self.items = self.initialItems.map(function(it) {
                         return JSON.parse(JSON.stringify(it));
                     });
@@ -2547,7 +3235,8 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 applyBtn.addEventListener('click', function() {
                     var selectedRadio = document.querySelector('input[name="autosequence_strategy"]:checked');
                     var strategy = selectedRadio ? selectedRadio.value : 'equal';
-                    self.applyAutoSequence(strategy);
+                    var avoidBlackout = document.getElementById('autosequence-avoid-blackout');
+                    self.applyAutoSequence(strategy, !!(avoidBlackout && avoidBlackout.checked));
                     self.closeAutoSequenceModal();
                 });
             }
@@ -2616,6 +3305,14 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
 
             // Click listener for Gantt left column toggle buttons and row jump
             self.board.addEventListener('click', function(e) {
+                if (e.target.closest('.quest-selection-toggle')) {
+                    e.preventDefault();
+                    self.toggleSelectionMode();
+                    return;
+                }
+                if (e.target.closest('.quest-row-select')) {
+                    return;
+                }
                 var btn = e.target.closest('.quest-toggle-subtasks');
                 if (btn) {
                     e.preventDefault();
@@ -2632,6 +3329,13 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     if (lItemId) {
                         self.scrollToTableRow(lItemId);
                     }
+                }
+            });
+
+            self.board.addEventListener('change', function(e) {
+                var checkbox = e.target.closest('.quest-row-select');
+                if (checkbox) {
+                    self.setItemSelected(checkbox.getAttribute('data-itemid'), checkbox.checked);
                 }
             });
 
@@ -2660,6 +3364,8 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             // Live validation and duration update in date modal
             var dateModalStartInput = document.getElementById('date-modal-start');
             var dateModalEndInput = document.getElementById('date-modal-end');
+            var dateModalStartEnabled = document.getElementById('date-modal-start-enabled');
+            var dateModalEndEnabled = document.getElementById('date-modal-end-enabled');
             var dateModalDurBadge = document.getElementById('date-modal-badge-duration');
             var dateModalErrorEl = document.getElementById('date-modal-error');
 
@@ -2684,22 +3390,37 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     }
                     return;
                 }
-                var sTs = dateTimeLocalToTimestamp(dateModalStartInput.value);
-                var eTs = dateTimeLocalToTimestamp(dateModalEndInput.value);
-                if (sTs && eTs && eTs > sTs) {
-                    if (dateModalDurBadge) {
-                        dateModalDurBadge.textContent = formatDuration(eTs - sTs);
+                if (!modalItem) {
+                    return;
+                }
+                var startEnabled = modalItem.derived || !dateModalStartEnabled || dateModalStartEnabled.checked;
+                var endEnabled = !modalItem.isopenended &&
+                    (modalItem.derived || !dateModalEndEnabled || dateModalEndEnabled.checked);
+                dateModalStartInput.disabled = !startEnabled;
+                dateModalEndInput.disabled = !endEnabled;
+                dateModalStartInput.required = startEnabled;
+                dateModalEndInput.required = endEnabled;
+
+                var sTs = startEnabled ? dateTimeLocalToTimestamp(dateModalStartInput.value) : 0;
+                var eTs = endEnabled ? dateTimeLocalToTimestamp(dateModalEndInput.value) : 0;
+                var missingStart = startEnabled && !sTs;
+                var missingEnd = endEnabled && !eTs;
+                var visibleStart = startEnabled ? sTs : self.getTimelineStart();
+                var visibleEnd = endEnabled ? eTs : self.getTimelineEnd();
+                var badOrder = !missingStart && !missingEnd && visibleEnd <= visibleStart;
+                dateModalStartInput.classList.toggle('is-invalid', missingStart || (badOrder && !endEnabled));
+                dateModalEndInput.classList.toggle('is-invalid', missingEnd || (badOrder && endEnabled));
+                if (dateModalDurBadge) {
+                    dateModalDurBadge.textContent = startEnabled && endEnabled && !badOrder &&
+                        !missingStart && !missingEnd ? formatDuration(eTs - sTs) : '—';
+                }
+                if (dateModalErrorEl) {
+                    dateModalErrorEl.classList.toggle('d-none', !missingStart && !missingEnd && !badOrder);
+                    var dateModalErrorText = document.getElementById('date-modal-error-text');
+                    if (dateModalErrorText) {
+                        dateModalErrorText.textContent = badOrder ? dateModalErrorText.dataset.orderMessage :
+                            dateModalErrorText.dataset.requiredMessage;
                     }
-                    if (dateModalErrorEl) {
-                        dateModalErrorEl.classList.add('d-none');
-                    }
-                    dateModalStartInput.classList.remove('is-invalid');
-                    dateModalEndInput.classList.remove('is-invalid');
-                } else if (sTs && eTs && eTs <= sTs) {
-                    if (dateModalErrorEl) {
-                        dateModalErrorEl.classList.remove('d-none');
-                    }
-                    dateModalEndInput.classList.add('is-invalid');
                 }
             }
 
@@ -2710,6 +3431,12 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             if (dateModalEndInput) {
                 dateModalEndInput.addEventListener('input', handleDateModalInputChange);
                 dateModalEndInput.addEventListener('change', handleDateModalInputChange);
+            }
+            if (dateModalStartEnabled) {
+                dateModalStartEnabled.addEventListener('change', handleDateModalInputChange);
+            }
+            if (dateModalEndEnabled) {
+                dateModalEndEnabled.addEventListener('change', handleDateModalInputChange);
             }
             var milestoneEnabledInput = document.getElementById('date-modal-milestone-enabled');
             if (milestoneEnabledInput) {
@@ -2844,9 +3571,12 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
          * @return {Promise<Object>} Server result.
          */
         requestWeekify: function(action) {
+            if (!this.canEditSchedule()) {
+                return Promise.reject(new Error(this.strings.editmoderequired));
+            }
             var selected = {};
-            this.items.forEach(function(item) {
-                if (Number(item.cmid) > 0) {
+            this.getActionItems().forEach(function(item) {
+                if (!item.issubtype && !item.ismilestone && Number(item.cmid) > 0) {
                     selected[item.cmid] = true;
                 }
             });
@@ -2854,7 +3584,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 courseid: String(this.config.courseid),
                 sesskey: this.config.sesskey,
                 action: action,
-                cmids: Object.keys(selected).join(',')
+                cmids: (this.weekifyPreviewCmids || Object.keys(selected)).join(',')
             });
             return fetch(this.config.weekifyUrl, {
                 method: 'POST',
@@ -2871,8 +3601,27 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
         /** Show the confirmation dialog after loading an actual move preview. */
         openWeekifyModal: function() {
             var self = this;
+            if (!self.canEditSchedule()) {
+                return;
+            }
+            if (!self.hasActionSelection()) {
+                return;
+            }
             if (self.isDirty) {
                 Notification.addNotification({message: self.strings.weekifysavefirst, type: 'warning'});
+                return;
+            }
+            self.weekifyPreviewCmids = Array.from(new Set(self.getActionItems().map(function(item) {
+                return !item.issubtype && !item.ismilestone ? Number(item.cmid) : 0;
+            }).filter(function(cmid) {
+                return cmid > 0;
+            }))).map(String);
+            if (!self.weekifyPreviewCmids.length) {
+                self.weekifyPreviewCmids = null;
+                Notification.addNotification({
+                    message: self.strings.selectionweekifyempty || 'Select a course activity row to use Weekify.',
+                    type: 'warning'
+                });
                 return;
             }
             var modalEl = document.getElementById('reschedule-weekify-modal');
@@ -2933,6 +3682,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
 
         /** Close the Weekify dialog. */
         closeWeekifyModal: function() {
+            this.weekifyPreviewCmids = null;
             var modalEl = document.getElementById('reschedule-weekify-modal');
             if (window.bootstrap && window.bootstrap.Modal) {
                 var modal = window.bootstrap.Modal.getInstance(modalEl);
@@ -2956,6 +3706,9 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
         /** Move the previewed activities after confirmation. */
         applyWeekify: function() {
             var self = this;
+            if (!self.canEditSchedule()) {
+                return;
+            }
             if (self.isDirty) {
                 Notification.addNotification({message: self.strings.weekifysavefirst, type: 'warning'});
                 return;
@@ -2984,6 +3737,12 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
          * Open the autosequence modal dialog.
          */
         openAutoSequenceModal: function() {
+            if (!this.canEditSchedule()) {
+                return;
+            }
+            if (!this.hasActionSelection()) {
+                return;
+            }
             var modalEl = document.getElementById('reschedule-autosequence-modal');
             if (!modalEl) {
                 return;
@@ -3044,13 +3803,16 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
          */
         openDateModal: function(itemId, fieldToFocus) {
             var self = this;
+            if (!self.canEditSchedule()) {
+                return;
+            }
             var item = self.items.find(function(it) {
                 return it.id === itemId;
             });
             if (!item) {
                 return;
             }
-            if (!self.isItemInteractive(item)) {
+            if (!self.isItemInteractive(item) || !self.isItemInActionScope(item)) {
                 return;
             }
 
@@ -3070,6 +3832,11 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             var milestoneEnabled = document.getElementById('date-modal-milestone-enabled');
             var endGroup = document.getElementById('date-modal-end-group');
             var startLabel = document.getElementById('date-modal-start-label');
+            var startToggle = document.getElementById('date-modal-start-toggle');
+            var endToggle = document.getElementById('date-modal-end-toggle');
+            var startEnabledInput = document.getElementById('date-modal-start-enabled');
+            var endEnabledInput = document.getElementById('date-modal-end-enabled');
+            var showEndpointToggles = !item.ismilestone && !item.derived;
 
             if (milestoneToggle) {
                 milestoneToggle.classList.toggle('d-none', !item.ismilestone || !item.optional);
@@ -3079,6 +3846,18 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             }
             if (endGroup) {
                 endGroup.classList.toggle('d-none', !!item.ismilestone || !!item.isopenended);
+            }
+            if (startToggle) {
+                startToggle.classList.toggle('d-none', !showEndpointToggles);
+            }
+            if (endToggle) {
+                endToggle.classList.toggle('d-none', !showEndpointToggles || !!item.isopenended);
+            }
+            if (startEnabledInput) {
+                startEnabledInput.checked = item.startenabled !== false;
+            }
+            if (endEnabledInput) {
+                endEnabledInput.checked = item.endenabled !== false;
             }
             if (startLabel) {
                 if (!startLabel.dataset.rangeLabel) {
@@ -3099,23 +3878,32 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 typeBadge.textContent = item.typelabel || (item.issubtype ? 'Phase' : 'Activity');
             }
             if (durBadge) {
-                durBadge.textContent = item.ismilestone ? item.typelabel :
-                    formatDuration(item.dateend - item.datestart);
+                durBadge.textContent = formatItemDuration(item);
             }
             if (startInput) {
                 startInput.type = item.ismilestone && item.dateonly ? 'date' : 'datetime-local';
                 startInput.value = item.ismilestone && item.dateonly ?
                     timestampToDateTimeLocal(item.datestart).split('T')[0] :
                     timestampToDateTimeLocal(item.datestart);
-                startInput.disabled = !!item.ismilestone && item.optional && item.startenabled === false;
+                startInput.disabled = item.ismilestone ?
+                    !!item.optional && item.startenabled === false :
+                    showEndpointToggles && item.startenabled === false;
+                startInput.required = !startInput.disabled;
                 startInput.classList.remove('is-invalid');
             }
             if (endInput) {
                 endInput.value = timestampToDateTimeLocal(item.dateend);
+                endInput.disabled = !!item.ismilestone || !!item.isopenended ||
+                    (showEndpointToggles && item.endenabled === false);
+                endInput.required = !endInput.disabled;
                 endInput.classList.remove('is-invalid');
             }
             if (errorEl) {
                 errorEl.classList.add('d-none');
+            }
+            var errorText = document.getElementById('date-modal-error-text');
+            if (errorText) {
+                errorText.textContent = errorText.dataset.orderMessage;
             }
 
             if (window.bootstrap && window.bootstrap.Modal) {
@@ -3140,9 +3928,9 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
 
             setTimeout(function() {
                 if (fieldToFocus === 'end' && endInput && !item.isopenended) {
-                    endInput.focus();
+                    (endInput.disabled ? endEnabledInput : endInput).focus();
                 } else if (startInput) {
-                    startInput.focus();
+                    (startInput.disabled ? (item.ismilestone ? milestoneEnabled : startEnabledInput) : startInput).focus();
                 }
             }, 250);
         },
@@ -3179,6 +3967,9 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
          */
         applyDateModalChanges: function() {
             var self = this;
+            if (!self.canEditSchedule()) {
+                return;
+            }
             var idInput = document.getElementById('date-modal-itemid');
             var startInput = document.getElementById('date-modal-start');
             var endInput = document.getElementById('date-modal-end');
@@ -3195,9 +3986,11 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             if (!item) {
                 return;
             }
-            if (!self.isItemInteractive(item)) {
+            if (!self.isItemInteractive(item) || !self.isItemInActionScope(item)) {
                 return;
             }
+
+            var scheduleSnapshot = self.snapshotSchedule();
 
             if (item.ismilestone) {
                 var milestoneEnabled = document.getElementById('date-modal-milestone-enabled');
@@ -3220,55 +4013,82 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                         Math.max(3600, self.getTimelineEnd() - self.getTimelineStart()), self.getTimelineStart());
                 }
                 self.updateTableRow(item);
+                self.syncAvailabilityFromSnapshot(scheduleSnapshot);
                 self.markDirty();
                 self.closeDateModal();
                 return;
             }
 
-            var newStart = dateTimeLocalToTimestamp(startInput.value);
-            var newEnd = item.isopenended ? Number(item.dateend) : dateTimeLocalToTimestamp(endInput.value);
+            var startEnabledInput = document.getElementById('date-modal-start-enabled');
+            var endEnabledInput = document.getElementById('date-modal-end-enabled');
+            var startEnabled = item.derived || !startEnabledInput || startEnabledInput.checked;
+            var endEnabled = !item.isopenended &&
+                (item.derived || !endEnabledInput || endEnabledInput.checked);
+            var enteredStart = startEnabled ? dateTimeLocalToTimestamp(startInput.value) : 0;
+            var enteredEnd = endEnabled ? dateTimeLocalToTimestamp(endInput.value) : 0;
+            var errorText = document.getElementById('date-modal-error-text');
 
-            var parent = self.getParentItem(item);
-            if (parent && !parent.derived) {
-                if (item.boundtoparentstart !== false) {
-                    newStart = Math.max(newStart, Number(parent.datestart));
-                }
-                if (item.boundtoparentend !== false) {
-                    newEnd = Math.min(newEnd, Number(parent.dateend));
-                }
-                startInput.value = timestampToDateTimeLocal(newStart);
-                endInput.value = timestampToDateTimeLocal(newEnd);
-            }
-
-            if (!newStart || !newEnd || (!item.isopenended && newEnd <= newStart)) {
+            startInput.classList.toggle('is-invalid', startEnabled && !enteredStart);
+            endInput.classList.toggle('is-invalid', endEnabled && !enteredEnd);
+            if ((startEnabled && !enteredStart) || (endEnabled && !enteredEnd)) {
                 if (errorEl) {
                     errorEl.classList.remove('d-none');
                 }
-                var errorText = document.getElementById('date-modal-error-text');
+                if (errorText) {
+                    errorText.textContent = errorText.dataset.requiredMessage;
+                }
+                return;
+            }
+
+            // Unset dates use visible timeline limits only as drawing bounds.
+            var newStart = startEnabled ? enteredStart : self.getTimelineStart();
+            var newEnd = endEnabled ? enteredEnd : self.getTimelineEnd();
+
+            var parent = self.getParentItem(item);
+            if (parent && !parent.derived) {
+                if (startEnabled && parent.startenabled !== false && item.boundtoparentstart !== false) {
+                    newStart = Math.max(newStart, Number(parent.datestart));
+                }
+                if (endEnabled && parent.endenabled !== false && item.boundtoparentend !== false) {
+                    newEnd = Math.min(newEnd, Number(parent.dateend));
+                }
+                if (startEnabled) {
+                    startInput.value = timestampToDateTimeLocal(newStart);
+                }
+                if (endEnabled) {
+                    endInput.value = timestampToDateTimeLocal(newEnd);
+                }
+            }
+
+            if (!newStart || !newEnd || newEnd <= newStart) {
+                if (errorEl) {
+                    errorEl.classList.remove('d-none');
+                }
                 if (errorText && parent && !parent.derived &&
-                        (item.boundtoparentstart !== false || item.boundtoparentend !== false)) {
+                        ((startEnabled && item.boundtoparentstart !== false) ||
+                            (endEnabled && item.boundtoparentend !== false))) {
                     errorText.textContent = (self.strings && self.strings.subactivityparentbounds) ||
                         'The subactivity must remain within the parent activity timeframe.';
+                } else if (errorText) {
+                    errorText.textContent = errorText.dataset.orderMessage;
                 }
-                if (endInput) {
+                if (endEnabled) {
                     endInput.classList.add('is-invalid');
+                } else if (startEnabled) {
+                    startInput.classList.add('is-invalid');
                 }
                 return;
             }
 
             var oldStart = item.datestart;
             var oldEnd = item.dateend;
-            var startChanged = newStart !== oldStart;
-            var endChanged = newEnd !== oldEnd;
+            var oldStartEnabled = item.startenabled !== false;
+            var oldEndEnabled = item.endenabled !== false;
 
             item.datestart = newStart;
             item.dateend = newEnd;
-            if (startChanged) {
-                item.startenabled = true;
-            }
-            if (endChanged && !item.isopenended) {
-                item.endenabled = true;
-            }
+            item.startenabled = startEnabled;
+            item.endenabled = endEnabled;
 
             var cStart = self.getTimelineStart();
             var totalSec = Math.max(3600, self.getTimelineEnd() - cStart);
@@ -3276,7 +4096,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             // If item is a parent activity, proportionally scale its subactivities
             var children = item.isopenended ? [] : self.getAdjustableChildren(item);
 
-            if (children.length > 0) {
+            if (children.length > 0 && oldStartEnabled && oldEndEnabled && startEnabled && endEnabled) {
                 var pInitDur = Math.max(1, oldEnd - oldStart);
                 var pNewDur = Math.max(1, newEnd - newStart);
 
@@ -3345,6 +4165,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             } else {
                 self.refreshDerivedParent(item);
             }
+            self.syncAvailabilityFromSnapshot(scheduleSnapshot);
             self.markDirty();
             self.closeDateModal();
             self.scrollToTableRow(item.id);
@@ -3412,37 +4233,201 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
         },
 
         /**
+         * Return excluded intervals in browser-local time. Calendar closures and
+         * other period sources can be added here without changing the sequencer.
+         *
+         * @param {number} start Unix seconds.
+         * @param {number} end Unix seconds.
+         * @return {Array<Object>} Half-open intervals.
+         */
+        getSequenceBlackoutPeriods: function(start, end) {
+            var weekendDays = getLocaleWeekendDays(this.locale);
+            var periods = [];
+            var day = new Date(startOfLocalDay(start) * 1000);
+            while (day.getTime() / 1000 < end) {
+                var next = new Date(day.getTime());
+                next.setDate(next.getDate() + 1);
+                if (isDateWeekend(day, weekendDays)) {
+                    periods.push({start: day.getTime() / 1000, end: next.getTime() / 1000});
+                }
+                day = next;
+            }
+            return periods;
+        },
+
+        /** Working intervals left after subtracting the blackout periods. */
+        getSequenceWorkingPeriods: function(start, end) {
+            var cursor = start;
+            var working = [];
+            this.getSequenceBlackoutPeriods(start, end).sort(function(a, b) {
+                return a.start - b.start;
+            }).forEach(function(period) {
+                var blockedStart = Math.min(end, Math.max(start, Number(period.start)));
+                var blockedEnd = Math.min(end, Number(period.end));
+                if (blockedEnd <= blockedStart) {
+                    return;
+                }
+                if (blockedStart > cursor) {
+                    working.push({start: cursor, end: blockedStart});
+                }
+                cursor = Math.max(cursor, blockedEnd);
+            });
+            if (cursor < end) {
+                working.push({start: cursor, end: end});
+            }
+            return working;
+        },
+
+        /** Move a date on a blacklisted day to the next working day. */
+        nextSequenceWorkingTime: function(time) {
+            var candidate = Number(time);
+            for (var i = 0; i < 3660; i++) {
+                if (this.getSequenceWorkingPeriods(candidate, candidate + 1).length) {
+                    return candidate;
+                }
+                var date = new Date(candidate * 1000);
+                date.setDate(date.getDate() + 1);
+                candidate = Math.floor(date.getTime() / 1000);
+            }
+            return null;
+        },
+
+        /**
+         * Map planned dates onto working time. Stretching fits the course window;
+         * sequential chaining retains each duration and can run past its end.
+         */
+        createSequenceWorkingMapper: function(start, end, maxTime, stretch) {
+            var self = this;
+            var horizon = end;
+            var periods = self.getSequenceWorkingPeriods(start, horizon);
+            var total = periods.reduce(function(sum, period) {
+                return sum + period.end - period.start;
+            }, 0);
+            if (!stretch) {
+                var required = Math.max(0, maxTime - start) + 1;
+                while (total < required && horizon - start < 3660 * 86400) {
+                    var next = new Date(horizon * 1000);
+                    next.setDate(next.getDate() + 14);
+                    var nextHorizon = Math.floor(next.getTime() / 1000);
+                    self.getSequenceWorkingPeriods(horizon, nextHorizon).forEach(function(period) {
+                        periods.push(period);
+                        total += period.end - period.start;
+                    });
+                    horizon = nextHorizon;
+                }
+            }
+            if (!total || (!stretch && total < Math.max(0, maxTime - start) + 1)) {
+                return null;
+            }
+            return function(time, endpoint) {
+                var offset = stretch ? (Number(time) - start) * total / Math.max(1, end - start) :
+                    Number(time) - start;
+                offset = Math.max(0, Math.min(total, offset));
+                for (var i = 0; i < periods.length; i++) {
+                    var length = periods[i].end - periods[i].start;
+                    if (offset < length) {
+                        return Math.floor(periods[i].start + offset);
+                    }
+                    if (offset === length && endpoint === 'end') {
+                        return periods[i].end - 1;
+                    }
+                    offset -= length;
+                }
+                return periods[periods.length - 1].end - 1;
+            };
+        },
+
+        /** Map the endpoints of sequenced rows without altering unselected rows. */
+        mapSequenceRowsToWorkingDays: function(items, mapper) {
+            var self = this;
+            items.forEach(function(item) {
+                if (!Number.isFinite(Number(item.datestart)) || !Number.isFinite(Number(item.dateend)) ||
+                        (item.startenabled === false && !item.availabilityeditable) ||
+                        (!item.ismilestone && item.endenabled === false && !item.availabilityeditable)) {
+                    return;
+                }
+                var start = mapper(Number(item.datestart), 'start');
+                var end = item.ismilestone ? start : mapper(Number(item.dateend), 'end');
+                if (item.ismilestone && item.dateonly) {
+                    start = startOfLocalDay(start);
+                    end = start;
+                }
+                if (!item.ismilestone && end <= start) {
+                    end = self.nextSequenceWorkingTime(start + 1);
+                }
+                if (end === null) {
+                    return;
+                }
+                item.datestart = start;
+                item.dateend = end;
+            });
+        },
+
+        /** Keep editable availability endpoints off excluded days too. */
+        alignSequenceAvailability: function(items) {
+            var self = this;
+            items.forEach(function(item) {
+                if (!item.availabilityeditable || !item.availabilityranges || !item.availabilityranges.length) {
+                    return;
+                }
+                var current = JSON.parse(JSON.stringify(item));
+                self.transformAvailabilityRanges(item, current, function(time, side, range) {
+                    var minimum = side === 'end' && range.start ?
+                        self.nextSequenceWorkingTime(Number(range.start)) + 1 : time;
+                    return self.nextSequenceWorkingTime(Math.max(time, minimum));
+                });
+            });
+        },
+
+        /**
          * Auto-sequence activities according to the selected strategy.
          * Top-level items share course duration. Subtasks/phases are distributed within parent duration.
          *
          * @param {string} strategy 'equal', 'sequential', 'proportional', or 'relative'
+         * @param {boolean} [avoidBlackout] Skip excluded days.
          */
-        applyAutoSequence: function(strategy) {
+        applyAutoSequence: function(strategy, avoidBlackout) {
             var self = this;
+            if (!self.canEditSchedule() || !self.hasActionSelection()) {
+                return;
+            }
 
             if (strategy === 'relative') {
-                self.applyRelativeSequence();
+                self.applyRelativeSequence(avoidBlackout);
                 return;
             }
 
             var cStart = self.config.courseStart;
             var cEnd = self.config.courseEnd;
             var totalCourseSec = Math.max(3600, cEnd - cStart);
+            var snapshots = self.snapshotSchedule();
+            var availabilityOnly = [];
 
             // Separate main items from subtypes.
             var mainItems = self.items.filter(function(it) {
-                return !it.issubtype && !it.ismilestone && self.hasDefinedSchedule(it);
+                return !it.issubtype && !it.ismilestone && self.isItemInActionScope(it) &&
+                    ((self.hasDefinedSchedule(it) && self.isItemInteractive(it)) ||
+                        (self.selectionMode && !self.hasDefinedSchedule(it) && !!self.getAvailabilityBounds(it)));
+            });
+            if (avoidBlackout && strategy !== 'sequential' && mainItems.length &&
+                    !self.getSequenceWorkingPeriods(cStart, cEnd).length) {
+                Notification.addNotification({message: self.strings.autosequenceblackoutempty, type: 'warning'});
+                return;
+            }
+            mainItems.forEach(function(item) {
+                if (!self.hasDefinedSchedule(item)) {
+                    var bounds = self.getAvailabilityBounds(item);
+                    availabilityOnly.push({item: item, start: bounds.start, end: bounds.end});
+                    item.datestart = bounds.start;
+                    item.dateend = bounds.end;
+                }
             });
             var oldParentRanges = {};
             mainItems.forEach(function(it) {
                 oldParentRanges[it.id] = {start: it.datestart, end: it.dateend};
             });
 
-            if (!mainItems.length) {
-                return;
-            }
-
-            if (strategy === 'equal') {
+            if (mainItems.length && strategy === 'equal') {
                 // Strategy 1: Equal division across course timeframe
                 var slotDur = Math.max(3600, Math.floor(totalCourseSec / mainItems.length));
                 var curTime = cStart;
@@ -3452,7 +4437,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     it.dateend = (idx === mainItems.length - 1) ? cEnd : Math.min(cEnd, curTime + slotDur);
                     curTime = it.dateend;
                 });
-            } else if (strategy === 'sequential') {
+            } else if (mainItems.length && strategy === 'sequential') {
                 // Strategy 2: Sequential chaining preserving original durations
                 var seqTime = cStart;
                 mainItems.forEach(function(it) {
@@ -3461,7 +4446,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     it.dateend = seqTime + dur;
                     seqTime = it.dateend;
                 });
-            } else {
+            } else if (mainItems.length) {
                 // Strategy 3: Proportional bounded (clamped to prevent massive outlier domination)
                 var rawDurs = mainItems.map(function(it) {
                     return Math.max(3600, it.dateend - it.datestart);
@@ -3551,6 +4536,111 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 }
             });
 
+            // A selected subactivity can also be sequenced when its parent is
+            // outside the selection. Keep its allocation inside that parent.
+            var sequencedOrphans = [];
+            if (self.selectionMode) {
+                var orphanGroups = Object.create(null);
+                self.getActionItems().forEach(function(item) {
+                    if (!item.issubtype || item.ismilestone || !item.parentkey ||
+                            !self.isItemEditable(item) || !self.hasDefinedSchedule(item) ||
+                            self.selectedItemIds.has(String(item.parentkey))) {
+                        return;
+                    }
+                    var key = String(item.parentkey);
+                    if (!orphanGroups[key]) {
+                        orphanGroups[key] = [];
+                    }
+                    orphanGroups[key].push(item);
+                });
+                Object.keys(orphanGroups).forEach(function(parentId) {
+                    var parent = self.items.find(function(item) {
+                        return String(item.id) === parentId;
+                    });
+                    if (!parent || !self.hasDefinedSchedule(parent)) {
+                        return;
+                    }
+                    var children = orphanGroups[parentId];
+                    var start = Number(parent.datestart);
+                    var end = Number(parent.dateend);
+                    var duration = Math.max(3600, end - start);
+                    var weights = children.map(function(child) {
+                        return Math.max(3600, Number(child.dateend) - Number(child.datestart));
+                    });
+                    var totalWeight = weights.reduce(function(total, weight) {
+                        return total + weight;
+                    }, 0);
+                    if (duration <= children.length ||
+                            (strategy === 'sequential' && totalWeight > duration)) {
+                        return;
+                    }
+                    if (avoidBlackout && !self.getSequenceWorkingPeriods(start, end).length) {
+                        return;
+                    }
+                    var cursor = start;
+                    children.forEach(function(child, index) {
+                        var length = strategy === 'equal' ? Math.floor(duration / children.length) :
+                            (strategy === 'sequential' ? weights[index] :
+                                Math.round(duration * weights[index] / totalWeight));
+                        child.datestart = cursor;
+                        child.dateend = strategy === 'sequential' ?
+                            Math.min(end, cursor + length) :
+                            (index === children.length - 1 ? end : Math.min(end, cursor + length));
+                        child.dateend = Math.max(child.datestart + 1, child.dateend);
+                        cursor = child.dateend;
+                    });
+                    sequencedOrphans.push({items: children, start: start, end: end, parent: parent});
+                    self.refreshDerivedItem(parent);
+                });
+            }
+
+            var blackoutItems = [];
+            if (avoidBlackout) {
+                var mainIds = new Set(mainItems.map(function(item) { return String(item.id); }));
+                blackoutItems = self.items.filter(function(item) {
+                    return mainIds.has(String(item.id)) || (mainIds.has(String(item.parentkey)) &&
+                        self.isItemEditable(item) && self.hasDefinedSchedule(item));
+                });
+                if (blackoutItems.length) {
+                    var maxTime = Math.max.apply(null, blackoutItems.map(function(item) {
+                        return Number(item.dateend);
+                    }));
+                    var mapper = self.createSequenceWorkingMapper(cStart, cEnd, maxTime, strategy !== 'sequential');
+                    if (!mapper) {
+                        Notification.addNotification({message: self.strings.autosequenceblackoutempty, type: 'warning'});
+                        self.items.forEach(function(item) {
+                            var original = snapshots[String(item.id)];
+                            item.datestart = original.datestart;
+                            item.dateend = original.dateend;
+                        });
+                        return;
+                    }
+                    self.mapSequenceRowsToWorkingDays(blackoutItems, mapper);
+                }
+                sequencedOrphans.forEach(function(group) {
+                    var mapper = self.createSequenceWorkingMapper(group.start, group.end, group.end, true);
+                    if (mapper) {
+                        self.mapSequenceRowsToWorkingDays(group.items, mapper);
+                        self.refreshDerivedItem(group.parent);
+                    }
+                });
+            }
+
+            self.finishAvailabilityOnlySequence(availabilityOnly, snapshots);
+            self.syncAvailabilityFromSnapshot(snapshots);
+            if (avoidBlackout) {
+                self.alignSequenceAvailability(blackoutItems.concat(sequencedOrphans.reduce(function(all, group) {
+                    return all.concat(group.items);
+                }, [])));
+            }
+            var changed = self.items.some(function(item) {
+                var original = snapshots[String(item.id)];
+                return original && (item.datestart !== original.datestart || item.dateend !== original.dateend ||
+                    self.hasAvailabilityChanges(item, original));
+            });
+            if (!changed) {
+                return;
+            }
             self.renderTimeline();
             self.items.forEach(function(it) {
                 self.updateTableRow(it);
@@ -3564,57 +4654,137 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
          * A single affine transformation is applied to every item, so gaps,
          * durations and parent/child positions retain their relative values.
          */
-        applyRelativeSequence: function() {
+        applyRelativeSequence: function(avoidBlackout) {
             var self = this;
+            if (!self.canEditSchedule() || !self.hasActionSelection()) {
+                return;
+            }
+            var snapshots = self.snapshotSchedule();
             var courseStart = Number(self.config.courseStart);
             var courseEnd = Number(self.config.courseEnd);
             var courseDuration = Math.max(3600, courseEnd - courseStart);
+            var availabilityOnly = [];
             var datedItems = self.items.filter(function(item) {
-                return self.hasDefinedSchedule(item);
+                if (!self.isItemInActionScope(item) || (self.selectionMode && item.issubtype &&
+                        !self.selectedItemIds.has(String(item.parentkey)))) {
+                    return false;
+                }
+                if (self.hasDefinedSchedule(item)) {
+                    return true;
+                }
+                var bounds = self.selectionMode && !item.issubtype ? self.getAvailabilityBounds(item) : null;
+                if (!bounds) {
+                    return false;
+                }
+                availabilityOnly.push({item: item, start: bounds.start, end: bounds.end});
+                item.datestart = bounds.start;
+                item.dateend = bounds.end;
+                return true;
             });
             var transformableItems = datedItems.filter(function(item) {
-                return self.isItemEditable(item) || item.derived;
+                return self.isItemEditable(item) || item.derived || item.availabilityeditable;
             });
-
-            if (!transformableItems.length) {
+            if (avoidBlackout && transformableItems.length &&
+                    !self.getSequenceWorkingPeriods(courseStart, courseEnd).length) {
+                availabilityOnly.forEach(function(entry) {
+                    var original = snapshots[String(entry.item.id)];
+                    entry.item.datestart = original.datestart;
+                    entry.item.dateend = original.dateend;
+                });
+                Notification.addNotification({message: self.strings.autosequenceblackoutempty, type: 'warning'});
                 return;
             }
-
-            var originalStart = Math.min.apply(null, datedItems.map(function(item) {
-                return Number(item.datestart);
-            }));
-            var originalEnd = Math.max.apply(null, datedItems.map(function(item) {
-                return Number(item.dateend);
-            }));
-            var originalDuration = originalEnd - originalStart;
-
-            if (originalDuration <= 0) {
-                return;
-            }
-
-            var scale = courseDuration / originalDuration;
             var changed = false;
 
-            transformableItems.forEach(function(item) {
-                var oldStart = Number(item.datestart);
-                var oldEnd = Number(item.dateend);
-                var newStart = Math.round(courseStart + (oldStart - originalStart) * scale);
-                var newEnd = Math.round(courseStart + (oldEnd - originalStart) * scale);
+            var transformGroup = function(items, targetStart, targetEnd) {
+                if (!items.length) {
+                    return;
+                }
+                var originalStart = Math.min.apply(null, items.map(function(item) {
+                    return Number(item.datestart);
+                }));
+                var originalEnd = Math.max.apply(null, items.map(function(item) {
+                    return Number(item.dateend);
+                }));
+                var originalDuration = originalEnd - originalStart;
+                if (originalDuration <= 0) {
+                    return;
+                }
+                var scale = (targetEnd - targetStart) / originalDuration;
+                items.forEach(function(item) {
+                    var oldStart = Number(item.datestart);
+                    var oldEnd = Number(item.dateend);
+                    var newStart = Math.round(targetStart + (oldStart - originalStart) * scale);
+                    var newEnd = Math.round(targetStart + (oldEnd - originalStart) * scale);
+                    if (!item.ismilestone && newEnd <= newStart) {
+                        newEnd = newStart + 1;
+                    }
+                    if (item.ismilestone && item.dateonly) {
+                        newStart = startOfLocalDay(newStart);
+                        newEnd = newStart;
+                    }
+                    changed = changed || oldStart !== newStart || oldEnd !== newEnd;
+                    item.datestart = newStart;
+                    item.dateend = newEnd;
+                });
+            };
 
-                // Rounding must not turn a valid interval into a zero-length one.
-                if (!item.ismilestone && newEnd <= newStart) {
-                    newEnd = newStart + 1;
-                }
-                if (item.ismilestone && item.dateonly) {
-                    newStart = startOfLocalDay(newStart);
-                    newEnd = newStart;
-                }
+            transformGroup(transformableItems, courseStart, courseStart + courseDuration);
+            var sequencedOrphans = [];
+            if (self.selectionMode) {
+                var orphanGroups = Object.create(null);
+                self.getActionItems().forEach(function(item) {
+                    if (!item.issubtype || !item.parentkey ||
+                            !self.hasDefinedSchedule(item) || !self.isItemInteractive(item) ||
+                            self.selectedItemIds.has(String(item.parentkey))) {
+                        return;
+                    }
+                    var key = String(item.parentkey);
+                    if (!orphanGroups[key]) {
+                        orphanGroups[key] = [];
+                    }
+                    orphanGroups[key].push(item);
+                });
+                Object.keys(orphanGroups).forEach(function(parentId) {
+                    var parent = self.items.find(function(item) {
+                        return String(item.id) === parentId;
+                    });
+                    if (parent && self.hasDefinedSchedule(parent) && (!avoidBlackout ||
+                            self.getSequenceWorkingPeriods(Number(parent.datestart), Number(parent.dateend)).length)) {
+                        transformGroup(orphanGroups[parentId], Number(parent.datestart), Number(parent.dateend));
+                        sequencedOrphans.push({items: orphanGroups[parentId], parent: parent});
+                        self.refreshDerivedItem(parent);
+                    }
+                });
+            }
 
-                if (oldStart !== newStart || oldEnd !== newEnd) {
-                    changed = true;
+            if (avoidBlackout) {
+                if (transformableItems.length) {
+                    var mapper = self.createSequenceWorkingMapper(courseStart, courseEnd, courseEnd, true);
+                    self.mapSequenceRowsToWorkingDays(transformableItems, mapper);
                 }
-                item.datestart = newStart;
-                item.dateend = newEnd;
+                sequencedOrphans.forEach(function(group) {
+                    var parent = group.parent;
+                    var localMapper = self.createSequenceWorkingMapper(
+                        Number(parent.datestart), Number(parent.dateend), Number(parent.dateend), true);
+                    if (localMapper) {
+                        self.mapSequenceRowsToWorkingDays(group.items, localMapper);
+                        self.refreshDerivedItem(parent);
+                    }
+                });
+            }
+
+            self.finishAvailabilityOnlySequence(availabilityOnly, snapshots);
+            self.syncAvailabilityFromSnapshot(snapshots);
+            if (avoidBlackout) {
+                self.alignSequenceAvailability(transformableItems.concat(sequencedOrphans.reduce(function(all, group) {
+                    return all.concat(group.items);
+                }, [])));
+            }
+            changed = changed || self.items.some(function(item) {
+                var original = snapshots[String(item.id)];
+                return original && (item.datestart !== original.datestart || item.dateend !== original.dateend ||
+                    self.hasAvailabilityChanges(item, original));
             });
 
             if (!changed) {
@@ -3633,7 +4803,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
          */
         saveSchedule: function() {
             var self = this;
-            if (!self.isDirty) {
+            if (!self.canEditSchedule() || !self.isDirty) {
                 return;
             }
 

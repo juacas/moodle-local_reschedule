@@ -2,13 +2,25 @@
 
 ## 1.1.0 - 2026-10-02
 
+- The day row can group seven days at a time, aligned to natural locale weeks, without adding a separate week row.
+- Removed the separate week row and grouped month/year periods from the timeline scale; it shows only the relevant year, month, day and hour rows.
+- Restricted the hourly grid to 6, 3 or 1-hour cells, labelled without minutes and restarted at each local midnight.
+- Overlaid the individual effort curve when hovering an activity in the Gantt or date table, using the same contribution as the summed plot.
+- Added Gantt row selection mode and scoped drag, resize, Auto-sequence and Weekify to selected activities; editable availability windows participate in date operations.
+- Added an optional Auto-sequence blackout-days setting, initially excluding locale weekends from calculated start and end dates.
+- Adapted Gantt date-grid resolution to zoom and viewport width, with calendar-aligned hours, days, months and years.
+- Numbered day cells without month abbreviations and extended zoom to a full-day viewport.
+- Added magnetic snapping and drag feedback when editable availability ranges reach their activity's start or end edge.
+- Bound all scheduling controls and save/Weekify requests to Moodle course Edit mode, with a read-only view when it is off.
+- Added independent enable/disable checkboxes for start and end dates in the date editor, with open boundaries and zero values on save.
+- Estimated effort by activity type in the adapter manager and documented the summed effort graph on the bilingual website.
 - Added sourced educational context to the effort model dialog and README, explaining deadline pressure and intermediate submissions.
 - Increased dialog text contrast and made the academic note expandable from its title.
-- Increased each activity's total effort to 10 points and added an effort badge before the Gantt duration badge.
+- Added an effort badge before the Gantt duration badge, including zero-point activities.
 - Added Weekify for weekly courses: preview and confirm moving displayed activities into the section matching their saved start week.
 - Uses Moodle's course format section dates and module move API; skips activities without a start date or an existing target week.
 - Added a gear selector for realistic deadline pressure and ideal S-curve daily effort models, with a short exponential residual after each activity ends.
-- Normalized each activity to the same total effort in either model and saved the chosen model in browser local storage.
+- Normalized both models to each activity's assigned total effort and saved the chosen model in browser local storage.
 - Excluded activities and subactivities with missing schedule endpoints from every Auto-sequence strategy, so Gantt drawing limits do not become scheduled dates.
 - Moved the realistic Parkinson effort peak to the exact end of each activity; its exponential residual now begins immediately afterward.
 - Linked affected activity names in save error notices to their editable table rows.

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 130" role="img" aria-label="Sequential chaining: original and redistributed activity bars">
+  <title>Sequential chaining</title>
+  <rect width="420" height="130" rx="12" fill="#f8fbff"/>
+  <path d="M40 18V110M125 18V110M210 18V110M295 18V110M380 18V110" stroke="#dce6f2" stroke-width="1" stroke-dasharray="3 4"/>
+  <path d="M40 51H380M40 110H380" stroke="#b8c9dd" stroke-width="1"/>
+  <rect x="40" y="24" width="48" height="22" rx="5" fill="#2563eb"/>
+  <text x="64" y="39" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">A</text>
+  <rect x="125" y="24" width="53" height="22" rx="5" fill="#0d9488"/>
+  <text x="151.5" y="39" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">B</text>
+  <rect x="210" y="24" width="68" height="22" rx="5" fill="#d97706"/>
+  <text x="244" y="39" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">C</text>
+  <rect x="310" y="24" width="53" height="22" rx="5" fill="#7c3aed"/>
+  <text x="336.5" y="39" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">D</text>
+  <path d="M205 61h10l-5 8z" fill="#64748b"/>
+  <rect x="40" y="82" width="48" height="22" rx="5" fill="#2563eb"/>
+  <text x="64" y="97" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">A</text>
+  <rect x="88" y="82" width="53" height="22" rx="5" fill="#0d9488"/>
+  <text x="114.5" y="97" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">B</text>
+  <rect x="141" y="82" width="68" height="22" rx="5" fill="#d97706"/>
+  <text x="175" y="97" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">C</text>
+  <rect x="209" y="82" width="53" height="22" rx="5" fill="#7c3aed"/>
+  <text x="235.5" y="97" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">D</text>
+</svg>

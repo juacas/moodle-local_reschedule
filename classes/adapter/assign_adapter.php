@@ -62,14 +62,14 @@ class assign_adapter extends base_adapter {
         $up->timemodified = time();
 
         // Harmoniously shift cutoff date if originally configured.
-        if ($origcutoff > 0) {
-            $cutoffmargin = max(0, $origcutoff - $origdue);
+        if ($origcutoff > 0 && $newend > 0) {
+            $cutoffmargin = $origdue > 0 ? max(0, $origcutoff - $origdue) : 0;
             $up->cutoffdate = $newend + $cutoffmargin;
         }
 
         // Harmoniously shift grading due date if originally configured.
-        if ($origgrading > 0) {
-            $gradingmargin = max(86400 * 7, $origgrading - $origdue);
+        if ($origgrading > 0 && $newend > 0) {
+            $gradingmargin = $origdue > 0 ? max(86400 * 7, $origgrading - $origdue) : 86400 * 7;
             $up->gradingduedate = $newend + $gradingmargin;
         }
 

@@ -49,8 +49,10 @@ In university and corporate training courses, Moodle courses often comprise doze
 
 ## 2. Key Features
 
-- **100% responsive, fluid GANTT timeline**: 3-tier multilevel time headers, reference grid, and visual weekend shading.
+- **100% responsive, fluid GANTT timeline**: Adaptive time headers with up to three calendar rows, reference grid, and visual weekend shading.
 - **Bidirectional bar manipulation**: Lateral resize handles supporting stretch from both left (start) and right (end), even on very short activities where handles overlap.
+- **Selection mode**: Use the check icon in the Gantt activity header to show row checkboxes. Selected rows are the scope for drag, resize, Auto-sequence and Weekify; editable date availability ranges follow date transformations.
+- **Course Edit mode**: Scheduling controls follow Moodle's course Edit mode switch. With Edit mode off, the page shows a read-only Gantt and date table; zoom, navigation, row expansion and effort-model viewing remain available. Enable Edit mode to move or resize dates, change availability, select rows, Auto-sequence, Weekify, reset or save. Save and Weekify endpoints also check Edit mode.
 - **Harmonic subactivity synchronization**: Moving a parent activity (e.g., a workshop or a `mod_quest` challenge) shifts its subactivities/phases in tandem; resizing it proportionally scales subactivities while respecting bounds.
 - **Interactive jump with highlight**: A single click on any GANTT bar automatically unfolds the activity (if collapsed), smoothly scrolls to its row in the detail table, and emits a highlight pulse animation.
 - **Manual editing via standard modal**: Clicking date cells in the table opens a modal with standard `<input type="datetime-local" class="form-control">` pickers, live duration preview, and semantic validations.
@@ -75,7 +77,9 @@ The timeline can be accessed from the course secondary navigation: **More > Resc
 - `datestart=UNIX_TIMESTAMP&dateend=UNIX_TIMESTAMP`: use a concrete visible GANTT window. The real course timeframe remains the validation boundary when dates are saved.
 
 For example: `/local/reschedule/index.php?id=6&instances=quest:55,quiz:123&datestart=1764547200&dateend=1767225600`.
-- **Top time header**: Displays summed daily effort above 3 date tiers (Year, Month, Day for long periods; Month, Day, Hours for short periods $\le 7$ days) on a fixed vertical scale from 0 to 4. Its vertical fill is green through effort 1, yellow at 2, and red from 3 upward. Each dated activity without duration subactivities, and each dated duration subactivity, contributes 10 points of total effort. The Gantt activity column shows the effort value before the duration badge. Point milestones contribute no effort and do not suppress their parent's effort. The gear button switches between realistic deadline pressure (a slow exponential rise peaking at the activity end) and an ideal bell-shaped daily workload derived from a cumulative S curve. Both have a short exponential residual after the end and keep the same total effort. Activities without both dates contribute no effort. The selected model is saved in browser local storage. The graph uses Moodle's bundled Chart.js and updates as dates move.
+- **Top time header**: Displays summed daily effort above one to three date rows. The date grid shows only the relevant year, month, numbered day and hour units for the available pixels, and recalculates on zoom or viewport resize. When individual days are too narrow, the day row groups seven days aligned to natural locale weeks; there is no separate week row. Hour cells use 6, 3 or 1-hour intervals aligned to each local day, with short labels such as `6h`. Zoom can expand one complete day across the visible track. The effort graph has a fixed vertical scale from 0 to 4. Its vertical fill is green through effort 1, yellow at 2, and red from 3 upward. Hovering an activity in the Gantt or date table overlays its own effort curve as a purple dashed line. Each dated activity without duration subactivities, and each dated duration subactivity, contributes the total effort assigned to its module type. The Gantt activity column shows the effort value before the duration badge, including `0 pts` for types without development work. Point milestones contribute no effort and do not suppress their parent's effort. The gear button switches between realistic deadline pressure (a slow exponential rise peaking at the activity end) and an ideal bell-shaped daily workload derived from a cumulative S curve. Both have a short exponential residual after the end and keep the same total effort. Activities without both dates contribute no effort. The selected model is saved in browser local storage. The graph uses Moodle's bundled Chart.js and updates as dates move.
+
+  Estimated effort by activity type: Choice, Feedback and Questionnaire **1 pt**; Forum, Chat and Zoom **2 pts**; Quiz, Lesson, SCORM, Glossary, Database and KUET **3 pts**; Assignment, Workshop and Quest **10 pts**; Offline Quiz **0 pts**. Other module types use **5 pts**. These are planning weights for a dated interval, not measured student time. A subactivity uses its parent module's weight; a parent with duration subactivities is excluded from the chart to avoid counting the same work twice. Daily curve heights vary with duration because each curve integrates to its activity's assigned points.
 
 - **Weekend bands**: Saturdays and Sundays are subtly shaded across the lane background according to the user's active locale (`Intl.Locale`).
 - **Fixed left column**: Lists activities with their official icon, title, type, and current duration.
@@ -115,12 +119,15 @@ In the activity table below:
 1. The **Start date** and **End date** columns display a pencil micro-icon on hover.
 2. Clicking any cell (or selecting it via keyboard and pressing `Enter`), opens the `#reschedule-date-modal`.
 3. The modal uses native HTML5/Bootstrap components compatible with Moodle (`<input type="datetime-local" class="form-control">`), allowing manual keyboard input or local date/time picker interaction.
-4. Includes informative badges showing activity type and real-time computed duration.
-5. Upon saving, if it is a parent activity, its subactivities are proportionally recalculated to the new window and both table and timeline are updated.
+4. Each start and end date has a checkbox to enable or disable it. A disabled date is stored as zero and shown as an open Gantt boundary; an activity without both dates contributes no effort. Open-ended rows have only a start checkbox, while optional point milestones keep their single-date checkbox.
+5. Includes informative badges showing activity type and real-time computed duration. Duration shows `—` when either endpoint is disabled.
+6. Upon saving a dated parent range, its subactivities are proportionally recalculated to the new window and both table and timeline are updated.
 
 ### Auto-Sequencing Strategies
 Clicking the **Auto-sequence** button in the top bar opens the strategy selector:
-Only activities and subactivities with both start and end dates take part in range distribution. Dated milestones can move with their parent. Rows whose displayed Gantt limits stand in for missing dates are skipped by every strategy.
+Only activities and subactivities with both start and end dates take part in native-date range distribution. Dated milestones can move with their parent. Displayed Gantt limits that stand in for missing dates are never saved as native activity dates.
+In selection mode, only checked rows are sequenced. Checking a parent also checks its subactivities; a checked subactivity without its parent is sequenced within the parent's existing interval. An activity with no native interval can take part through its complete editable availability window. Unchecked rows keep their dates.
+The optional **Avoid blacklisted days (weekends)** checkbox places calculated start and end dates on working days. It uses the weekend days for the current locale and also applies to sequenced subactivities, milestones and editable availability endpoints. Equal, proportional and relative strategies fit dates into the working time within their target interval; sequential chaining preserves durations and may extend beyond the course end. The blackout-period provider in the calendar controller is the extension point for future Moodle calendar closures or custom periods.
 1. **Equal distribution (`equal`)**: Divides the course duration into $N$ identical blocks and distributes primary activities in a continuous chain.
 2. **Sequential chaining (`sequential`)**: Concatenates activities one after another starting from course start, preserving each activity's existing duration.
 3. **Bounded proportional (`proportional`)**: Calculates total relative duration and scales all activities to fill the course period, applying containment thresholds to prevent outliers from monopolizing the timeline.
@@ -128,6 +135,7 @@ Only activities and subactivities with both start and end dates take part in ran
 
 ### Weekify for Weekly Courses
 The **Weekify** button appears beside Auto-sequence when the course format is `weeks`. Save any pending date edits first. The confirmation dialog previews the displayed activities that will move, along with counts skipped for missing dates, dates outside existing weeks, and activities already in the correct section. Confirming uses Moodle's course format API to move each course module; dates do not change. If a parent activity lacks a start date, Weekify uses its earliest dated subactivity. Moving into a hidden week may hide the activity.
+In selection mode, Weekify previews and moves only checked course activity rows. Subactivity and milestone checkboxes do not move a course module by themselves.
 
 ---
 
@@ -277,6 +285,8 @@ If a course module has date restrictions but no recognised native-date mapping,
 it is still added as a course-wide (`<<`/`>>`) Gantt row with native dates
 read-only, so its availability decoration can be inspected and, when safe,
 edited.
+
+When dragging or resizing an editable availability range, either endpoint magnetically snaps to either native activity edge within 12 screen pixels. The snapped handle highlights while dragging; disabled or off-screen activity dates are ignored. Moving a range keeps its duration.
 
 Dates exposed by `report_editdates` are initially shown as milestones. The
 manager probes `validate_dates()` with positive early/late timestamps to infer

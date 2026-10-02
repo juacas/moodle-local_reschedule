@@ -37,8 +37,14 @@ try {
     $cmidsparam = optional_param('cmids', '', PARAM_SEQUENCE);
     $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
     require_login($course);
-    require_capability('moodle/course:manageactivities', \context_course::instance($courseid));
+    $context = \context_course::instance($courseid);
+    require_capability('moodle/course:manageactivities', $context);
+    $PAGE->set_context($context);
+    $PAGE->set_other_editing_capability('moodle/course:manageactivities');
     require_sesskey();
+    if (!$PAGE->user_is_editing()) {
+        throw new \moodle_exception('editmoderequired', 'local_reschedule');
+    }
     if (!in_array($action, ['preview', 'apply'], true)) {
         throw new \moodle_exception('invalidrequest', 'error');
     }
@@ -63,8 +69,9 @@ try {
     }
 } catch (\Throwable $e) {
     debugging('Weekify failed: ' . $e->getMessage(), DEBUG_DEVELOPER);
-    $message = $e instanceof \moodle_exception && $e->errorcode === 'weekifynotweeks' ?
-        get_string('weekifynotweeks', 'local_reschedule') : get_string('weekifyerror', 'local_reschedule');
+    $message = $e instanceof \moodle_exception &&
+        in_array($e->errorcode, ['weekifynotweeks', 'editmoderequired'], true) ?
+        get_string($e->errorcode, 'local_reschedule') : get_string('weekifyerror', 'local_reschedule');
     echo json_encode([
         'success' => false,
         'message' => $message,

@@ -76,6 +76,8 @@ try {
     // 4. Permission verification.
     $context = \context_course::instance($courseid);
     require_capability('moodle/course:manageactivities', $context);
+    $PAGE->set_context($context);
+    $PAGE->set_other_editing_capability('moodle/course:manageactivities');
 
     // 5. Validate sesskey from GET, POST, or JSON payload.
     $sesskey = optional_param('sesskey', '', PARAM_RAW);
@@ -92,6 +94,9 @@ try {
             'errorcode' => 'invalidsesskey',
         ]);
         exit;
+    }
+    if (!$PAGE->user_is_editing()) {
+        throw new \moodle_exception('editmoderequired', 'local_reschedule');
     }
 
     // 6. Check items array.
@@ -127,6 +132,8 @@ try {
 } catch (\moodle_exception $e) {
     if ($e->errorcode === 'invalidsesskey') {
         $msg = get_string('error_saving_session', 'local_reschedule');
+    } else if ($e->errorcode === 'editmoderequired') {
+        $msg = get_string('editmoderequired', 'local_reschedule');
     } else {
         $msg = get_string('error_saving', 'local_reschedule');
     }

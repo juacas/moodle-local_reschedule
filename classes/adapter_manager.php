@@ -36,11 +36,47 @@ use local_reschedule\adapter\milestone_adapter;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class adapter_manager {
+    /** @var int Estimated effort for activity types without a specific weight. */
+    private const DEFAULT_EFFORT = 5;
+
+    /** @var array<string, int> Estimated total effort points by Moodle activity module. */
+    private const EFFORT_WEIGHTS = [
+        'offlinequiz' => 0,
+        'choice' => 1,
+        'feedback' => 1,
+        'questionnaire' => 1,
+        'forum' => 2,
+        'chat' => 2,
+        'zoom' => 2,
+        'quiz' => 3,
+        'lesson' => 3,
+        'scorm' => 3,
+        'glossary' => 3,
+        'data' => 3,
+        'kuet' => 3,
+        'assign' => 10,
+        'workshop' => 10,
+        'quest' => 10,
+    ];
+
     /** @var array Cache of instantiated adapters by course id and adapter class. */
     private static array $adapters = [];
 
     /** @var array Cache of availability adapters by course id. */
     private static array $availabilityadapters = [];
+
+    /**
+     * Estimate total effort for one dated activity interval from its module type.
+     *
+     * These are planning weights, not measured student work. The chart spreads
+     * each weight over the item's dated interval according to the chosen model.
+     *
+     * @param string $modname Moodle activity module name.
+     * @return int Effort points, from 0 to 10.
+     */
+    public static function get_effort(string $modname): int {
+        return self::EFFORT_WEIGHTS[$modname] ?? self::DEFAULT_EFFORT;
+    }
 
     /**
      * Resolve the most appropriate adapter for the given item.

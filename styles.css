@@ -24,7 +24,7 @@
     align-items: stretch;
     background: #fff;
     display: flex;
-    height: 156px;
+    height: var(--quest-header-height, 156px);
     overflow: hidden;
     position: relative;
     z-index: 30;
@@ -105,7 +105,7 @@
     border-bottom: 2px solid #cbd5e1;
     border-right: 1px solid #e2e8f0;
     box-sizing: border-box;
-    height: 156px;
+    height: var(--quest-header-height, 156px);
     position: sticky;
     top: 0;
     z-index: 21;
@@ -169,6 +169,45 @@
     justify-content: center;
 }
 
+.quest-left-summary-top {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+}
+
+.quest-selection-toggle {
+    align-items: center;
+    display: inline-flex;
+    justify-content: center;
+    min-height: 2rem;
+    min-width: 2rem;
+}
+
+.quest-row-select {
+    cursor: pointer;
+    flex: 0 0 auto;
+    margin: 0 0.2rem 0 0;
+}
+
+.quest-left-row.is-selected,
+.quest-left-row.is-subtype.is-selected {
+    background-color: #dbeafe;
+}
+
+.quest-timeline-lane.is-selected {
+    background-color: #eff6ff;
+}
+
+.quest-timeline-shell.is-selection-mode .quest-timeline-lane:not(.is-selected) .quest-calendar-bar,
+.quest-timeline-shell.is-selection-mode .quest-timeline-lane:not(.is-selected) .quest-availability-range {
+    cursor: default;
+    opacity: 0.65;
+}
+
+#reschedule-table tr.is-selected > td {
+    background-color: #eff6ff;
+}
+
 .quest-left-row {
     align-items: center;
     background-color: #fff;
@@ -193,7 +232,7 @@
 .quest-bands-header {
     background: #fff;
     box-sizing: border-box;
-    height: 156px;
+    height: var(--quest-header-height, 156px);
     box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
     position: sticky;
     top: 0;
@@ -203,6 +242,7 @@
 .quest-drops-row {
     background: #eff6ff;
     border-bottom: 1px solid #bfdbfe;
+    box-sizing: border-box;
     height: 72px;
     overflow: hidden;
     width: 100%;
@@ -210,8 +250,9 @@
 
 .quest-drops-canvas {
     display: block;
-    height: 100%;
-    width: 100%;
+    height: 72px;
+    position: absolute;
+    top: 0;
 }
 
 .quest-band-row {
@@ -235,6 +276,10 @@
     background: #fff;
     border-bottom: 2px solid #cbd5e1;
     height: 28px;
+}
+
+.quest-band-row:last-child {
+    border-bottom: 2px solid #cbd5e1;
 }
 
 .quest-band-cell {
@@ -373,6 +418,14 @@
     opacity: 0.8;
 }
 
+.quest-availability-range.is-viewonly {
+    cursor: default;
+}
+
+.quest-availability-range.is-viewonly .quest-availability-handle {
+    display: none;
+}
+
 .quest-availability-range.is-dragging {
     background-color: #facc1510;
     background-image:
@@ -385,6 +438,18 @@
         );
     box-shadow: 0 3px 10px rgba(15, 23, 42, 0.45);
     cursor: grabbing;
+}
+
+.quest-availability-range.is-dragging.is-snapped-start,
+.quest-availability-range.is-dragging.is-snapped-end {
+    border-color: #047857;
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.55), 0 3px 10px rgba(15, 23, 42, 0.35);
+}
+
+.quest-availability-range.is-snapped-start .quest-availability-handle-start,
+.quest-availability-range.is-snapped-end .quest-availability-handle-end {
+    background: #34d399;
+    border-color: #065f46;
 }
 
 .quest-availability-lock {
@@ -793,6 +858,15 @@
     display: none;
 }
 
+.quest-calendar-bar.is-readonly,
+.quest-calendar-bar.is-readonly .quest-bar-content {
+    cursor: default;
+}
+
+.quest-calendar-bar.is-readonly .quest-bar-handle {
+    display: none;
+}
+
 #reschedule-table td.date-cell-disabled {
     background-color: #f8f9fa;
     color: #6c757d;
@@ -802,6 +876,15 @@
 
 #reschedule-table tr.reschedule-item-disabled {
     background-color: #f8f9fa;
+}
+
+.local-reschedule-container.is-readonly #reschedule-table tr.reschedule-item-disabled,
+.local-reschedule-container.is-readonly #reschedule-table td.date-cell-disabled,
+.local-reschedule-container.is-readonly #reschedule-table td.date-cell-disabled:hover {
+    background-color: transparent;
+    color: inherit;
+    cursor: default;
+    opacity: 1;
 }
 
 #reschedule-table .reschedule-activity-link {
