@@ -28,29 +28,16 @@ defined('MOODLE_INTERNAL') || die();
 if ($hassiteconfig) {
     $settings = new admin_settingpage('local_reschedule', get_string('pluginname', 'local_reschedule'));
 
-    $defaultmapping = "assign,name,Assignment,allowsubmissionsfromdate,duedate\n" .
-        "quiz,name,Quiz,timeopen,timeclose\n" .
-        "workshop,name,Workshop,submissionstart,assessmentend\n" .
-        "-workshop,name,Workshop - Submission Phase,submissionstart,submissionend\n" .
-        "-workshop,name,Workshop - Assessment Phase,assessmentstart,assessmentend\n" .
-        "lesson,name,Lesson,available,deadline\n" .
-        "feedback,name,Feedback,timeopen,timeclose\n" .
-        "choice,name,Choice,timeopen,timeclose\n" .
-        "data,name,Database,timeavailablefrom,timeavailableto\n" .
-        "scorm,name,SCORM,timeopen,timeclose\n" .
-        "quest,name,Questournament,datestart,dateend\n" .
-        "-quest_submissions,title,Quest Challenge,datestart,dateend,questid\n" .
-        "kuet,name,Kuet,startdate,enddate\n" .
-        "-kuet_sessions,name,Kuet Session,startdate,enddate,kuetid";
+    $defaultmapping = \local_reschedule\mapping::DEFAULT_JSON;
 
-    $settings->add(new admin_setting_configtextarea(
+    $settings->add(new \local_reschedule\admin_setting_mapping(
         'local_reschedule/mapping',
         get_string('mapping', 'local_reschedule'),
         get_string('mapping_desc', 'local_reschedule'),
         $defaultmapping,
         PARAM_RAW,
-        60,
-        14
+        100,
+        12
     ));
 
     $ADMIN->add('localplugins', $settings);

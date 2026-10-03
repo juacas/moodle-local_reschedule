@@ -32,77 +32,7 @@ class manager {
      */
     public static function get_mapping_rules(): array {
         $raw = get_config('local_reschedule', 'mapping');
-        if (empty($raw)) {
-            $raw = "assign,name,Assignment,allowsubmissionsfromdate,duedate\n" .
-                "quiz,name,Quiz,timeopen,timeclose\n" .
-                "workshop,name,Workshop,submissionstart,assessmentend\n" .
-                "-workshop,name,Workshop - Submission Phase,submissionstart,submissionend\n" .
-                "-workshop,name,Workshop - Assessment Phase,assessmentstart,assessmentend\n" .
-                "lesson,name,Lesson,available,deadline\n" .
-                "feedback,name,Feedback,timeopen,timeclose\n" .
-                "choice,name,Choice,timeopen,timeclose\n" .
-                "data,name,Database,timeavailablefrom,timeavailableto\n" .
-                "scorm,name,SCORM,timeopen,timeclose\n" .
-                "quest,name,Questournament,datestart,dateend\n" .
-                "-quest_submissions,title,Quest Challenge,datestart,dateend,questid\n" .
-                "kuet,name,Kuet,startdate,enddate\n" .
-                "-kuet_sessions,name,Kuet Session,startdate,enddate,kuetid";
-        }
-
-        $lines = preg_split('/\r\n|\r|\n/', $raw);
-        $rules = [];
-        $currentparent = null;
-
-        foreach ($lines as $line) {
-            $line = trim($line);
-            if ($line === '' || str_starts_with($line, '#') || str_starts_with($line, '//')) {
-                continue;
-            }
-
-            $issubtype = str_starts_with($line, '-');
-            if ($issubtype) {
-                $line = ltrim($line, '-');
-            }
-
-            $parts = array_map('trim', explode(',', $line));
-            if (count($parts) < 5) {
-                continue;
-            }
-
-            $table = $parts[0];
-            $titlecol = $parts[1];
-            $label = $parts[2];
-            $startcol = $parts[3];
-            $endcol = $parts[4];
-            $foreignkey = $parts[5] ?? null;
-
-            if (!$issubtype) {
-                $currentparent = $table;
-                $rules[] = [
-                    'issubtype' => false,
-                    'table' => $table,
-                    'titlecol' => $titlecol,
-                    'label' => $label,
-                    'startcol' => $startcol,
-                    'endcol' => $endcol,
-                    'foreignkey' => null,
-                    'parenttable' => null,
-                ];
-            } else {
-                $rules[] = [
-                    'issubtype' => true,
-                    'table' => $table,
-                    'titlecol' => $titlecol,
-                    'label' => $label,
-                    'startcol' => $startcol,
-                    'endcol' => $endcol,
-                    'foreignkey' => $foreignkey ?: ($currentparent ? $currentparent . 'id' : 'parentid'),
-                    'parenttable' => $currentparent,
-                ];
-            }
-        }
-
-        return $rules;
+        return mapping::effective_rules($raw === false ? null : (string)$raw);
     }
 
     /**
@@ -155,9 +85,24 @@ class manager {
         // Use the same section and activity sequence as the course page.
         $courseorder = 0;
         $cmorder = [];
+        $cmsections = [];
+        $format = \course_get_format($course);
         foreach ($modinfo->get_section_info_all() as $section) {
+            if (!$section) {
+                continue;
+            }
+            $sectiontitle = trim(html_entity_decode(strip_tags((string)$format->get_section_name($section)),
+                ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+            if ($sectiontitle === '') {
+                $sectiontitle = get_string('section') . ' ' . (int)$section->section;
+            }
             foreach ($section->get_sequence_cm_infos() as $cm) {
                 $cmorder[(int)$cm->id] = $courseorder++;
+                $cmsections[(int)$cm->id] = [
+                    'sectionid' => (int)$section->id,
+                    'sectionnum' => (int)$section->section,
+                    'sectiontitle' => $sectiontitle,
+                ];
             }
         }
 
@@ -178,7 +123,8 @@ class manager {
 
             // Query module instance records.
             // Check if course column exists in table.
-            $hasdates = $dbman->field_exists($table, $startcol) && $dbman->field_exists($table, $endcol);
+            $hasdates = $dbman->field_exists($table, $startcol) &&
+                ($endcol === '' || $dbman->field_exists($table, $endcol));
             $fieldsexist = $dbman->field_exists($table, 'id') &&
                 $dbman->field_exists($table, $titlecol) &&
                 ($hasdates || $table === 'kuet');
@@ -189,7 +135,8 @@ class manager {
 
             $records = [];
             if ($hasdates && $dbman->field_exists($table, 'course')) {
-                $sql = "SELECT t.id, t.{$titlecol} AS title, t.{$startcol} AS datestart, t.{$endcol} AS dateend
+                $endselect = $endcol === '' ? '0' : "t.{$endcol}";
+                $sql = "SELECT t.id, t.{$titlecol} AS title, t.{$startcol} AS datestart, {$endselect} AS dateend
                           FROM {{$table}} t
                          WHERE t.course = :courseid
                       ORDER BY t.{$startcol} ASC, t.id ASC";
@@ -217,7 +164,7 @@ class manager {
             foreach ($records as $rec) {
                 $itemid = 'main_' . $table . '_' . $rec->id;
                 $rawstart = (int)$rec->datestart;
-                $rawend = (int)$rec->dateend;
+                $rawend = $rule['kind'] === 'milestone' ? $rawstart : (int)$rec->dateend;
                 $startenabled = $rawstart > 0;
                 $endenabled = $rawend > 0;
                 $itemmetadata = ['table' => $table];
@@ -227,7 +174,7 @@ class manager {
                 // Disabled endpoints use the course limits only for drawing.
                 $ds = $startenabled ? $rawstart : $coursestart;
                 $de = $endenabled ? $rawend : $courseend;
-                if ($de <= $ds) {
+                if ($de <= $ds && $rule['kind'] !== 'milestone') {
                     $de = max($de, $ds + 3600);
                 }
 
@@ -267,7 +214,7 @@ class manager {
                     'childrencount' => 0,
                     'iconurl' => $iconurl,
                     'viewurl' => $viewurl,
-                    'editable' => !$isderived,
+                    'editable' => !$isderived && $rule['editable'],
                     'derived' => $isderived,
                     'editreason' => $isderived ?
                         get_string('kuetactivitynoteditable', 'local_reschedule') : '',
@@ -278,6 +225,14 @@ class manager {
                     'typelabel' => $rule['label'],
                     'startcol' => $startcol,
                     'endcol' => $endcol,
+                    'ismilestone' => $rule['kind'] === 'milestone',
+                    'isopenended' => $rule['kind'] === 'open',
+                    'mappedrule' => true,
+                    'optional' => $rule['optional'],
+                    'dateonly' => $rule['dateonly'],
+                    'availabilitymapping' => $rule['availability'],
+                    'effort' => mapping::estimate($rule['effortestimator'], $rawstart, $rawend),
+                    'effortestimator' => $rule['effortestimator'],
                     'startenabled' => $startenabled,
                     'endenabled' => $endenabled,
                     'datestart' => $ds,
@@ -287,6 +242,13 @@ class manager {
         }
 
         // Pass 2: Process subtypes / phases.
+        $subrulecounts = [];
+        foreach ($rules as $candidate) {
+            if ($candidate['issubtype']) {
+                $subrulecounts[$candidate['parenttable'] . ':' . $candidate['table']] =
+                    ($subrulecounts[$candidate['parenttable'] . ':' . $candidate['table']] ?? 0) + 1;
+            }
+        }
         foreach ($rules as $rule) {
             if (!$rule['issubtype']) {
                 continue;
@@ -311,14 +273,17 @@ class manager {
 
             if ($issametbl) {
                 // Subtype is a phase stored in the same parent record (e.g. Workshop submission/assessment phases).
-                if (!$dbman->field_exists($subtable, $startcol) || !$dbman->field_exists($subtable, $endcol)) {
+                if (!$dbman->field_exists($subtable, $titlecol) ||
+                        !$dbman->field_exists($subtable, $startcol) ||
+                        ($endcol !== '' && !$dbman->field_exists($subtable, $endcol))) {
                     continue;
                 }
 
                 // Query fresh parent records with phase columns.
                 $parentids = array_keys($parentitems[$parenttable]);
                 [$insql, $inparams] = $DB->get_in_or_equal($parentids, SQL_PARAMS_NAMED);
-                $sql = "SELECT id, {$titlecol} AS title, {$startcol} AS datestart, {$endcol} AS dateend
+                $endselect = $endcol === '' ? '0' : $endcol;
+                $sql = "SELECT id, {$titlecol} AS title, {$startcol} AS datestart, {$endselect} AS dateend
                           FROM {{$subtable}}
                          WHERE id $insql";
                 $phases = $DB->get_records_sql($sql, $inparams);
@@ -327,13 +292,13 @@ class manager {
                     $parentkey = 'main_' . $parenttable . '_' . $prec->id;
                     $itemid = 'sub_' . $subtable . '_' . $prec->id . '_' . $startcol;
                     $rawstart = (int)$prec->datestart;
-                    $rawend = (int)$prec->dateend;
+                    $rawend = $rule['kind'] === 'milestone' ? $rawstart : (int)$prec->dateend;
                     $startenabled = $rawstart > 0;
                     $endenabled = $rawend > 0;
                     $parentstart = $items[$parentkey]['datestart'] ?? $coursestart;
                     $ds = $startenabled ? $rawstart : $parentstart;
                     $de = $endenabled ? $rawend : ($items[$parentkey]['dateend'] ?? $courseend);
-                    if ($de <= $ds) {
+                    if ($de <= $ds && $rule['kind'] !== 'milestone') {
                         $de = max($de, $ds + 3600);
                     }
 
@@ -358,13 +323,23 @@ class manager {
                         'childrencount' => 0,
                         'iconurl' => $parenticon,
                         'viewurl' => $parentviewurl,
-                        'editable' => true,
+                        'editable' => $rule['editable'],
                         'derived' => false,
                         'interactive' => true,
                         'title' => (string)$prec->title . ' - ' . $rule['label'],
                         'typelabel' => $rule['label'],
                         'startcol' => $startcol,
                         'endcol' => $endcol,
+                        'ismilestone' => $rule['kind'] === 'milestone',
+                        'isopenended' => $rule['kind'] === 'open',
+                        'isdateinterval' => $rule['kind'] === 'range',
+                        'mappedrule' => true,
+                        'optional' => $rule['optional'],
+                        'dateonly' => $rule['dateonly'],
+                        'boundtoparentstart' => $rule['boundtoparentstart'],
+                        'boundtoparentend' => $rule['boundtoparentend'],
+                        'effort' => mapping::estimate($rule['effortestimator'], $rawstart, $rawend),
+                        'effortestimator' => $rule['effortestimator'],
                         'startenabled' => $startenabled,
                         'endenabled' => $endenabled,
                         'datestart' => $ds,
@@ -379,7 +354,7 @@ class manager {
                     !$dbman->field_exists($subtable, $fkey) ||
                     !$dbman->field_exists($subtable, $titlecol) ||
                     !$dbman->field_exists($subtable, $startcol) ||
-                    !$dbman->field_exists($subtable, $endcol)
+                    ($endcol !== '' && !$dbman->field_exists($subtable, $endcol))
                 ) {
                     continue;
                 }
@@ -392,6 +367,11 @@ class manager {
                 if ($subtable === 'kuet_sessions' && $dbman->field_exists($subtable, 'sessionmode')) {
                     $extracols = ', sessionmode';
                 }
+                if ($subtable === 'quest_submissions' &&
+                        $dbman->field_exists($subtable, 'predictedduration') &&
+                        $dbman->field_exists($subtable, 'perceiveddifficulty')) {
+                    $extracols .= ', predictedduration, perceiveddifficulty';
+                }
 
                 $sessionfilter = '';
                 if ($subtable === 'kuet_sessions') {
@@ -399,8 +379,9 @@ class manager {
                         ('podium_programmed', 'race_programmed', 'inactive_programmed')";
                 }
 
+                $endselect = $endcol === '' ? '0' : $endcol;
                 $sql = "SELECT id, {$fkey} AS parentid, {$titlecol} AS title, "
-                    . "{$startcol} AS datestart, {$endcol} AS dateend{$extracols}
+                    . "{$startcol} AS datestart, {$endselect} AS dateend{$extracols}
                           FROM {{$subtable}}
                          WHERE {$fkey} $insql{$sessionfilter}
                       ORDER BY {$startcol} ASC, id ASC";
@@ -409,14 +390,17 @@ class manager {
                 foreach ($children as $ch) {
                     $parentkey = 'main_' . $parenttable . '_' . $ch->parentid;
                     $itemid = 'sub_' . $subtable . '_' . $ch->id;
+                    if (($subrulecounts[$parenttable . ':' . $subtable] ?? 0) > 1) {
+                        $itemid .= '_' . $startcol . ($endcol !== '' && $endcol !== $startcol ? '_' . $endcol : '');
+                    }
                     $rawstart = (int)$ch->datestart;
-                    $rawend = (int)$ch->dateend;
+                    $rawend = $rule['kind'] === 'milestone' ? $rawstart : (int)$ch->dateend;
                     $startenabled = $rawstart > 0;
                     $endenabled = $rawend > 0;
                     $parentstart = $items[$parentkey]['datestart'] ?? $coursestart;
                     $ds = $startenabled ? $rawstart : $parentstart;
                     $de = $endenabled ? $rawend : ($items[$parentkey]['dateend'] ?? $courseend);
-                    if ($de <= $ds) {
+                    if ($de <= $ds && $rule['kind'] !== 'milestone') {
                         $de = max($de, $ds + 3600);
                     }
 
@@ -430,7 +414,7 @@ class manager {
 
                     // Determine if this subitem is editable.
                     // For kuet_sessions, only programmed modes are editable.
-                    $editable = true;
+                    $editable = $rule['editable'];
                     if ($subtable === 'kuet_sessions') {
                         $editable = isset($ch->sessionmode) &&
                             \local_reschedule\adapter\kuet_adapter::is_programmed_session_mode((string)$ch->sessionmode);
@@ -457,11 +441,31 @@ class manager {
                         'typelabel' => $rule['label'],
                         'startcol' => $startcol,
                         'endcol' => $endcol,
+                        'ismilestone' => $rule['kind'] === 'milestone',
+                        'isopenended' => $rule['kind'] === 'open',
+                        'isdateinterval' => $rule['kind'] === 'range',
+                        'mappedrule' => true,
+                        'optional' => $rule['optional'],
+                        'dateonly' => $rule['dateonly'],
+                        'boundtoparentstart' => $rule['boundtoparentstart'],
+                        'boundtoparentend' => $rule['boundtoparentend'],
+                        'effort' => mapping::estimate($rule['effortestimator'], $rawstart, $rawend),
+                        'effortestimator' => $rule['effortestimator'],
                         'startenabled' => $startenabled,
                         'endenabled' => $endenabled,
                         'datestart' => $ds,
                         'dateend' => $de,
                     ];
+
+                    if ($subtable === 'quest_submissions') {
+                        $estimatedeffort = \local_reschedule\adapter\quest_adapter::estimate_effort(
+                            isset($ch->predictedduration) ? (int)$ch->predictedduration : null,
+                            isset($ch->perceiveddifficulty) ? (int)$ch->perceiveddifficulty : null
+                        );
+                        $subitem['effort'] = $estimatedeffort ??
+                            \local_reschedule\adapter\quest_adapter::DEFAULT_CHALLENGE_EFFORT;
+                        $subitem['effortsource'] = $estimatedeffort === null ? 'default' : 'adapter';
+                    }
 
                     $childrenbyparent[$parentkey][] = $subitem;
                 }
@@ -518,7 +522,9 @@ class manager {
         $rangedatefields = [];
         foreach ($rules as $rule) {
             $rangedatefields[$rule['table']][$rule['startcol']] = true;
-            $rangedatefields[$rule['table']][$rule['endcol']] = true;
+            if ($rule['endcol'] !== '') {
+                $rangedatefields[$rule['table']][$rule['endcol']] = true;
+            }
         }
 
         // Infer interval dependencies in report_editdates settings by probing
@@ -578,7 +584,8 @@ class manager {
                     (int)($settings[$field]->currentvalue ?? 0);
             };
 
-            $mappedrange = !empty($parentitem['startcol']) && !empty($parentitem['endcol']);
+            $mappedrange = !empty($parentitem['mappedrule']) ||
+                (!empty($parentitem['startcol']) && !empty($parentitem['endcol']));
             $usedfields = [];
 
             // For an unmapped activity, the earliest dependency pair defines
@@ -808,17 +815,44 @@ class manager {
         // CM and would otherwise render and submit the same conditions more
         // than once.
         foreach ($ordereditems as &$ordereditem) {
+            $cmid = (int)($ordereditem['cmid'] ?? 0);
+            $ordereditem = array_merge($ordereditem, $cmsections[$cmid] ?? [
+                'sectionid' => 0,
+                'sectionnum' => 0,
+                'sectiontitle' => '',
+            ]);
             // Subactivity tables inherit the activity type of their parent CM.
             $parentkey = (string)($ordereditem['parentkey'] ?? '');
             $modname = $parentkey !== '' && isset($items[$parentkey]) ?
                 (string)$items[$parentkey]['table'] : (string)$ordereditem['table'];
-            $ordereditem['effort'] = adapter_manager::get_effort($modname);
+            $haseffort = isset($ordereditem['effort']);
+            $ordereditem['effort'] = $ordereditem['effort'] ?? adapter_manager::get_effort($modname);
+            $ordereditem['effortsource'] = $ordereditem['effortsource'] ?? ($haseffort ? 'mapping' : 'default');
             if (!empty($ordereditem['issubtype']) || (int)($ordereditem['cmid'] ?? 0) <= 0) {
                 continue;
             }
             $cm = $modinfo->get_cm((int)$ordereditem['cmid']);
-            if ($cm) {
+            if ($cm && ($ordereditem['availabilitymapping'] ?? 'auto') !== 'off') {
                 $ordereditem = array_merge($ordereditem, $availabilityadapter->describe($cm));
+            }
+        }
+        unset($ordereditem);
+
+        // A parent with duration subactivities displays their combined effort.
+        // Point milestones are excluded, just as they are from the effort plot.
+        $parentsums = [];
+        foreach ($ordereditems as $ordereditem) {
+            if (empty($ordereditem['issubtype']) || !empty($ordereditem['ismilestone']) ||
+                    empty($ordereditem['parentkey'])) {
+                continue;
+            }
+            $parentkey = (string)$ordereditem['parentkey'];
+            $parentsums[$parentkey] = ($parentsums[$parentkey] ?? 0) + (float)$ordereditem['effort'];
+        }
+        foreach ($ordereditems as &$ordereditem) {
+            if (array_key_exists((string)$ordereditem['id'], $parentsums)) {
+                $ordereditem['effort'] = round($parentsums[(string)$ordereditem['id']], 4);
+                $ordereditem['effortsource'] = 'children';
             }
         }
         unset($ordereditem);
@@ -859,7 +893,7 @@ class manager {
             if (!$candidate || empty($candidate['cmid']) || empty($candidate['startcol']) ||
                     ($candidate['editable'] ?? true) === false ||
                     (!empty($candidate['issubtype']) && empty($candidate['ismilestone']) &&
-                        empty($candidate['isdateinterval']))) {
+                        empty($candidate['isdateinterval']) && empty($candidate['isopenended']))) {
                 continue;
             }
             $cmid = (int)$candidate['cmid'];

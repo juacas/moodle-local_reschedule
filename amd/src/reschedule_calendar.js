@@ -20,7 +20,8 @@
  * @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
+define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
+    function(Notification, Chart, EffortTable) {
     'use strict';
 
     /**
@@ -84,6 +85,18 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             return '—';
         }
         return formatDuration(item.dateend - item.datestart);
+    }
+
+    /** Format a displayed effort value without changing the stored estimate. */
+    function formatEffort(value, locale) {
+        try {
+            return new Intl.NumberFormat(locale || undefined, {
+                minimumFractionDigits: 1,
+                maximumFractionDigits: 1
+            }).format(Number(value));
+        } catch (e) {
+            return Number(value).toFixed(1);
+        }
     }
 
     /**
@@ -152,6 +165,85 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
         var date = new Date(sec * 1000);
         date.setHours(0, 0, 0, 0);
         return Math.floor(date.getTime() / 1000);
+    }
+
+    /** Shift a stored date by local calendar days or exact hours. */
+    function shiftSnappedDate(sec, steps, unit) {
+        if (unit !== 'days') {
+            return sec + steps * 3600;
+        }
+        var date = new Date(sec * 1000);
+        date.setDate(date.getDate() + steps);
+        return Math.floor(date.getTime() / 1000);
+    }
+
+    /** Copy just the local calendar date, preserving the original clock time. */
+    function dateWithOriginalClock(proposed, original) {
+        var date = new Date(proposed * 1000);
+        var clock = new Date(original * 1000);
+        date.setHours(clock.getHours(), clock.getMinutes(), clock.getSeconds(), 0);
+        return Math.floor(date.getTime() / 1000);
+    }
+
+    /** Number of calendar days between two local dates, independent of DST. */
+    function localDayDifference(from, to) {
+        var first = new Date(from * 1000);
+        var last = new Date(to * 1000);
+        return Math.round((Date.UTC(last.getFullYear(), last.getMonth(), last.getDate()) -
+            Date.UTC(first.getFullYear(), first.getMonth(), first.getDate())) / 86400000);
+    }
+
+    /** Find the nearest local day boundary to the pointer's proposed shift. */
+    function snapStepsForDelta(initial, rawDelta, unit) {
+        if (unit !== 'days') {
+            return Math.round(rawDelta / 3600);
+        }
+        var proposed = initial + rawDelta;
+        var day = localDayDifference(initial, proposed);
+        var best = day;
+        [day - 1, day + 1].forEach(function(candidate) {
+            if (Math.abs(shiftSnappedDate(initial, candidate, 'days') - proposed) <
+                    Math.abs(shiftSnappedDate(initial, best, 'days') - proposed)) {
+                best = candidate;
+            }
+        });
+        return best;
+    }
+
+    /** Find the furthest whole snap step that stays within the allowed bounds. */
+    function fitSnapSteps(requested, allowed) {
+        if (allowed(requested)) {
+            return requested;
+        }
+        if (!allowed(0)) {
+            return 0;
+        }
+        var sign = requested < 0 ? -1 : 1;
+        var low = 0;
+        var high = Math.abs(requested);
+        while (high - low > 1) {
+            var middle = Math.floor((low + high) / 2);
+            if (allowed(middle * sign)) {
+                low = middle;
+            } else {
+                high = middle;
+            }
+        }
+        return low * sign;
+    }
+
+    /** Align to a target's date or hour without replacing the source minutes. */
+    function snapStepForTarget(initial, target, unit) {
+        var source = new Date(initial * 1000);
+        var aligned = new Date(target * 1000);
+        if (unit === 'days') {
+            aligned.setHours(source.getHours(), source.getMinutes(), source.getSeconds(), 0);
+        } else {
+            aligned.setMinutes(source.getMinutes(), source.getSeconds(), 0);
+        }
+        var steps = unit === 'days' ? localDayDifference(initial, target) :
+            Math.round((aligned.getTime() / 1000 - initial) / 3600);
+        return {steps: steps, time: shiftSnappedDate(initial, steps, unit)};
     }
 
     /**
@@ -241,6 +333,10 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
     var EFFORT_DEFAULT = 5;
     var EFFORT_TAIL_DAYS = 2;
     var EFFORT_SCALE_MAX = 4;
+    var EFFORT_DAYS_PER_WEEK = 7;
+    // Five labels (0–4) fit at 15px intervals with a little canvas padding.
+    var EFFORT_PLOT_HEIGHT = 72;
+    var EFFORT_HEADER_MIN_HEIGHT = 116;
     var EFFORT_STORAGE_KEY = 'local_reschedule_effort_model';
 
     /**
@@ -341,6 +437,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
         initialItems: [],
         isDirty: false,
         activeDrag: null,
+        snapHint: null,
         trackWidthPx: 1200,
         baseTrackWidthPx: 1200,
         zoomLevel: 1,
@@ -350,12 +447,15 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
         backgroundPan: null,
         pinchState: null,
         effortChart: null,
+        effortTable: null,
         effortModel: 'real',
         hoveredEffortItemId: null,
         effortUpdatePending: false,
         locale: undefined,
         selectionMode: false,
+        dragSnapUnit: 'hours',
         selectedItemIds: null,
+        sectionRuns: null,
 
         /**
          * Initialize calendar timeline.
@@ -401,9 +501,18 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     ['data-milestone-date', 'milestonedate'],
                     ['data-effort-drops', 'effortdrops'],
                     ['data-effort-scale', 'effortscale'],
+                    ['data-effort-weekly-unit', 'effortweeklyunit'],
                     ['data-effort-settings', 'effortsettings'],
                     ['data-effort-label', 'effortlabel'],
                     ['data-effort-points', 'effortpoints'],
+                    ['data-effort-table-title', 'efforttabletitle'],
+                    ['data-effort-table-hours', 'efforttablehours'],
+                    ['data-effort-table-adapter', 'efforttableadapter'],
+                    ['data-effort-table-children', 'efforttablechildren'],
+                    ['data-effort-table-default', 'efforttabledefault'],
+                    ['data-effort-table-manual', 'efforttablemanual'],
+                    ['data-effort-table-milestone', 'efforttablemilestone'],
+                    ['data-effort-table-invalid', 'efforttableinvalid'],
                     ['data-weekify-save-first', 'weekifysavefirst'],
                     ['data-weekify-loading', 'weekifyloading'],
                     ['data-weekify-error', 'weekifyerror'],
@@ -412,6 +521,9 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     ['data-weekify-more', 'weekifymore'],
                     ['data-weekify-moves', 'weekifymoves'],
                     ['data-selection-mode', 'selectionmode'],
+                    ['data-snap-to', 'snapto'],
+                    ['data-snap-hours', 'snaphours'],
+                    ['data-snap-days', 'snapdays'],
                     ['data-selection-activities', 'selectionactivities'],
                     ['data-selection-drag-hint', 'selectiondraghint'],
                     ['data-selection-selected', 'selectionselected'],
@@ -420,7 +532,13 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     ['data-selection-weekify-empty', 'selectionweekifyempty'],
                     ['data-readonly-notice', 'readonlynotice'],
                     ['data-editmode-required', 'editmoderequired'],
-                    ['data-autosequence-blackout-empty', 'autosequenceblackoutempty']
+                    ['data-autosequence-blackout-empty', 'autosequenceblackoutempty'],
+                    ['data-autosequence-no-items', 'autosequencenoitems'],
+                    ['data-autosequence-no-space', 'autosequencenospace'],
+                    ['data-autosequence-no-working-space', 'autosequencenoworkingspace'],
+                    ['data-autosequence-parent-space', 'autosequenceparentspace'],
+                    ['data-autosequence-parent-missing', 'autosequenceparentmissing'],
+                    ['data-autosequence-no-span', 'autosequencenospan']
                 ].forEach(function(mapping) {
                     cfg.strings[mapping[1]] = getRootData(mapping[0], cfg.strings[mapping[1]] || '');
                 });
@@ -486,12 +604,20 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             this.unsavedAlert = document.getElementById('reschedule-unsaved-alert');
             this.expandedParents = {};
             this.selectionMode = false;
+            this.dragSnapUnit = 'hours';
             this.selectedItemIds = new Set();
 
             if (!this.board || !this.items.length) {
                 return;
             }
 
+            var calendar = this;
+            this.effortTable = EffortTable.create({
+                getItems: function() { return calendar.items; },
+                canEdit: function() { return calendar.canEditSchedule(); },
+                strings: this.strings,
+                onApply: function(updates) { calendar.applyEffortTableUpdates(updates); }
+            });
             this.renderTimeline();
             this.bindGlobalEvents();
             this.bindActions();
@@ -695,6 +821,8 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
          */
         renderTimeline: function() {
             var self = this;
+            self.clearSnapHint();
+            self.refreshMappedEfforts();
             self.hoveredEffortItemId = null;
             if (self.effortChart) {
                 self.effortChart.destroy();
@@ -724,15 +852,34 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             leftHeader.className = 'quest-left-header p-2 border-bottom border-end d-flex flex-column justify-content-center';
             leftHeader.innerHTML = '<div class="quest-left-drops-label fw-bold small"><span>' +
                 '<i class="fa fa-tint me-1" aria-hidden="true"></i>' +
-                self.escapeHtml(self.strings.effortdrops || 'Effort drops') + '</span>' +
+                self.escapeHtml(self.strings.effortdrops || 'Effort drops') + '</span><span class="quest-effort-actions">' +
+                '<button type="button" class="quest-effort-settings quest-effort-table-button btn btn-sm" aria-label="' +
+                self.escapeHtml(self.strings.efforttabletitle || 'Effort table') + '" title="' +
+                self.escapeHtml(self.canEditSchedule() ? (self.strings.efforttabletitle || 'Effort table') :
+                    (self.strings.editmoderequired || 'Turn on Edit mode to change dates.')) + '"' +
+                (self.canEditSchedule() ? '' : ' disabled aria-disabled="true"') + '>' +
+                '<i class="fa fa-table" aria-hidden="true"></i></button>' +
                 '<button type="button" class="quest-effort-settings btn btn-sm" aria-label="' +
                 self.escapeHtml(self.strings.effortsettings || 'Effort chart settings') + '" title="' +
                 self.escapeHtml(self.strings.effortsettings || 'Effort chart settings') + '">' +
-                '<i class="fa fa-cog" aria-hidden="true"></i></button></div>' +
+                '<i class="fa fa-cog" aria-hidden="true"></i></button></span></div>' +
                 '<div class="quest-left-header-summary"><div class="quest-left-summary-top">' +
-                '<div class="fw-bold small text-dark"><i class="fa fa-tasks me-1 text-primary" ' +
+                '<div class="quest-left-summary-count fw-bold small text-dark text-truncate">' +
+                '<i class="fa fa-tasks me-1 text-primary" ' +
                 'aria-hidden="true"></i> ' + self.items.length + ' ' +
                 self.escapeHtml(self.strings.selectionactivities || 'Activities') + '</div>' +
+                '<div class="quest-left-summary-controls">' +
+                '<button type="button" class="quest-drag-snap-toggle btn btn-sm ' +
+                (self.dragSnapUnit === 'days' ? 'btn-outline-primary' : 'btn-outline-secondary') +
+                '" aria-pressed="' + (self.dragSnapUnit === 'days' ? 'true' : 'false') + '" title="' +
+                self.escapeHtml(self.canEditSchedule() ? (self.strings.snapto || 'Snap:') + ' ' +
+                    (self.dragSnapUnit === 'days' ? (self.strings.snapdays || 'days') :
+                        (self.strings.snaphours || 'hours')) :
+                    (self.strings.editmoderequired || 'Turn on Edit mode to change dates.')) + '"' +
+                (self.canEditSchedule() ? '' : ' disabled aria-disabled="true"') + '>' +
+                self.escapeHtml(self.strings.snapto || 'Snap:') + ' <span class="quest-drag-snap-value">' +
+                self.escapeHtml(self.dragSnapUnit === 'days' ? (self.strings.snapdays || 'days') :
+                    (self.strings.snaphours || 'hours')) + '</span></button>' +
                 '<button type="button" class="quest-selection-toggle btn btn-sm ' +
                 (self.selectionMode ? 'btn-primary' : 'btn-outline-secondary') + '" aria-pressed="' +
                 (self.selectionMode ? 'true' : 'false') + '" aria-label="' +
@@ -740,7 +887,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 self.escapeHtml(self.canEditSchedule() ? (self.strings.selectionmode || 'Selection mode') :
                     (self.strings.editmoderequired || 'Turn on Edit mode to change dates.')) + '"' +
                 (self.canEditSchedule() ? '' : ' disabled aria-disabled="true"') + '>' +
-                '<i class="fa fa-check-square-o" aria-hidden="true"></i></button></div>' +
+                '<i class="fa fa-check-square-o" aria-hidden="true"></i></button></div></div>' +
                 '<div class="smaller text-muted quest-selection-summary" aria-live="polite">' +
                 (self.selectionMode ? self.selectedItemIds.size + ' ' +
                 self.escapeHtml(self.strings.selectionselected || 'selected') :
@@ -749,7 +896,19 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     (self.strings.readonlynotice || 'Read-only view'))) +
                 '</div></div>';
 
+            var lastLeftSectionId = null;
             self.items.forEach(function(item) {
+                var sectionId = Number(item.sectionid) > 0 ? String(item.sectionid) : null;
+                if (sectionId && sectionId !== lastLeftSectionId) {
+                    var sectionHeading = document.createElement('div');
+                    sectionHeading.className = 'quest-section-heading-left';
+                    sectionHeading.setAttribute('role', 'heading');
+                    sectionHeading.setAttribute('aria-level', '3');
+                    sectionHeading.textContent = item.sectiontitle || String(item.sectionnum || '');
+                    sectionHeading.title = sectionHeading.textContent;
+                    leftCol.appendChild(sectionHeading);
+                }
+                lastLeftSectionId = sectionId;
                 var rowLabel = document.createElement('div');
                 var isSub = !!item.issubtype;
                 rowLabel.className = 'quest-left-row border-bottom border-end' +
@@ -773,7 +932,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 var effortBadge = !item.ismilestone && isFinite(effort) && effort >= 0 ?
                     '<span class="badge bg-light text-primary border quest-lbl-effort flex-shrink-0">' +
                     self.escapeHtml(self.strings.effortlabel || 'Effort') + ': ' +
-                    self.escapeHtml(String(effort)) + ' ' +
+                    self.escapeHtml(formatEffort(effort, self.locale)) + ' ' +
                     self.escapeHtml(self.strings.effortpoints || 'pts') + '</span>' : '';
 
                 var expanderHtml = '';
@@ -854,12 +1013,16 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             ].filter(function(row) {
                 return row.items.length > 0;
             });
+            var headerHeight = Math.max(EFFORT_HEADER_MIN_HEIGHT, EFFORT_PLOT_HEIGHT + 28 * bandRows.length);
             var gridRow;
             var gridCells;
             var gridCellClass;
             bandRows.forEach(function(row, index) {
                 var rowEl = document.createElement('div');
                 rowEl.className = 'quest-band-row quest-band-l' + row.level + ' position-relative';
+                if (index === bandRows.length - 1) {
+                    rowEl.style.height = (headerHeight - EFFORT_PLOT_HEIGHT - 28 * index) + 'px';
+                }
                 var cellClass = 'quest-band-cell quest-cell-l' + row.level +
                     ' text-center position-absolute border-end' + (row.level === 1 ? ' fw-bold' : '');
                 if (index === bandRows.length - 1) {
@@ -883,7 +1046,32 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
 
             // Lanes for each item
             var gridLanes = [];
+            var sectionRuns = [];
+            var sectionOverlay = document.createElement('div');
+            sectionOverlay.className = 'quest-section-overlay';
+            sectionOverlay.setAttribute('aria-hidden', 'true');
+            var lastRightSectionId = null;
+            var sectionRun = null;
             self.items.forEach(function(item) {
+                var sectionId = Number(item.sectionid) > 0 ? String(item.sectionid) : null;
+                if (sectionId !== lastRightSectionId) {
+                    sectionRun = null;
+                    if (sectionId) {
+                        var headingLane = document.createElement('div');
+                        headingLane.className = 'quest-section-heading-lane';
+                        rightArea.appendChild(headingLane);
+                        var interval = document.createElement('div');
+                        interval.className = 'quest-section-interval';
+                        var watermark = document.createElement('span');
+                        watermark.className = 'quest-section-watermark';
+                        watermark.textContent = item.sectiontitle || String(item.sectionnum || '');
+                        interval.appendChild(watermark);
+                        sectionOverlay.appendChild(interval);
+                        sectionRun = {id: sectionId, heading: headingLane, lanes: [], interval: interval};
+                        sectionRuns.push(sectionRun);
+                    }
+                }
+                lastRightSectionId = sectionId;
                 var lane = document.createElement('div');
                 lane.className = 'quest-timeline-lane position-relative border-bottom' +
                     (item.issubtype ? ' is-subtype' : '') +
@@ -910,7 +1098,11 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 self.createAvailabilityOverlays(lane, item, totalSec, cStart);
                 rightArea.appendChild(lane);
                 gridLanes.push(lane);
+                if (sectionRun) {
+                    sectionRun.lanes.push(lane);
+                }
             });
+            rightArea.appendChild(sectionOverlay);
 
             board.appendChild(rightArea);
 
@@ -932,7 +1124,8 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
 
             var shell = document.createElement('div');
             shell.className = 'quest-timeline-shell' + (self.selectionMode ? ' is-selection-mode' : '');
-            shell.style.setProperty('--quest-header-height', (72 + 28 * bandRows.length) + 'px');
+            shell.style.setProperty('--quest-header-height', headerHeight + 'px');
+            shell.style.setProperty('--quest-effort-row-height', EFFORT_PLOT_HEIGHT + 'px');
             var headerPlaceholder = document.createElement('div');
             headerPlaceholder.className = 'quest-timeline-sticky-placeholder';
             headerPlaceholder.setAttribute('aria-hidden', 'true');
@@ -950,6 +1143,8 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             self.headerTrack = bandsHeader;
             self.visibleGrid = {ticks: gridCells, header: gridRow, cellClass: gridCellClass,
                 lanes: gridLanes, start: -1, end: -1};
+            self.sectionRuns = sectionRuns;
+            self.updateSectionDecorations(true);
             self.renderEffortDrops(dropsCanvas);
             self.items.forEach(function(item) {
                 var tableRow = document.getElementById('reschedule-row-' + item.id);
@@ -974,6 +1169,68 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             self.renderVisibleGrid();
             syncHeaderScroll();
             self.updatePageStickyHeader();
+        },
+
+        /** Find each section's earliest and latest real activity dates. */
+        getSectionIntervals: function() {
+            var sections = Object.create(null);
+            this.items.forEach(function(item) {
+                var key = Number(item.sectionid) > 0 ? String(item.sectionid) : null;
+                if (!key) {
+                    return;
+                }
+                var section = sections[key] || {start: Infinity, end: -Infinity};
+                [
+                    {enabled: item.startenabled !== false, value: item.datestart},
+                    {enabled: item.endenabled !== false, value: item.dateend}
+                ].forEach(function(endpoint) {
+                    var value = Number(endpoint.value);
+                    if (endpoint.enabled && isFinite(value) && value > 0) {
+                        section.start = Math.min(section.start, value);
+                        section.end = Math.max(section.end, value);
+                    }
+                });
+                sections[key] = section;
+            });
+            return sections;
+        },
+
+        /** Place the section watermarks behind their own activity rows. */
+        updateSectionDecorations: function(recalculateRows) {
+            if (!this.sectionRuns || !this.sectionRuns.length) {
+                return;
+            }
+            var sections = this.getSectionIntervals();
+            var timelineStart = this.getTimelineStart();
+            var timelineEnd = this.getTimelineEnd();
+            var duration = Math.max(3600, timelineEnd - timelineStart);
+            this.sectionRuns.forEach(function(run) {
+                if (recalculateRows) {
+                    var lastLane = run.heading;
+                    run.lanes.forEach(function(lane) {
+                        if (lane.offsetHeight > 0) {
+                            lastLane = lane;
+                        }
+                    });
+                    run.interval.style.top = run.heading.offsetTop + 'px';
+                    run.interval.style.height = Math.max(1,
+                        lastLane.offsetTop + lastLane.offsetHeight - run.heading.offsetTop) + 'px';
+                }
+                var bounds = sections[run.id];
+                if (!bounds || !isFinite(bounds.start) || !isFinite(bounds.end)) {
+                    run.interval.style.display = 'none';
+                    return;
+                }
+                var start = Math.max(timelineStart, bounds.start);
+                var end = Math.min(timelineEnd, Math.max(bounds.end, bounds.start + 3600));
+                if (end <= start) {
+                    run.interval.style.display = 'none';
+                    return;
+                }
+                run.interval.style.display = '';
+                run.interval.style.left = ((start - timelineStart) / duration * 100) + '%';
+                run.interval.style.width = ((end - start) / duration * 100) + '%';
+            });
         },
 
         /** Render only the date ticks near the horizontal viewport. */
@@ -1039,8 +1296,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             var end = typeof viewEnd === 'number' ? viewEnd : this.getTimelineEnd();
             var day = EFFORT_DAY;
             var periods = [];
-            var hoveredPeriod = null;
-            var hoveredTitle = '';
+            var hoveredPeriods = [];
             var hoveredItemId = this.hoveredEffortItemId;
             var sampleTimes = [start, end];
             var drops = [];
@@ -1068,9 +1324,9 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 var period = prepareEffortPeriod({start: itemStart, peak: peak, end: itemEnd,
                     tailEnd: itemEnd + EFFORT_TAIL_DAYS * day, effort: effort, model: model});
                 periods.push(period);
-                if (hoveredItemId !== null && String(item.id) === String(hoveredItemId)) {
-                    hoveredPeriod = period;
-                    hoveredTitle = item.title;
+                if (hoveredItemId !== null && (String(item.id) === String(hoveredItemId) ||
+                        (item.issubtype && String(item.parentkey) === String(hoveredItemId)))) {
+                    hoveredPeriods.push({period: period, title: item.title || item.name || ''});
                 }
                 sampleTimes.push(itemStart, peak, itemEnd, period.tailEnd);
                 if (peak >= start && peak <= end) {
@@ -1090,7 +1346,9 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             });
 
             var line = [];
-            var individual = [];
+            var hoveredCurves = hoveredPeriods.map(function(entry) {
+                return {title: entry.title, period: entry.period, data: []};
+            });
             var values = {};
             sampleTimes.forEach(function(time, index) {
                 if (time < start || time > end || (index > 0 && time === sampleTimes[index - 1])) {
@@ -1100,11 +1358,13 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 periods.forEach(function(period) {
                     value += effortAtTime(time, period);
                 });
-                line.push({x: time, y: value});
-                if (hoveredPeriod && time >= hoveredPeriod.start && time <= hoveredPeriod.tailEnd) {
-                    individual.push({x: time, y: effortAtTime(time, hoveredPeriod)});
-                }
-                values[time] = value;
+                line.push({x: time, y: value * EFFORT_DAYS_PER_WEEK});
+                hoveredCurves.forEach(function(curve) {
+                    if (time >= curve.period.start && time <= curve.period.tailEnd) {
+                        curve.data.push({x: time, y: effortAtTime(time, curve.period) * EFFORT_DAYS_PER_WEEK});
+                    }
+                });
+                values[time] = value * EFFORT_DAYS_PER_WEEK;
             });
             drops.sort(function(a, b) {
                 return a.x - b.x;
@@ -1112,7 +1372,26 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             drops.forEach(function(point) {
                 point.y = values[point.x] || 0;
             });
-            return {line: line, drops: drops, individual: individual, hoveredTitle: hoveredTitle};
+            return {line: line, drops: drops, hoveredCurves: hoveredCurves};
+        },
+
+        /** Give each hovered subactivity its own labelled effort line. */
+        getEffortOverlayDatasets: function(curves) {
+            var palette = ['#7c3aed', '#db2777', '#0891b2', '#65a30d', '#b45309', '#c026d3'];
+            return curves.map(function(curve, index) {
+                return {
+                    label: curve.title,
+                    data: curve.data,
+                    parsing: false,
+                    order: 0,
+                    borderColor: palette[index % palette.length],
+                    borderWidth: 3,
+                    borderDash: [6, 3],
+                    pointRadius: 0,
+                    fill: false,
+                    tension: 0
+                };
+            });
         },
 
         /**
@@ -1124,7 +1403,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             var self = this;
             var range = self.getEffortViewport();
             canvas.width = Math.round(range.width);
-            canvas.height = 72;
+            canvas.height = EFFORT_PLOT_HEIGHT;
             canvas.style.width = range.width + 'px';
             canvas.style.left = range.left + 'px';
             self.effortViewportWidth = range.width;
@@ -1156,24 +1435,13 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                         borderWidth: 1,
                         pointRadius: 5,
                         pointHoverRadius: 7
-                    }, {
-                        label: data.hoveredTitle,
-                        data: data.individual,
-                        parsing: false,
-                        order: 0,
-                        borderColor: '#7c3aed',
-                        borderWidth: 3,
-                        borderDash: [6, 3],
-                        pointRadius: 0,
-                        fill: false,
-                        tension: 0
-                    }]
+                    }].concat(self.getEffortOverlayDatasets(data.hoveredCurves))
                 },
                 options: {
                     responsive: false,
                     maintainAspectRatio: false,
                     animation: false,
-                    layout: {autoPadding: false, padding: 0},
+                    layout: {autoPadding: false, padding: {top: 6, bottom: 6}},
                     plugins: {
                         legend: {display: false},
                         tooltip: {
@@ -1184,14 +1452,28 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                                 label: function(point) {
                                     var name = point.raw.title || point.dataset.label ||
                                         (self.strings.effortscale || 'Effort');
-                                    return name + ': ' + point.parsed.y.toFixed(3);
+                                    return name + ': ' + formatEffort(point.parsed.y, self.locale) + ' ' +
+                                        (self.strings.effortweeklyunit || 'h/week');
                                 }
                             }
                         }
                     },
                     scales: {
                         x: {type: 'linear', display: false, min: range.start, max: range.end},
-                        y: {type: 'linear', display: false, min: 0, max: EFFORT_SCALE_MAX}
+                        y: {
+                            type: 'linear', display: true, min: 0, max: EFFORT_SCALE_MAX,
+                            grid: {display: true, color: 'rgba(30, 64, 175, 0.28)', z: 1},
+                            ticks: {
+                                stepSize: 1,
+                                autoSkip: false,
+                                color: '#334155',
+                                font: {size: 10},
+                                callback: function(value) {
+                                    return value === 0 ? '0' : value + ' ' +
+                                        (self.strings.effortweeklyunit || 'h/week');
+                                }
+                            }
+                        }
                     }
                 }
             });
@@ -1199,10 +1481,68 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
 
         /** Redraw the curve after an in-place schedule edit. */
         updateEffortDrops: function() {
+            this.refreshMappedEfforts();
             if (!this.effortChart) {
                 return;
             }
             this.updateEffortViewport();
+        },
+
+        /** Recalculate JSON rule estimates from current dates and update parent totals. */
+        refreshMappedEfforts: function() {
+            var self = this;
+            var changed = Object.create(null);
+            this.items.forEach(function(item) {
+                var estimator = item.effortestimator;
+                if (!estimator || item.effortsource === 'manual' || item.effortsource === 'adapter' ||
+                        item.effortsource === 'children') {
+                    return;
+                }
+                var estimate = Number(estimator.value);
+                if (estimator.model === 'perday') {
+                    estimate = item.startenabled !== false && item.endenabled !== false &&
+                        Number(item.dateend) > Number(item.datestart) ?
+                        (Number(item.dateend) - Number(item.datestart)) / 86400 * estimate : 0;
+                }
+                estimate = Math.round(estimate * 10000) / 10000;
+                if (isFinite(estimate) && Number(item.effort) !== estimate) {
+                    item.effort = estimate;
+                    item.effortsource = 'mapping';
+                    changed[String(item.id)] = estimate;
+                }
+            });
+            var totals = Object.create(null);
+            this.items.forEach(function(item) {
+                if (item.issubtype && !item.ismilestone && item.parentkey) {
+                    var key = String(item.parentkey);
+                    totals[key] = (totals[key] || 0) + Number(item.effort || 0);
+                }
+            });
+            this.items.forEach(function(item) {
+                var id = String(item.id);
+                if (!Object.prototype.hasOwnProperty.call(totals, id)) {
+                    return;
+                }
+                var total = Math.round(totals[id] * 10000) / 10000;
+                if (Number(item.effort) !== total) {
+                    item.effort = total;
+                    item.effortsource = 'children';
+                    changed[id] = total;
+                }
+            });
+            if (this.board) {
+                this.board.querySelectorAll('.quest-left-row[data-itemid]').forEach(function(row) {
+                    var id = row.getAttribute('data-itemid');
+                    if (!Object.prototype.hasOwnProperty.call(changed, id)) {
+                        return;
+                    }
+                    var badge = row.querySelector('.quest-lbl-effort');
+                    if (badge) {
+                        badge.textContent = (self.strings.effortlabel || 'Effort') + ': ' +
+                            formatEffort(changed[id], self.locale) + ' ' + (self.strings.effortpoints || 'pts');
+                    }
+                });
+            }
         },
 
         /** The time range and position of the effort canvas within the scrolled track. */
@@ -1229,8 +1569,8 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             var colors = this.getEffortColors();
             this.effortChart.data.datasets[0].data = data.line;
             this.effortChart.data.datasets[1].data = data.drops;
-            this.effortChart.data.datasets[2].data = data.individual;
-            this.effortChart.data.datasets[2].label = data.hoveredTitle;
+            this.effortChart.data.datasets = this.effortChart.data.datasets.slice(0, 2).concat(
+                this.getEffortOverlayDatasets(data.hoveredCurves));
             this.effortChart.data.datasets[0].borderColor = colors.line;
             this.effortChart.data.datasets[1].backgroundColor = colors.marker;
             this.effortChart.options.scales.x.min = range.start;
@@ -1239,7 +1579,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             this.effortChart.update('none');
         },
 
-        /** Show the hovered activity's contribution on the summed effort plot. */
+        /** Show the hovered activity and its subactivities on the summed effort plot. */
         setHoveredEffortItem: function(itemId) {
             var nextId = itemId === null ? null : String(itemId);
             if (this.hoveredEffortItemId === nextId) {
@@ -1579,11 +1919,14 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 item: item,
                 range: range,
                 overlay: overlay,
+                ismilestone: false,
+                dateonly: false,
                 mode: mode,
                 startX: e.clientX,
                 trackRect: rightArea.getBoundingClientRect(),
                 initialStart: Number(range.start || 0),
                 initialEnd: Number(range.end || 0),
+                snapUnit: self.dragSnapUnit,
                 conditionIds: conditionIds,
                 totalSec: Math.max(3600, self.getTimelineEnd() - self.getTimelineStart()),
                 scheduleSnapshot: self.snapshotSchedule(),
@@ -1591,6 +1934,15 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 frameId: 0,
                 changed: false
             };
+            var excluded = new Set();
+            if (self.selectionMode) {
+                self.selectedItemIds.forEach(function(id) {
+                    if (String(id) !== String(item.id)) {
+                        excluded.add(String(id));
+                    }
+                });
+            }
+            self.activeAvailabilityDrag.snapTargets = self.collectSnapTargets(excluded, overlay);
             overlay.classList.add('is-dragging');
             if (overlay.setPointerCapture) {
                 overlay.setPointerCapture(e.pointerId);
@@ -1666,62 +2018,145 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             drag.pendingPointer = null;
         },
 
-        /**
-         * Magnetize either restriction edge to a native activity edge.
-         * Test proximity with unrounded pointer movement so hour snapping does
-         * not make a precise activity date impossible to reach.
-         *
-         * @param {Object} drag Active restriction drag.
-         * @param {number} rawDelta Pointer movement in seconds, before hour rounding.
-         * @param {number} start Proposed restriction start.
-         * @param {number} end Proposed restriction end.
-         * @param {number} timelineStart Visible timeline start.
-         * @param {number} timelineEnd Visible timeline end.
-         * @return {Object} Adjusted dates and snapped edge.
-         */
-        snapAvailabilityToActivity: function(drag, rawDelta, start, end, timelineStart, timelineEnd) {
-            var threshold = 12 * drag.totalSec / Math.max(1, drag.trackRect.width);
-            var activityStart = Number(drag.item.datestart);
-            var activityEnd = Number(drag.item.dateend);
-            var hasStart = drag.item.startenabled !== false && Number.isFinite(activityStart) &&
-                activityStart >= timelineStart && activityStart <= timelineEnd;
-            var hasEnd = drag.item.endenabled !== false && Number.isFinite(activityEnd) &&
-                activityEnd >= timelineStart && activityEnd <= timelineEnd;
-            var candidates = [];
+        /** Collect the visible dates of stationary bars, milestones and restrictions. */
+        collectSnapTargets: function(excludedIds, excludedOverlay) {
+            var self = this;
             var targets = [];
-            var minimumDuration = 3600;
-            if (hasStart) {
-                targets.push(activityStart);
-            }
-            if (hasEnd) {
-                targets.push(activityEnd);
-            }
-            targets.forEach(function(target) {
-                if (drag.mode === 'move' || drag.mode === 'resize-start') {
-                    var startDistance = Math.abs(target - (drag.initialStart + rawDelta));
-                    var shiftedEnd = end + target - start;
-                    if (startDistance <= threshold && (drag.mode === 'move' ?
-                            shiftedEnd <= timelineEnd && shiftedEnd > target :
-                            !end || target <= end - minimumDuration)) {
-                        candidates.push({start: target, end: drag.mode === 'move' ? shiftedEnd : end,
-                            edge: 'start', distance: startDistance});
+            var timelineStart = this.getTimelineStart();
+            var timelineEnd = this.getTimelineEnd();
+            var add = function(time, element, edge) {
+                time = Number(time);
+                if (element && Number.isFinite(time) && time > 0 &&
+                        time >= timelineStart && time <= timelineEnd) {
+                    targets.push({time: time, element: element, edge: edge});
+                }
+            };
+            this.items.forEach(function(item) {
+                var id = String(item.id);
+                if (excludedIds && excludedIds.has(id)) {
+                    return;
+                }
+                var lane = self.board.querySelector('.quest-timeline-lane[data-itemid="' + id + '"]');
+                if (!lane || lane.classList.contains('d-none')) {
+                    return;
+                }
+                var bar = lane.querySelector('.quest-calendar-bar');
+                if (bar) {
+                    if (item.startenabled !== false) {
+                        add(item.datestart, bar, 'start');
+                    }
+                    if (!item.ismilestone && item.endenabled !== false) {
+                        add(item.dateend, bar, 'end');
                     }
                 }
-                if (drag.mode === 'move' || drag.mode === 'resize-end') {
-                    var endDistance = Math.abs(target - (drag.initialEnd + rawDelta));
-                    var shiftedStart = start + target - end;
-                    if (endDistance <= threshold && (drag.mode === 'move' ?
-                            shiftedStart >= timelineStart && shiftedStart < target :
-                            !start || target >= start + minimumDuration)) {
-                        candidates.push({start: drag.mode === 'move' ? shiftedStart : start,
-                            end: target, edge: 'end', distance: endDistance});
+                var overlays = lane.querySelectorAll('.quest-availability-range');
+                (item.availabilityranges || []).forEach(function(range, index) {
+                    var overlay = overlays[index];
+                    if (!overlay || overlay === excludedOverlay) {
+                        return;
                     }
-                }
+                    if (range.startcondition) {
+                        add(range.start, overlay, 'start');
+                    }
+                    if (range.endcondition) {
+                        add(range.end, overlay, 'end');
+                    }
+                });
+            });
+            return targets;
+        },
+
+        /** Align a dragged endpoint to the nearest eligible Gantt date within 12 screen pixels. */
+        snapDraggedDates: function(drag, rawDelta, start, end, bounds) {
+            var threshold = 12 * drag.totalSec / Math.max(1, drag.trackRect.width);
+            var ismilestone = !!drag.ismilestone;
+            var dateonly = ismilestone && !!drag.dateonly;
+            var edges = drag.mode === 'resize-start' ? ['start'] :
+                (drag.mode === 'resize-end' ? ['end'] : (ismilestone ? ['start'] : ['start', 'end']));
+            var candidates = [];
+            (drag.snapTargets || []).forEach(function(target) {
+                edges.forEach(function(edge) {
+                    var initial = edge === 'start' ? drag.initialStart : drag.initialEnd;
+                    var distance = Math.abs(target.time - (initial + rawDelta));
+                    if (distance > threshold) {
+                        return;
+                    }
+                    var unit = dateonly ? 'days' : (drag.snapUnit || 'hours');
+                    var aligned = snapStepForTarget(initial, target.time, unit);
+                    var steps = aligned.steps;
+                    var shiftedStart = start;
+                    var shiftedEnd = end;
+                    if (drag.mode === 'move') {
+                        shiftedStart = shiftSnappedDate(drag.initialStart, steps, unit);
+                        shiftedEnd = ismilestone ? shiftedStart :
+                            shiftSnappedDate(drag.initialEnd, steps, unit);
+                        if (bounds.isValidMove ? !bounds.isValidMove(steps, unit) :
+                                (shiftedStart - drag.initialStart < bounds.minShift ||
+                                shiftedEnd - drag.initialEnd > bounds.maxShift)) {
+                            return;
+                        }
+                        if (!ismilestone && shiftedEnd <= shiftedStart) {
+                            return;
+                        }
+                    } else if (edge === 'start') {
+                        if (aligned.time < bounds.minStart || aligned.time > bounds.maxStart) {
+                            return;
+                        }
+                        shiftedStart = aligned.time;
+                    } else {
+                        if (aligned.time < bounds.minEnd || aligned.time > bounds.maxEnd) {
+                            return;
+                        }
+                        shiftedEnd = aligned.time;
+                    }
+                    candidates.push({start: shiftedStart, end: shiftedEnd, edge: edge,
+                        target: {time: edge === 'start' ? shiftedStart : shiftedEnd,
+                            element: target.element, edge: target.edge}, distance: distance});
+                });
             });
             candidates.sort(function(a, b) {
-                return a.distance - b.distance;
+                return a.distance - b.distance ||
+                    (a.edge === a.target.edge ? -1 : 1) - (b.edge === b.target.edge ? -1 : 1);
             });
-            return candidates[0] || {start: start, end: end, edge: null};
+            return candidates[0] || {start: start, end: end, edge: null, target: null};
+        },
+
+        /** Show the aligned source edge, target edge and a vertical guide. */
+        showSnapHint: function(source, edge, target, totalSec, timelineStart) {
+            if (this.snapHint && target && this.snapHint.source === source && this.snapHint.edge === edge &&
+                    this.snapHint.target.element === target.element &&
+                    this.snapHint.target.edge === target.edge && this.snapHint.target.time === target.time) {
+                return;
+            }
+            this.clearSnapHint();
+            if (!edge || !target || !source) {
+                return;
+            }
+            var area = this.board.querySelector('.quest-timeline-right-area');
+            if (!area) {
+                return;
+            }
+            var guide = document.createElement('div');
+            guide.className = 'quest-snap-guide';
+            guide.setAttribute('aria-hidden', 'true');
+            guide.style.left = ((target.time - timelineStart) / totalSec * 100) + '%';
+            var header = area.querySelector('.quest-bands-header');
+            guide.style.top = (header ? header.offsetHeight : 0) + 'px';
+            area.appendChild(guide);
+            source.classList.add('is-snapped-' + edge);
+            target.element.classList.add('is-snap-target-' + target.edge);
+            this.snapHint = {source: source, edge: edge, target: target, guide: guide};
+        },
+
+        /** Remove transient snap decorations on release, cancellation or redraw. */
+        clearSnapHint: function() {
+            if (!this.snapHint) {
+                return;
+            }
+            this.snapHint.source.classList.remove('is-snapped-' + this.snapHint.edge);
+            this.snapHint.target.element.classList.remove('is-snap-target-' + this.snapHint.target.edge);
+            this.snapHint.guide.remove();
+            this.snapHint = null;
         },
 
         /**
@@ -1735,38 +2170,54 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 return;
             }
             var dx = e.clientX - drag.startX;
+            if (!drag.hasDragged && Math.abs(dx) <= 4) {
+                return;
+            }
+            drag.hasDragged = true;
             var rawDelta = (dx / Math.max(1, drag.trackRect.width)) * drag.totalSec;
-            var dt = Math.round(rawDelta / 3600) * 3600;
+            var reference = drag.mode === 'resize-end' ? drag.initialEnd : drag.initialStart;
+            var requestedSteps = snapStepsForDelta(reference, rawDelta, drag.snapUnit);
             var newStart = drag.initialStart;
             var newEnd = drag.initialEnd;
             var minDuration = 3600;
             var timelineStart = this.getTimelineStart();
             var timelineEnd = this.getTimelineEnd();
+            var snapBounds = {};
 
             if (drag.mode === 'move') {
                 var minShift = timelineStart - drag.initialStart;
                 var maxShift = timelineEnd - drag.initialEnd;
-                var shift = Math.max(minShift, Math.min(maxShift, dt));
-                newStart = drag.initialStart + shift;
-                newEnd = drag.initialEnd + shift;
+                snapBounds.minShift = minShift;
+                snapBounds.maxShift = maxShift;
+                snapBounds.isValidMove = function(steps) {
+                    return shiftSnappedDate(drag.initialStart, steps, drag.snapUnit) >= timelineStart &&
+                        shiftSnappedDate(drag.initialEnd, steps, drag.snapUnit) <= timelineEnd;
+                };
+                var moveSteps = fitSnapSteps(requestedSteps, snapBounds.isValidMove);
+                newStart = shiftSnappedDate(drag.initialStart, moveSteps, drag.snapUnit);
+                newEnd = shiftSnappedDate(drag.initialEnd, moveSteps, drag.snapUnit);
             } else if (drag.mode === 'resize-start') {
-                newStart = Math.max(timelineStart, drag.initialStart + dt);
-                if (drag.initialEnd && newStart >= drag.initialEnd) {
-                    newStart = drag.initialEnd - minDuration;
-                }
+                snapBounds.minStart = timelineStart;
+                snapBounds.maxStart = drag.initialEnd ? drag.initialEnd - minDuration : timelineEnd;
+                var startSteps = fitSnapSteps(requestedSteps, function(steps) {
+                    var candidate = shiftSnappedDate(drag.initialStart, steps, drag.snapUnit);
+                    return candidate >= snapBounds.minStart && candidate <= snapBounds.maxStart;
+                });
+                newStart = shiftSnappedDate(drag.initialStart, startSteps, drag.snapUnit);
             } else {
-                newEnd = Math.min(timelineEnd, drag.initialEnd + dt);
-                if (drag.initialStart && newEnd <= drag.initialStart) {
-                    newEnd = drag.initialStart + minDuration;
-                }
+                snapBounds.minEnd = drag.initialStart ? drag.initialStart + minDuration : timelineStart;
+                snapBounds.maxEnd = timelineEnd;
+                var endSteps = fitSnapSteps(requestedSteps, function(steps) {
+                    var candidate = shiftSnappedDate(drag.initialEnd, steps, drag.snapUnit);
+                    return candidate >= snapBounds.minEnd && candidate <= snapBounds.maxEnd;
+                });
+                newEnd = shiftSnappedDate(drag.initialEnd, endSteps, drag.snapUnit);
             }
 
-            var snapped = this.snapAvailabilityToActivity(
-                drag, rawDelta, newStart, newEnd, timelineStart, timelineEnd);
+            var snapped = this.snapDraggedDates(drag, rawDelta, newStart, newEnd, snapBounds);
             newStart = snapped.start;
             newEnd = snapped.end;
-            drag.overlay.classList.toggle('is-snapped-start', snapped.edge === 'start');
-            drag.overlay.classList.toggle('is-snapped-end', snapped.edge === 'end');
+            this.showSnapHint(drag.overlay, snapped.edge, snapped.target, drag.totalSec, timelineStart);
 
             var changed = newStart !== drag.range.start || newEnd !== drag.range.end;
             this.updateAvailabilityHUD(e.clientX, e.clientY, drag.item, drag.range);
@@ -1787,7 +2238,9 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             });
             this.positionAvailabilityOverlay(drag.overlay, drag.range, drag.totalSec, timelineStart);
             this.applySelectedAvailabilityCompanions(drag.scheduleSnapshot, drag.item.id, drag.mode,
-                drag.mode === 'resize-end' ? newEnd - drag.initialEnd : newStart - drag.initialStart, true);
+                drag.mode === 'resize-end' ? newEnd - drag.initialEnd : newStart - drag.initialStart, true,
+                drag.snapUnit, drag.mode === 'resize-end' ?
+                    localDayDifference(drag.initialEnd, newEnd) : localDayDifference(drag.initialStart, newStart));
             this.updateAvailabilityHUD(e.clientX, e.clientY, drag.item, drag.range);
             if (!drag.changed) {
                 drag.changed = true;
@@ -2155,10 +2608,13 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     item: item,
                     barEl: bar,
                     mode: mode,
+                    ismilestone: !!item.ismilestone,
+                    dateonly: !!item.dateonly,
                     startX: e.clientX,
                     trackRect: trackRect,
                     initialStart: item.datestart,
                     initialEnd: item.dateend,
+                    snapUnit: self.dragSnapUnit,
                     duration: Math.max(1, item.dateend - item.datestart),
                     parent: parentItem,
                     children: childSnapshots,
@@ -2166,6 +2622,28 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     scheduleSnapshot: self.snapshotSchedule(),
                     selectedRoots: self.selectionMode ? self.getSelectedDragRoots() : []
                 };
+                var movingIds = new Set([String(item.id)]);
+                childSnapshots.forEach(function(child) {
+                    movingIds.add(String(child.item.id));
+                });
+                if (parentItem && parentItem.derived) {
+                    movingIds.add(String(parentItem.id));
+                }
+                if (self.selectionMode) {
+                    self.selectedItemIds.forEach(function(id) {
+                        movingIds.add(String(id));
+                    });
+                    self.activeDrag.selectedRoots.forEach(function(root) {
+                        var selectedParent = self.getParentItem(root);
+                        if (selectedParent && selectedParent.derived) {
+                            movingIds.add(String(selectedParent.id));
+                        }
+                        self.getAdjustableChildren(root).forEach(function(child) {
+                            movingIds.add(String(child.id));
+                        });
+                    });
+                }
+                self.activeDrag.snapTargets = self.collectSnapTargets(movingIds, null);
 
                 // Track potential simple click on the bar
                 self.clickCandidate = {
@@ -2228,10 +2706,14 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 var drag = self.activeDrag;
                 var trackWidth = drag.trackRect.width;
                 var dx = e.clientX - drag.startX;
-                var dt = Math.round((dx / trackWidth) * drag.totalSec);
+                if (!drag.hasDragged && Math.abs(dx) <= 4) {
+                    return;
+                }
+                drag.hasDragged = true;
+                var rawDelta = (dx / trackWidth) * drag.totalSec;
 
-                // Snap to 1 hour (3600s)
-                dt = Math.round(dt / 3600) * 3600;
+                var reference = drag.mode === 'resize-end' ? drag.initialEnd : drag.initialStart;
+                var requestedSteps = snapStepsForDelta(reference, rawDelta, drag.snapUnit);
 
                 var cStart = self.config.courseStart;
                 var cEnd = self.config.courseEnd;
@@ -2240,6 +2722,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
 
                 var newStart = drag.item.datestart;
                 var newEnd = drag.item.dateend;
+                var snapBounds = {};
 
                 if (drag.mode === 'resize-start') {
                     drag.item.startenabled = true;
@@ -2275,40 +2758,87 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                             maxShift = cEnd - drag.initialEnd;
                         }
                     }
-                    var shift = Math.max(minShift, Math.min(maxShift, dt));
-                    newStart = drag.initialStart + shift;
-                    newEnd = drag.initialEnd + shift;
+                    snapBounds.minShift = minShift;
+                    snapBounds.maxShift = maxShift;
+                    snapBounds.isValidMove = function(steps, unit) {
+                        unit = unit || drag.snapUnit;
+                        var candidateStart = shiftSnappedDate(drag.initialStart, steps, unit);
+                        var candidateEnd = drag.item.ismilestone ? candidateStart :
+                            shiftSnappedDate(drag.initialEnd, steps, unit);
+                        if (candidateStart < cStart || candidateEnd > cEnd ||
+                                (!drag.item.ismilestone && candidateEnd <= candidateStart)) {
+                            return false;
+                        }
+                        if (drag.parent && !drag.parent.derived && !drag.item.ismilestone &&
+                                (drag.item.boundtoparentstart !== false &&
+                                candidateStart < drag.parent.datestart ||
+                                drag.item.boundtoparentend !== false && candidateEnd > drag.parent.dateend)) {
+                            return false;
+                        }
+                        return !drag.children || drag.children.every(function(child) {
+                            return shiftSnappedDate(child.initialStart, steps, unit) >= cStart &&
+                                shiftSnappedDate(child.initialEnd, steps, unit) <= cEnd;
+                        });
+                    };
+                    var moveSteps = fitSnapSteps(requestedSteps, snapBounds.isValidMove);
+                    newStart = shiftSnappedDate(drag.initialStart, moveSteps, drag.snapUnit);
+                    newEnd = drag.item.ismilestone ? newStart :
+                        shiftSnappedDate(drag.initialEnd, moveSteps, drag.snapUnit);
                     if (drag.item.ismilestone && drag.item.dateonly) {
                         newStart = startOfLocalDay(newStart);
                         newEnd = newStart;
                     }
 
-                    // Synchronously shift subactivities by the exact same amount.
-                    if (drag.children && drag.children.length > 0) {
-                        drag.children.forEach(function(c) {
-                            c.item.datestart = c.initialStart + shift;
-                            c.item.dateend = c.initialEnd + shift;
-
-                            if (c.barEl) {
-                                self.positionBar(c.barEl, c.item, drag.totalSec, timelineStart);
-                            }
-                            self.updateTableRow(c.item);
-                        });
-                    }
                 } else if (drag.mode === 'resize-start') {
                     var minStart = cStart;
                     if (drag.parent && !drag.parent.derived && drag.item.boundtoparentstart !== false) {
                         minStart = Math.max(minStart, drag.parent.datestart);
                     }
-                    newStart = Math.min(drag.initialEnd - minDur, Math.max(minStart, drag.initialStart + dt));
+                    snapBounds.minStart = minStart;
+                    snapBounds.maxStart = drag.initialEnd - minDur;
+                    var startSteps = fitSnapSteps(requestedSteps, function(steps) {
+                        var candidate = shiftSnappedDate(drag.initialStart, steps, drag.snapUnit);
+                        return candidate >= minStart && candidate <= drag.initialEnd - minDur;
+                    });
+                    newStart = shiftSnappedDate(drag.initialStart, startSteps, drag.snapUnit);
                     newEnd = drag.initialEnd;
                 } else if (drag.mode === 'resize-end') {
                     var maxEnd = cEnd;
                     if (drag.parent && !drag.parent.derived && drag.item.boundtoparentend !== false) {
                         maxEnd = Math.min(maxEnd, drag.parent.dateend);
                     }
+                    snapBounds.minEnd = drag.initialStart + minDur;
+                    snapBounds.maxEnd = maxEnd;
                     newStart = drag.initialStart;
-                    newEnd = Math.max(drag.initialStart + minDur, Math.min(maxEnd, drag.initialEnd + dt));
+                    var endSteps = fitSnapSteps(requestedSteps, function(steps) {
+                        var candidate = shiftSnappedDate(drag.initialEnd, steps, drag.snapUnit);
+                        return candidate >= drag.initialStart + minDur && candidate <= maxEnd;
+                    });
+                    newEnd = shiftSnappedDate(drag.initialEnd, endSteps, drag.snapUnit);
+                }
+
+                var snapped = self.snapDraggedDates(drag, rawDelta, newStart, newEnd, snapBounds);
+                newStart = snapped.start;
+                newEnd = snapped.end;
+                self.showSnapHint(drag.barEl, snapped.edge, snapped.target, drag.totalSec, timelineStart);
+
+                // Shift descendants by calendar days or hours, preserving their own clocks.
+                if (drag.mode === 'move' && drag.children && drag.children.length > 0) {
+                    var effectiveSteps = drag.snapUnit === 'days' ?
+                        localDayDifference(drag.initialStart, newStart) :
+                        Math.round((newStart - drag.initialStart) / 3600);
+                    drag.children.forEach(function(c) {
+                        c.item.datestart = shiftSnappedDate(c.initialStart, effectiveSteps, drag.snapUnit);
+                        c.item.dateend = shiftSnappedDate(c.initialEnd, effectiveSteps, drag.snapUnit);
+                        if (c.item.ismilestone && c.item.dateonly) {
+                            c.item.datestart = startOfLocalDay(c.item.datestart);
+                            c.item.dateend = c.item.datestart;
+                        }
+                        if (c.barEl) {
+                            self.positionBar(c.barEl, c.item, drag.totalSec, timelineStart);
+                        }
+                        self.updateTableRow(c.item);
+                    });
                 }
 
                 drag.item.datestart = newStart;
@@ -2327,10 +2857,15 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                         var newCStart = newStart + rStart * pNewDur;
                         var newCEnd = newStart + rEnd * pNewDur;
 
-                        // Snap to hour (3600s) if new parent duration is large enough, else minute.
-                        var step = (pNewDur >= 7200) ? 3600 : 60;
-                        newCStart = Math.round(newCStart / step) * step;
-                        newCEnd = Math.round(newCEnd / step) * step;
+                        // Keep each subactivity's original clock resolution.
+                        var step = drag.snapUnit === 'days' ? 86400 : 3600;
+                        if (drag.snapUnit === 'days') {
+                            newCStart = dateWithOriginalClock(newCStart, c.initialStart);
+                            newCEnd = dateWithOriginalClock(newCEnd, c.initialEnd);
+                        } else {
+                            newCStart = c.initialStart + Math.round((newCStart - c.initialStart) / step) * step;
+                            newCEnd = c.initialEnd + Math.round((newCEnd - c.initialEnd) / step) * step;
+                        }
 
                         if (c.item.ismilestone) {
                             c.item.datestart = c.item.dateonly ? startOfLocalDay(newCStart) : newCStart;
@@ -2385,10 +2920,12 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     self.refreshDerivedParent(drag.item);
                 }
                 self.applySelectedDragCompanions(drag);
-                self.syncAvailabilityFromSnapshot(drag.scheduleSnapshot);
+                self.syncAvailabilityFromSnapshot(drag.scheduleSnapshot, drag);
                 self.applySelectedAvailabilityCompanions(drag.scheduleSnapshot, drag.item.id, drag.mode,
                     drag.mode === 'resize-end' ? drag.item.dateend - drag.initialEnd :
-                        drag.item.datestart - drag.initialStart, false);
+                        drag.item.datestart - drag.initialStart, false, drag.snapUnit,
+                    drag.mode === 'resize-end' ? localDayDifference(drag.initialEnd, drag.item.dateend) :
+                        localDayDifference(drag.initialStart, drag.item.datestart));
                 self.markDirty();
             });
 
@@ -2413,6 +2950,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     self.flushAvailabilityDrag();
                     self.activeAvailabilityDrag.overlay.classList.remove(
                         'is-dragging', 'is-snapped-start', 'is-snapped-end');
+                    self.clearSnapHint();
                     self.activeAvailabilityDrag = null;
                     self.hideHUD();
                     return;
@@ -2435,6 +2973,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     return;
                 }
                 self.activeDrag.barEl.classList.remove('is-dragging');
+                self.clearSnapHint();
                 self.activeDrag = null;
                 self.hideHUD();
             });
@@ -2449,6 +2988,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     self.cancelAvailabilityDragFrame();
                     self.activeAvailabilityDrag.overlay.classList.remove(
                         'is-dragging', 'is-snapped-start', 'is-snapped-end');
+                    self.clearSnapHint();
                     self.activeAvailabilityDrag = null;
                     self.hideHUD();
                     return;
@@ -2457,6 +2997,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     return;
                 }
                 self.activeDrag.barEl.classList.remove('is-dragging');
+                self.clearSnapHint();
                 self.activeDrag = null;
                 self.hideHUD();
             });
@@ -2701,6 +3242,21 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             this.getScrollContainer().scrollLeft = this.clampScrollLeft(scrollLeft);
         },
 
+        /** Change drag precision without rebuilding the timeline or losing selection. */
+        toggleDragSnapUnit: function(button) {
+            if (!this.canEditSchedule()) {
+                return;
+            }
+            this.dragSnapUnit = this.dragSnapUnit === 'hours' ? 'days' : 'hours';
+            button.setAttribute('aria-pressed', this.dragSnapUnit === 'days' ? 'true' : 'false');
+            button.classList.toggle('btn-outline-primary', this.dragSnapUnit === 'days');
+            button.classList.toggle('btn-outline-secondary', this.dragSnapUnit === 'hours');
+            var value = this.dragSnapUnit === 'days' ? (this.strings.snapdays || 'days') :
+                (this.strings.snaphours || 'hours');
+            button.querySelector('.quest-drag-snap-value').textContent = value;
+            button.title = (this.strings.snapto || 'Snap:') + ' ' + value;
+        },
+
         /** Update selection state in the Gantt and detail table. */
         setItemSelected: function(itemId, selected) {
             if (!this.canEditSchedule()) {
@@ -2758,6 +3314,22 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 snapshots[String(item.id)] = JSON.parse(JSON.stringify(item));
             });
             return snapshots;
+        },
+
+        /** Roll back a failed batch while preserving item object references. */
+        restoreScheduleSnapshot: function(snapshots) {
+            this.items.forEach(function(item) {
+                var original = snapshots[String(item.id)];
+                if (!original) {
+                    return;
+                }
+                Object.keys(item).forEach(function(key) {
+                    if (!Object.prototype.hasOwnProperty.call(original, key)) {
+                        delete item[key];
+                    }
+                });
+                Object.assign(item, JSON.parse(JSON.stringify(original)));
+            });
         },
 
         /** Return the span of complete editable availability windows. */
@@ -2838,7 +3410,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
         },
 
         /** Apply the activity's date shift or scale to its editable availability ranges. */
-        syncAvailabilityFromSnapshot: function(snapshots) {
+        syncAvailabilityFromSnapshot: function(snapshots, drag) {
             var self = this;
             self.items.forEach(function(item) {
                 var original = snapshots[String(item.id)];
@@ -2851,14 +3423,22 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 var newStart = Number(item.datestart);
                 var newDuration = Number(item.dateend) - newStart;
                 self.transformAvailabilityRanges(item, original, function(time) {
-                    return oldDuration > 0 ? newStart + (time - oldStart) * newDuration / oldDuration :
+                    if (drag && drag.snapUnit === 'days' && drag.mode === 'move') {
+                        return shiftSnappedDate(time, localDayDifference(oldStart, newStart), 'days');
+                    }
+                    var proposed = oldDuration > 0 ? newStart + (time - oldStart) * newDuration / oldDuration :
                         time + newStart - oldStart;
+                    if (drag && drag.snapUnit === 'days') {
+                        return dateWithOriginalClock(proposed, time);
+                    }
+                    return drag ? time + Math.round((proposed - time) / 3600) * 3600 : proposed;
                 });
             });
         },
 
         /** Include selected rows whose only editable dates are availability conditions. */
-        applySelectedAvailabilityCompanions: function(snapshots, primaryId, mode, delta, includeDated) {
+        applySelectedAvailabilityCompanions: function(snapshots, primaryId, mode, delta, includeDated,
+                snapUnit, daySteps) {
             var self = this;
             if (!self.selectionMode) {
                 return;
@@ -2875,7 +3455,14 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 self.transformAvailabilityRanges(item, original, function(time, side, range) {
                     if (mode === 'move' || mode === 'resize-start' && side === 'start' ||
                             mode === 'resize-end' && side === 'end') {
-                        var shifted = time + delta;
+                        var steps = snapUnit === 'days' ? fitSnapSteps(daySteps, function(candidateSteps) {
+                            var candidate = shiftSnappedDate(time, candidateSteps, 'days');
+                            return !(mode !== 'move' && side === 'start' && range.end &&
+                                candidate > Number(range.end) - 3600) &&
+                                !(mode !== 'move' && side === 'end' && range.start &&
+                                candidate < Number(range.start) + 3600);
+                        }) : 0;
+                        var shifted = snapUnit === 'days' ? shiftSnappedDate(time, steps, 'days') : time + delta;
                         if (mode !== 'move' && side === 'start' && range.end) {
                             shifted = Math.min(shifted, Number(range.end) - 3600);
                         }
@@ -2907,6 +3494,10 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             var mode = drag.mode;
             var delta = (mode === 'resize-end' ? drag.item.dateend - drag.initialEnd :
                 drag.item.datestart - drag.initialStart);
+            var primaryOld = mode === 'resize-end' ? drag.initialEnd : drag.initialStart;
+            var primaryNew = mode === 'resize-end' ? drag.item.dateend : drag.item.datestart;
+            var requestedSteps = drag.snapUnit === 'days' ? localDayDifference(primaryOld, primaryNew) :
+                Math.round(delta / 3600);
             var cStart = Number(self.config.courseStart);
             var cEnd = Number(self.config.courseEnd);
             var timelineStart = self.getTimelineStart();
@@ -2935,26 +3526,33 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 var oldEnd = Number(original.dateend);
                 var newStart = oldStart;
                 var newEnd = oldEnd;
+                var appliedSteps = 0;
                 if (mode === 'move') {
-                    var minShift = minStart - oldStart;
-                    var maxShift = maxEnd - oldEnd;
-                    if (minShift > maxShift) {
-                        return;
-                    }
-                    var shift = Math.max(minShift, Math.min(maxShift, delta));
-                    newStart += shift;
-                    newEnd += shift;
+                    appliedSteps = fitSnapSteps(requestedSteps, function(steps) {
+                        return shiftSnappedDate(oldStart, steps, drag.snapUnit) >= minStart &&
+                            shiftSnappedDate(oldEnd, steps, drag.snapUnit) <= maxEnd;
+                    });
+                    newStart = shiftSnappedDate(oldStart, appliedSteps, drag.snapUnit);
+                    newEnd = shiftSnappedDate(oldEnd, appliedSteps, drag.snapUnit);
                 } else if (mode === 'resize-start') {
                     if (minStart >= oldEnd - 3600) {
                         return;
                     }
-                    newStart = Math.max(minStart, Math.min(oldEnd - 3600, oldStart + delta));
+                    appliedSteps = fitSnapSteps(requestedSteps, function(steps) {
+                        var candidate = shiftSnappedDate(oldStart, steps, drag.snapUnit);
+                        return candidate >= minStart && candidate <= oldEnd - 3600;
+                    });
+                    newStart = shiftSnappedDate(oldStart, appliedSteps, drag.snapUnit);
                     item.startenabled = true;
                 } else {
                     if (maxEnd <= oldStart + 3600) {
                         return;
                     }
-                    newEnd = Math.min(maxEnd, Math.max(oldStart + 3600, oldEnd + delta));
+                    appliedSteps = fitSnapSteps(requestedSteps, function(steps) {
+                        var candidate = shiftSnappedDate(oldEnd, steps, drag.snapUnit);
+                        return candidate >= oldStart + 3600 && candidate <= maxEnd;
+                    });
+                    newEnd = shiftSnappedDate(oldEnd, appliedSteps, drag.snapUnit);
                     item.endenabled = true;
                 }
                 if (item.ismilestone && item.dateonly) {
@@ -2973,10 +3571,21 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                         }
                         var oldDuration = Math.max(1, oldEnd - oldStart);
                         var newDuration = newEnd - newStart;
-                        var mappedStart = Math.round(newStart +
-                            (Number(source.datestart) - oldStart) * newDuration / oldDuration);
-                        var mappedEnd = Math.round(newStart +
-                            (Number(source.dateend) - oldStart) * newDuration / oldDuration);
+                        var mappedStart = mode === 'move' ?
+                            shiftSnappedDate(Number(source.datestart), appliedSteps, drag.snapUnit) :
+                            Math.round(newStart + (Number(source.datestart) - oldStart) * newDuration / oldDuration);
+                        var mappedEnd = mode === 'move' ?
+                            shiftSnappedDate(Number(source.dateend), appliedSteps, drag.snapUnit) :
+                            Math.round(newStart + (Number(source.dateend) - oldStart) * newDuration / oldDuration);
+                        if (mode !== 'move' && drag.snapUnit === 'days') {
+                            mappedStart = dateWithOriginalClock(mappedStart, Number(source.datestart));
+                            mappedEnd = dateWithOriginalClock(mappedEnd, Number(source.dateend));
+                        } else if (mode !== 'move') {
+                            mappedStart = Number(source.datestart) +
+                                Math.round((mappedStart - Number(source.datestart)) / 3600) * 3600;
+                            mappedEnd = Number(source.dateend) +
+                                Math.round((mappedEnd - Number(source.dateend)) / 3600) * 3600;
+                        }
                         if (child.ismilestone) {
                             mappedEnd = mappedStart = child.dateonly ? startOfLocalDay(mappedStart) : mappedStart;
                         } else if (mappedEnd <= mappedStart) {
@@ -3101,6 +3710,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                 window.requestAnimationFrame(function() {
                     self.effortUpdatePending = false;
                     self.updateEffortDrops();
+                    self.updateSectionDecorations(false);
                 });
             }
             if (this.saveBtn) {
@@ -3126,7 +3736,11 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             });
 
             self.board.addEventListener('click', function(event) {
-                if (event.target.closest('.quest-effort-settings')) {
+                if (event.target.closest('.quest-effort-table-button')) {
+                    if (self.effortTable) {
+                        self.effortTable.open();
+                    }
+                } else if (event.target.closest('.quest-effort-settings')) {
                     self.openEffortModelModal();
                 }
             });
@@ -3227,6 +3841,10 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     if (activeDesc) {
                         activeDesc.classList.remove('d-none');
                     }
+                    var overflowOptions = document.getElementById('autosequence-overflow-options');
+                    if (overflowOptions) {
+                        overflowOptions.classList.toggle('d-none', strategy !== 'sequential');
+                    }
                 });
             });
 
@@ -3236,8 +3854,12 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     var selectedRadio = document.querySelector('input[name="autosequence_strategy"]:checked');
                     var strategy = selectedRadio ? selectedRadio.value : 'equal';
                     var avoidBlackout = document.getElementById('autosequence-avoid-blackout');
-                    self.applyAutoSequence(strategy, !!(avoidBlackout && avoidBlackout.checked));
-                    self.closeAutoSequenceModal();
+                    var overflowAction = document.getElementById('autosequence-overflow-action');
+                    self.clearAutoSequenceError();
+                    if (self.applyAutoSequence(strategy, !!(avoidBlackout && avoidBlackout.checked),
+                            overflowAction ? overflowAction.value : 'stop')) {
+                        self.closeAutoSequenceModal();
+                    }
                 });
             }
 
@@ -3305,6 +3927,12 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
 
             // Click listener for Gantt left column toggle buttons and row jump
             self.board.addEventListener('click', function(e) {
+                var snapToggle = e.target.closest('.quest-drag-snap-toggle');
+                if (snapToggle) {
+                    e.preventDefault();
+                    self.toggleDragSnapUnit(snapToggle);
+                    return;
+                }
                 if (e.target.closest('.quest-selection-toggle')) {
                     e.preventDefault();
                     self.toggleSelectionMode();
@@ -3510,6 +4138,71 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             document.querySelectorAll('.effort-model-desc').forEach(function(panel) {
                 panel.classList.toggle('d-none', panel.id !== 'effort-model-desc-' + selected);
             });
+        },
+
+        /** Apply in-memory hours to editable effort rows without scheduling a date save. */
+        applyEffortTableUpdates: function(updates) {
+            if (!this.canEditSchedule()) {
+                return;
+            }
+            var byId = Object.create(null);
+            updates.forEach(function(update) {
+                byId[update.id] = update.hours;
+            });
+            var changed = false;
+            this.items.forEach(function(item) {
+                var id = String(item.id);
+                if (item.ismilestone || item.effortsource === 'adapter' || item.effortsource === 'children' ||
+                        !Object.prototype.hasOwnProperty.call(byId, id)) {
+                    return;
+                }
+                if (Number(item.effort) !== byId[id]) {
+                    item.effort = byId[id];
+                    item.effortsource = 'manual';
+                    changed = true;
+                }
+            });
+            var parentSums = Object.create(null);
+            this.items.forEach(function(item) {
+                if (!item.issubtype || item.ismilestone || !item.parentkey) {
+                    return;
+                }
+                var key = String(item.parentkey);
+                var effort = Number(item.effort);
+                parentSums[key] = (parentSums[key] || 0) + (isFinite(effort) ? effort : 0);
+            });
+            this.items.forEach(function(item) {
+                var id = String(item.id);
+                if (!Object.prototype.hasOwnProperty.call(parentSums, id)) {
+                    return;
+                }
+                var total = Math.round(parentSums[id] * 10000) / 10000;
+                if (Number(item.effort) !== total || item.effortsource !== 'children') {
+                    item.effort = total;
+                    item.effortsource = 'children';
+                    changed = true;
+                }
+            });
+            if (!changed) {
+                return;
+            }
+            var self = this;
+            var efforts = Object.create(null);
+            this.items.forEach(function(item) {
+                efforts[String(item.id)] = item.effort;
+            });
+            this.board.querySelectorAll('.quest-left-row[data-itemid]').forEach(function(row) {
+                var id = row.getAttribute('data-itemid');
+                if (!Object.prototype.hasOwnProperty.call(efforts, id)) {
+                    return;
+                }
+                var badge = row.querySelector('.quest-lbl-effort');
+                if (badge) {
+                    badge.textContent = (self.strings.effortlabel || 'Effort') + ': ' +
+                        formatEffort(efforts[id], self.locale) + ' ' + (self.strings.effortpoints || 'pts');
+                }
+            });
+            this.updateEffortDrops();
         },
 
         /** Open the model picker using Moodle's Bootstrap modal when available. */
@@ -3747,6 +4440,16 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             if (!modalEl) {
                 return;
             }
+            this.clearAutoSequenceError();
+            var overflowAction = document.getElementById('autosequence-overflow-action');
+            if (overflowAction) {
+                overflowAction.value = 'stop';
+            }
+            var selectedStrategy = modalEl.querySelector('input[name="autosequence_strategy"]:checked');
+            var overflowOptions = document.getElementById('autosequence-overflow-options');
+            if (overflowOptions) {
+                overflowOptions.classList.toggle('d-none', !selectedStrategy || selectedStrategy.value !== 'sequential');
+            }
             if (window.bootstrap && window.bootstrap.Modal) {
                 var modal = typeof window.bootstrap.Modal.getOrCreateInstance === 'function' ?
                     window.bootstrap.Modal.getOrCreateInstance(modalEl) :
@@ -3793,6 +4496,33 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     backdrop.remove();
                 }
             }
+        },
+
+        /** Clear the previous sequencing failure before another attempt. */
+        clearAutoSequenceError: function() {
+            var errorEl = document.getElementById('autosequence-error');
+            if (errorEl) {
+                errorEl.textContent = '';
+                errorEl.classList.add('d-none');
+            }
+        },
+
+        /** Explain why a strategy could not be applied, keeping the dialog open. */
+        reportAutoSequenceError: function(key, values) {
+            var template = this.strings[key] || 'Auto-sequence could not be applied to the selected activities.';
+            var message = template.replace(/\{([a-z]+)\}/g, function(match, name) {
+                return values && Object.prototype.hasOwnProperty.call(values, name) ? String(values[name]) : match;
+            });
+            var modal = document.getElementById('reschedule-autosequence-modal');
+            var errorEl = document.getElementById('autosequence-error');
+            if (modal && errorEl && modal.classList.contains('show')) {
+                errorEl.textContent = message;
+                errorEl.classList.remove('d-none');
+                errorEl.focus();
+            } else {
+                Notification.addNotification({message: message, type: 'warning'});
+            }
+            return false;
         },
 
         /**
@@ -4223,6 +4953,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     icon.className = isNowExpanded ? 'fa fa-minus' : 'fa fa-plus';
                 }
             });
+            self.updateSectionDecorations(true);
         },
 
         /**
@@ -4294,29 +5025,14 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
 
         /**
          * Map planned dates onto working time. Stretching fits the course window;
-         * sequential chaining retains each duration and can run past its end.
+         * sequential chaining retains each duration within the target window.
          */
         createSequenceWorkingMapper: function(start, end, maxTime, stretch) {
-            var self = this;
-            var horizon = end;
-            var periods = self.getSequenceWorkingPeriods(start, horizon);
+            var periods = this.getSequenceWorkingPeriods(start, end);
             var total = periods.reduce(function(sum, period) {
                 return sum + period.end - period.start;
             }, 0);
-            if (!stretch) {
-                var required = Math.max(0, maxTime - start) + 1;
-                while (total < required && horizon - start < 3660 * 86400) {
-                    var next = new Date(horizon * 1000);
-                    next.setDate(next.getDate() + 14);
-                    var nextHorizon = Math.floor(next.getTime() / 1000);
-                    self.getSequenceWorkingPeriods(horizon, nextHorizon).forEach(function(period) {
-                        periods.push(period);
-                        total += period.end - period.start;
-                    });
-                    horizon = nextHorizon;
-                }
-            }
-            if (!total || (!stretch && total < Math.max(0, maxTime - start) + 1)) {
+            if (!total || (!stretch && total < Math.max(0, maxTime - start))) {
                 return null;
             }
             return function(time, endpoint) {
@@ -4385,21 +5101,21 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
          *
          * @param {string} strategy 'equal', 'sequential', 'proportional', or 'relative'
          * @param {boolean} [avoidBlackout] Skip excluded days.
+         * @param {string} [overflowAction] What to do if sequential items exceed the window.
          */
-        applyAutoSequence: function(strategy, avoidBlackout) {
+        applyAutoSequence: function(strategy, avoidBlackout, overflowAction) {
             var self = this;
             if (!self.canEditSchedule() || !self.hasActionSelection()) {
-                return;
+                return false;
             }
 
             if (strategy === 'relative') {
-                self.applyRelativeSequence(avoidBlackout);
-                return;
+                return self.applyRelativeSequence(avoidBlackout);
             }
 
-            var cStart = self.config.courseStart;
-            var cEnd = self.config.courseEnd;
-            var totalCourseSec = Math.max(3600, cEnd - cStart);
+            var cStart = Number(self.config.courseStart);
+            var cEnd = Number(self.config.courseEnd);
+            var totalCourseSec = cEnd - cStart;
             var snapshots = self.snapshotSchedule();
             var availabilityOnly = [];
 
@@ -4409,10 +5125,82 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     ((self.hasDefinedSchedule(it) && self.isItemInteractive(it)) ||
                         (self.selectionMode && !self.hasDefinedSchedule(it) && !!self.getAvailabilityBounds(it)));
             });
-            if (avoidBlackout && strategy !== 'sequential' && mainItems.length &&
-                    !self.getSequenceWorkingPeriods(cStart, cEnd).length) {
-                Notification.addNotification({message: self.strings.autosequenceblackoutempty, type: 'warning'});
-                return;
+            var orphanGroups = Object.create(null);
+            if (self.selectionMode) {
+                self.getActionItems().forEach(function(item) {
+                    if (!item.issubtype || item.ismilestone || !item.parentkey ||
+                            !self.isItemEditable(item) || !self.hasDefinedSchedule(item) ||
+                            self.selectedItemIds.has(String(item.parentkey))) {
+                        return;
+                    }
+                    var key = String(item.parentkey);
+                    if (!orphanGroups[key]) {
+                        orphanGroups[key] = [];
+                    }
+                    orphanGroups[key].push(item);
+                });
+            }
+            if (!mainItems.length && !Object.keys(orphanGroups).length) {
+                return self.reportAutoSequenceError('autosequencenoitems');
+            }
+            var workingSec = avoidBlackout ? self.getSequenceWorkingPeriods(cStart, cEnd).reduce(
+                function(sum, period) { return sum + period.end - period.start; }, 0) : totalCourseSec;
+            if (mainItems.length && avoidBlackout && workingSec <= 0) {
+                return self.reportAutoSequenceError('autosequenceblackoutempty');
+            }
+            var minimumDuration = function(item) {
+                var childCount = self.items.filter(function(child) {
+                    return child.parentkey === item.id && !child.ismilestone &&
+                        self.isItemEditable(child) && self.hasDefinedSchedule(child);
+                }).length;
+                return 3600 * Math.max(1, childCount);
+            };
+            var durationOf = function(item) {
+                var bounds = self.hasDefinedSchedule(item) ?
+                    {start: item.datestart, end: item.dateend} : self.getAvailabilityBounds(item);
+                return Math.max(minimumDuration(item), Number(bounds.end) - Number(bounds.start));
+            };
+            var plannedDurations = mainItems.map(function(item) { return durationOf(item); });
+            var required = strategy === 'sequential' ? plannedDurations.reduce(function(a, b) { return a + b; }, 0) :
+                mainItems.reduce(function(sum, item) { return sum + minimumDuration(item); }, 0);
+            var available = Math.max(0, workingSec);
+            if (mainItems.length && required > available && strategy === 'sequential' && overflowAction === 'shorten') {
+                var minimums = mainItems.map(minimumDuration);
+                var minimumTotal = minimums.reduce(function(a, b) { return a + b; }, 0);
+                if (minimumTotal <= available) {
+                    var remaining = available;
+                    plannedDurations = plannedDurations.map(function(duration, index) {
+                        var reserved = minimums.slice(index + 1).reduce(function(a, b) { return a + b; }, 0);
+                        var allocated = Math.min(duration, remaining - reserved);
+                        remaining -= allocated;
+                        return allocated;
+                    });
+                    required = plannedDurations.reduce(function(a, b) { return a + b; }, 0);
+                } else {
+                    required = minimumTotal;
+                }
+            } else if (mainItems.length && required > available && strategy === 'sequential' && overflowAction === 'keep') {
+                var fitCount = 0;
+                var used = 0;
+                while (fitCount < mainItems.length && used + plannedDurations[fitCount] <= available) {
+                    used += plannedDurations[fitCount++];
+                }
+                if (!fitCount) {
+                    return self.reportAutoSequenceError(avoidBlackout ?
+                        'autosequencenoworkingspace' : 'autosequencenospace', {
+                        required: formatDuration(plannedDurations[0]), available: available > 0 ?
+                            formatDuration(available) : '0h'
+                    });
+                }
+                mainItems = mainItems.slice(0, fitCount);
+                plannedDurations = plannedDurations.slice(0, fitCount);
+                required = used;
+            }
+            if (required > available || (strategy === 'sequential' && !mainItems.length &&
+                    !Object.keys(orphanGroups).length)) {
+                return self.reportAutoSequenceError(avoidBlackout ? 'autosequencenoworkingspace' : 'autosequencenospace', {
+                    required: formatDuration(required), available: formatDuration(available)
+                });
             }
             mainItems.forEach(function(item) {
                 if (!self.hasDefinedSchedule(item)) {
@@ -4440,8 +5228,8 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             } else if (mainItems.length && strategy === 'sequential') {
                 // Strategy 2: Sequential chaining preserving original durations
                 var seqTime = cStart;
-                mainItems.forEach(function(it) {
-                    var dur = Math.max(3600, it.dateend - it.datestart);
+                mainItems.forEach(function(it, index) {
+                    var dur = plannedDurations[index];
                     it.datestart = seqTime;
                     it.dateend = seqTime + dur;
                     seqTime = it.dateend;
@@ -4468,8 +5256,24 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     var weight = totalCapped > 0 ? (cappedDurs[idx] / totalCapped) : (1 / mainItems.length);
                     var dur = Math.max(3600, Math.round(weight * totalCourseSec));
                     it.datestart = propTime;
-                    it.dateend = (idx === mainItems.length - 1) ? cEnd : Math.min(cEnd, propTime + dur);
+                    it.dateend = (idx === mainItems.length - 1) ? cEnd :
+                        Math.min(cEnd - (mainItems.length - idx - 1) * 3600, propTime + dur);
                     propTime = it.dateend;
+                });
+            }
+
+            // A parent must be long enough for its dated children before any child is moved.
+            var crampedParent = mainItems.find(function(parent) {
+                return parent.dateend - parent.datestart < minimumDuration(parent);
+            });
+            if (crampedParent) {
+                var crampedAvailable = Math.max(0, crampedParent.dateend - crampedParent.datestart);
+                var crampedName = crampedParent.title || crampedParent.name || crampedParent.id;
+                self.restoreScheduleSnapshot(snapshots);
+                return self.reportAutoSequenceError('autosequenceparentspace', {
+                    activity: crampedName,
+                    required: formatDuration(minimumDuration(crampedParent)),
+                    available: crampedAvailable > 0 ? formatDuration(crampedAvailable) : '0h'
                 });
             }
 
@@ -4540,41 +5344,43 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             // outside the selection. Keep its allocation inside that parent.
             var sequencedOrphans = [];
             if (self.selectionMode) {
-                var orphanGroups = Object.create(null);
-                self.getActionItems().forEach(function(item) {
-                    if (!item.issubtype || item.ismilestone || !item.parentkey ||
-                            !self.isItemEditable(item) || !self.hasDefinedSchedule(item) ||
-                            self.selectedItemIds.has(String(item.parentkey))) {
+                var orphanError = null;
+                Object.keys(orphanGroups).forEach(function(parentId) {
+                    if (orphanError) {
                         return;
                     }
-                    var key = String(item.parentkey);
-                    if (!orphanGroups[key]) {
-                        orphanGroups[key] = [];
-                    }
-                    orphanGroups[key].push(item);
-                });
-                Object.keys(orphanGroups).forEach(function(parentId) {
                     var parent = self.items.find(function(item) {
                         return String(item.id) === parentId;
                     });
                     if (!parent || !self.hasDefinedSchedule(parent)) {
+                        orphanError = {key: 'autosequenceparentmissing', values: {
+                            activity: orphanGroups[parentId][0].title || orphanGroups[parentId][0].name || parentId
+                        }};
                         return;
                     }
                     var children = orphanGroups[parentId];
                     var start = Number(parent.datestart);
                     var end = Number(parent.dateend);
-                    var duration = Math.max(3600, end - start);
+                    var duration = end - start;
                     var weights = children.map(function(child) {
                         return Math.max(3600, Number(child.dateend) - Number(child.datestart));
                     });
                     var totalWeight = weights.reduce(function(total, weight) {
                         return total + weight;
                     }, 0);
-                    if (duration <= children.length ||
+                    if (duration < 3600 * children.length ||
                             (strategy === 'sequential' && totalWeight > duration)) {
+                        orphanError = {key: 'autosequenceparentspace', values: {
+                            activity: parent.title || parent.name || parent.id,
+                            required: formatDuration(strategy === 'sequential' ? totalWeight : 3600 * children.length),
+                            available: formatDuration(Math.max(0, duration))
+                        }};
                         return;
                     }
                     if (avoidBlackout && !self.getSequenceWorkingPeriods(start, end).length) {
+                        orphanError = {key: 'autosequencenoworkingspace', values: {
+                            required: formatDuration(3600 * children.length), available: '0h'
+                        }};
                         return;
                     }
                     var cursor = start;
@@ -4590,8 +5396,11 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                         cursor = child.dateend;
                     });
                     sequencedOrphans.push({items: children, start: start, end: end, parent: parent});
-                    self.refreshDerivedItem(parent);
                 });
+                if (orphanError) {
+                    self.restoreScheduleSnapshot(snapshots);
+                    return self.reportAutoSequenceError(orphanError.key, orphanError.values);
+                }
             }
 
             var blackoutItems = [];
@@ -4607,13 +5416,10 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     }));
                     var mapper = self.createSequenceWorkingMapper(cStart, cEnd, maxTime, strategy !== 'sequential');
                     if (!mapper) {
-                        Notification.addNotification({message: self.strings.autosequenceblackoutempty, type: 'warning'});
-                        self.items.forEach(function(item) {
-                            var original = snapshots[String(item.id)];
-                            item.datestart = original.datestart;
-                            item.dateend = original.dateend;
+                        self.restoreScheduleSnapshot(snapshots);
+                        return self.reportAutoSequenceError('autosequencenoworkingspace', {
+                            required: formatDuration(maxTime - cStart), available: formatDuration(available)
                         });
-                        return;
                     }
                     self.mapSequenceRowsToWorkingDays(blackoutItems, mapper);
                 }
@@ -4621,7 +5427,6 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     var mapper = self.createSequenceWorkingMapper(group.start, group.end, group.end, true);
                     if (mapper) {
                         self.mapSequenceRowsToWorkingDays(group.items, mapper);
-                        self.refreshDerivedItem(group.parent);
                     }
                 });
             }
@@ -4639,13 +5444,15 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                     self.hasAvailabilityChanges(item, original));
             });
             if (!changed) {
-                return;
+                return true;
             }
+            sequencedOrphans.forEach(function(group) { self.refreshDerivedItem(group.parent); });
             self.renderTimeline();
             self.items.forEach(function(it) {
                 self.updateTableRow(it);
             });
             self.markDirty();
+            return true;
         },
 
         /**
@@ -4657,7 +5464,7 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
         applyRelativeSequence: function(avoidBlackout) {
             var self = this;
             if (!self.canEditSchedule() || !self.hasActionSelection()) {
-                return;
+                return false;
             }
             var snapshots = self.snapshotSchedule();
             var courseStart = Number(self.config.courseStart);
@@ -4684,15 +5491,38 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             var transformableItems = datedItems.filter(function(item) {
                 return self.isItemEditable(item) || item.derived || item.availabilityeditable;
             });
+            var orphanGroups = Object.create(null);
+            if (self.selectionMode) {
+                self.getActionItems().forEach(function(item) {
+                    if (!item.issubtype || !item.parentkey || !self.hasDefinedSchedule(item) ||
+                            !self.isItemInteractive(item) || self.selectedItemIds.has(String(item.parentkey))) {
+                        return;
+                    }
+                    var key = String(item.parentkey);
+                    if (!orphanGroups[key]) {
+                        orphanGroups[key] = [];
+                    }
+                    orphanGroups[key].push(item);
+                });
+            }
+            if (!transformableItems.length && !Object.keys(orphanGroups).length) {
+                self.restoreScheduleSnapshot(snapshots);
+                return self.reportAutoSequenceError('autosequencenoitems');
+            }
+            var originalStart = transformableItems.length ? Math.min.apply(null, transformableItems.map(function(item) {
+                return Number(item.datestart);
+            })) : 0;
+            var originalEnd = transformableItems.length ? Math.max.apply(null, transformableItems.map(function(item) {
+                return Number(item.dateend);
+            })) : 0;
+            if (transformableItems.length && originalEnd <= originalStart) {
+                self.restoreScheduleSnapshot(snapshots);
+                return self.reportAutoSequenceError('autosequencenospan');
+            }
             if (avoidBlackout && transformableItems.length &&
                     !self.getSequenceWorkingPeriods(courseStart, courseEnd).length) {
-                availabilityOnly.forEach(function(entry) {
-                    var original = snapshots[String(entry.item.id)];
-                    entry.item.datestart = original.datestart;
-                    entry.item.dateend = original.dateend;
-                });
-                Notification.addNotification({message: self.strings.autosequenceblackoutempty, type: 'warning'});
-                return;
+                self.restoreScheduleSnapshot(snapshots);
+                return self.reportAutoSequenceError('autosequenceblackoutempty');
             }
             var changed = false;
 
@@ -4732,30 +5562,44 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             transformGroup(transformableItems, courseStart, courseStart + courseDuration);
             var sequencedOrphans = [];
             if (self.selectionMode) {
-                var orphanGroups = Object.create(null);
-                self.getActionItems().forEach(function(item) {
-                    if (!item.issubtype || !item.parentkey ||
-                            !self.hasDefinedSchedule(item) || !self.isItemInteractive(item) ||
-                            self.selectedItemIds.has(String(item.parentkey))) {
+                var orphanError = null;
+                Object.keys(orphanGroups).forEach(function(parentId) {
+                    if (orphanError) {
                         return;
                     }
-                    var key = String(item.parentkey);
-                    if (!orphanGroups[key]) {
-                        orphanGroups[key] = [];
-                    }
-                    orphanGroups[key].push(item);
-                });
-                Object.keys(orphanGroups).forEach(function(parentId) {
                     var parent = self.items.find(function(item) {
                         return String(item.id) === parentId;
                     });
-                    if (parent && self.hasDefinedSchedule(parent) && (!avoidBlackout ||
-                            self.getSequenceWorkingPeriods(Number(parent.datestart), Number(parent.dateend)).length)) {
-                        transformGroup(orphanGroups[parentId], Number(parent.datestart), Number(parent.dateend));
-                        sequencedOrphans.push({items: orphanGroups[parentId], parent: parent});
-                        self.refreshDerivedItem(parent);
+                    if (!parent || !self.hasDefinedSchedule(parent)) {
+                        orphanError = {key: 'autosequenceparentmissing', values: {
+                            activity: orphanGroups[parentId][0].title || orphanGroups[parentId][0].name || parentId
+                        }};
+                        return;
                     }
+                    if (avoidBlackout && !self.getSequenceWorkingPeriods(
+                            Number(parent.datestart), Number(parent.dateend)).length) {
+                        orphanError = {key: 'autosequencenoworkingspace', values: {
+                            required: formatDuration(3600), available: '0h'
+                        }};
+                        return;
+                    }
+                    var groupStart = Math.min.apply(null, orphanGroups[parentId].map(function(item) {
+                        return Number(item.datestart);
+                    }));
+                    var groupEnd = Math.max.apply(null, orphanGroups[parentId].map(function(item) {
+                        return Number(item.dateend);
+                    }));
+                    if (groupEnd <= groupStart || Number(parent.dateend) <= Number(parent.datestart)) {
+                        orphanError = {key: 'autosequencenospan'};
+                        return;
+                    }
+                    transformGroup(orphanGroups[parentId], Number(parent.datestart), Number(parent.dateend));
+                    sequencedOrphans.push({items: orphanGroups[parentId], parent: parent});
                 });
+                if (orphanError) {
+                    self.restoreScheduleSnapshot(snapshots);
+                    return self.reportAutoSequenceError(orphanError.key, orphanError.values);
+                }
             }
 
             if (avoidBlackout) {
@@ -4769,7 +5613,6 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
                         Number(parent.datestart), Number(parent.dateend), Number(parent.dateend), true);
                     if (localMapper) {
                         self.mapSequenceRowsToWorkingDays(group.items, localMapper);
-                        self.refreshDerivedItem(parent);
                     }
                 });
             }
@@ -4788,14 +5631,16 @@ define(['core/notification', 'core/chartjs'], function(Notification, Chart) {
             });
 
             if (!changed) {
-                return;
+                return true;
             }
 
+            sequencedOrphans.forEach(function(group) { self.refreshDerivedItem(group.parent); });
             self.renderTimeline();
             self.items.forEach(function(item) {
                 self.updateTableRow(item);
             });
             self.markDirty();
+            return true;
         },
 
         /**

@@ -117,7 +117,7 @@
     border-bottom: 1px solid #bfdbfe;
     color: #1d4ed8;
     display: flex;
-    height: 72px;
+    height: 40px;
     justify-content: space-between;
     margin: -0.5rem -0.5rem 0;
     padding: 0 0.75rem;
@@ -128,6 +128,27 @@
     font-size: 1rem;
     min-height: 2rem;
     min-width: 2rem;
+}
+
+.quest-effort-actions {
+    display: inline-flex;
+    flex-shrink: 0;
+}
+
+.quest-effort-hours-input {
+    max-width: 9rem;
+    min-width: 6rem;
+}
+
+.quest-effort-table-scroll {
+    max-height: 55vh;
+    overflow-y: auto;
+}
+
+.quest-effort-table-scroll thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
 }
 
 .quest-effort-settings:hover,
@@ -175,6 +196,24 @@
     justify-content: space-between;
 }
 
+.quest-left-summary-count {
+    min-width: 0;
+}
+
+.quest-left-summary-controls {
+    align-items: center;
+    display: flex;
+    flex: 0 0 auto;
+    gap: 0.25rem;
+}
+
+.quest-drag-snap-toggle {
+    font-size: 0.72rem;
+    min-height: 1.75rem;
+    padding: 0.2rem 0.35rem;
+    white-space: nowrap;
+}
+
 .quest-selection-toggle {
     align-items: center;
     display: inline-flex;
@@ -202,6 +241,11 @@
 .quest-timeline-shell.is-selection-mode .quest-timeline-lane:not(.is-selected) .quest-availability-range {
     cursor: default;
     opacity: 0.65;
+}
+
+.quest-timeline-shell.is-selection-mode .quest-timeline-lane:not(.is-selected) .is-snap-target-start,
+.quest-timeline-shell.is-selection-mode .quest-timeline-lane:not(.is-selected) .is-snap-target-end {
+    opacity: 1;
 }
 
 #reschedule-table tr.is-selected > td {
@@ -243,14 +287,14 @@
     background: #eff6ff;
     border-bottom: 1px solid #bfdbfe;
     box-sizing: border-box;
-    height: 72px;
+    height: var(--quest-effort-row-height, 72px);
     overflow: hidden;
     width: 100%;
 }
 
 .quest-drops-canvas {
     display: block;
-    height: 72px;
+    height: var(--quest-effort-row-height, 72px);
     position: absolute;
     top: 0;
 }
@@ -344,6 +388,65 @@
 
 .quest-timeline-lane.is-subtype {
     background-color: #fcfdfe;
+}
+
+.quest-section-heading-left,
+.quest-section-heading-lane {
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    border-top: 1px solid #cbd5e1;
+    box-sizing: border-box;
+    height: 28px;
+}
+
+.quest-section-heading-left {
+    align-items: center;
+    color: #475569;
+    display: flex;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    overflow: hidden;
+    padding: 0 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.quest-section-overlay {
+    inset: 0;
+    pointer-events: none;
+    position: absolute;
+    z-index: 1;
+}
+
+.quest-section-interval {
+    background: rgba(59, 130, 246, 0.10);
+    border-left: 2px solid rgba(59, 130, 246, 0.25);
+    border-right: 1px solid rgba(59, 130, 246, 0.18);
+    box-sizing: border-box;
+    overflow: hidden;
+    position: absolute;
+}
+
+.quest-section-interval:nth-child(even) {
+    background: rgba(14, 165, 233, 0.10);
+}
+
+.quest-section-watermark {
+    color: rgba(30, 64, 175, 0.42);
+    font-size: 0.8rem;
+    font-weight: 700;
+    left: 6px;
+    letter-spacing: 0.08em;
+    line-height: 20px;
+    overflow: hidden;
+    position: absolute;
+    right: 6px;
+    text-align: center;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    top: 3px;
+    white-space: nowrap;
 }
 
 .quest-lane-grid-tick {
@@ -448,6 +551,60 @@
 
 .quest-availability-range.is-snapped-start .quest-availability-handle-start,
 .quest-availability-range.is-snapped-end .quest-availability-handle-end {
+    background: #34d399;
+    border-color: #065f46;
+}
+
+.quest-snap-guide {
+    background: rgba(5, 150, 105, 0.8);
+    bottom: 0;
+    box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.18);
+    pointer-events: none;
+    position: absolute;
+    width: 2px;
+    z-index: 2;
+}
+
+.quest-calendar-bar.is-dragging.is-snapped-start,
+.quest-calendar-bar.is-dragging.is-snapped-end,
+.quest-calendar-bar.is-snap-target-start,
+.quest-calendar-bar.is-snap-target-end,
+.quest-availability-range.is-snap-target-start,
+.quest-availability-range.is-snap-target-end {
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.7), 0 3px 10px rgba(15, 23, 42, 0.25);
+}
+
+.quest-calendar-bar.is-snapped-start .quest-bar-handle-start,
+.quest-calendar-bar.is-snapped-end .quest-bar-handle-end,
+.quest-availability-range.is-snap-target-start .quest-availability-handle-start,
+.quest-availability-range.is-snap-target-end .quest-availability-handle-end {
+    background: #34d399;
+}
+
+.quest-calendar-bar.is-snap-target-start::after,
+.quest-calendar-bar.is-snap-target-end::after {
+    background: #047857;
+    bottom: -5px;
+    content: '';
+    pointer-events: none;
+    position: absolute;
+    top: -5px;
+    width: 3px;
+}
+
+.quest-calendar-bar.is-snap-target-start::after {
+    left: 0;
+}
+
+.quest-calendar-bar.is-snap-target-end::after {
+    right: 0;
+}
+
+.quest-calendar-bar.is-milestone.is-snap-target-start::after {
+    left: calc(50% - 1px);
+}
+
+.quest-calendar-bar.is-milestone.is-dragging.is-snapped-start::before {
     background: #34d399;
     border-color: #065f46;
 }

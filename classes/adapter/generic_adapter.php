@@ -31,6 +31,15 @@ class generic_adapter extends base_adapter {
     }
 
     #[\Override]
+    public function validate(array $item, int $newstart, int $newend): array {
+        if (!empty($item['isopenended'])) {
+            return $newstart > 0 || ($newstart === 0 && !empty($item['optional'])) ? [] :
+                [get_string('errorinvaliddate', 'calendar')];
+        }
+        return parent::validate($item, $newstart, $newend);
+    }
+
+    #[\Override]
     public function save(array $item, int $newstart, int $newend): void {
         global $DB, $CFG;
 
@@ -39,9 +48,18 @@ class generic_adapter extends base_adapter {
         $startcol = $item['startcol'];
         $endcol = $item['endcol'];
 
-        $this->raw_update_record($table, $recordid, $startcol, $endcol, $newstart, $newend);
+        if ($endcol === '') {
+            $up = (object)['id' => $recordid, $startcol => $newstart];
+            if ($DB->get_manager()->field_exists($table, 'timemodified')) {
+                $up->timemodified = time();
+            }
+            $DB->update_record($table, $up);
+        } else {
+            $this->raw_update_record($table, $recordid, $startcol, $endcol, $newstart, $newend);
+        }
 
-        $cm = $this->get_cm($table, $recordid);
+        $cm = !empty($item['cmid']) ? get_fast_modinfo($this->course->id)->get_cm((int)$item['cmid']) :
+            $this->get_cm($table, $recordid);
         if ($cm) {
             $libfile = $CFG->dirroot . '/mod/' . $table . '/lib.php';
             if (file_exists($libfile)) {

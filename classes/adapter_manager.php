@@ -56,7 +56,7 @@ class adapter_manager {
         'kuet' => 3,
         'assign' => 10,
         'workshop' => 10,
-        'quest' => 10,
+        'quest' => 1,
     ];
 
     /** @var array Cache of instantiated adapters by course id and adapter class. */
@@ -97,7 +97,7 @@ class adapter_manager {
         if (!empty($item['ismilestone'])) {
             return self::get_instance(milestone_adapter::class, $course);
         }
-        if (!empty($item['isdateinterval']) || !empty($item['isopenended'])) {
+        if ((!empty($item['isdateinterval']) || !empty($item['isopenended'])) && empty($item['mappedrule'])) {
             return self::get_instance(editdates_bridge::class, $course);
         }
 
@@ -115,6 +115,14 @@ class adapter_manager {
             if ($adapter->supports($modname, $item)) {
                 return $adapter;
             }
+        }
+
+        // Explicit JSON rows use their declared table fields. The editdates
+        // bridge may know the module, but its inferred dependency is not the
+        // administrator's explicit open or child interval definition.
+        if (!empty($item['mappedrule']) &&
+                (!empty($item['isopenended']) || !empty($item['isdateinterval']))) {
+            return self::get_instance(generic_adapter::class, $course);
         }
 
         // 2. report_editdates discovery bridge.

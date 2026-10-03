@@ -2,6 +2,15 @@
 
 ## 1.1.0 - 2026-10-02
 
+- Extended magnetic snap and its visual guide to activity, milestone and availability edges across visible Gantt rows, with selection and parent bounds respected.
+- Replaced the activity mapping CSV with a guided JSON editor, suggested date fields from installed module forms, explicit hierarchy/milestone/availability rules, and fixed or duration-proportional effort estimates. Dedicated adapter rows are defined in code.
+- Parent activities now display the sum of their duration subactivities' effort, including Quest challenges; manual child edits recalculate the read-only parent total without adding a duplicate curve.
+- Quest activities and challenges without an estimated answer time now use 1 effort point, including null and unset (`-1`) durations; estimated challenges retain their time-and-difficulty calculation.
+- Added an in-memory effort table editor beside the graph settings. Adapter-owned estimates and milestones are read-only; editable hours update Gantt badges and the effort plot without a database save.
+- Quest challenges now derive effort from estimated answer minutes at one point per hour, adjusted by perceived difficulty (0.7, 1 or 1.3).
+- Hovering a parent activity now overlays each contributing subactivity's individual effort curve with its own label and colour.
+- Auto-sequence now explains when a strategy cannot fit and keeps dates unchanged on failure. Sequential chaining can shorten trailing activities or leave trailing activities at their original dates.
+- Grouped Gantt rows by Moodle course section and added subtle dated section intervals with watermark titles; their bounds follow activity edits.
 - The day row can group seven days at a time, aligned to natural locale weeks, without adding a separate week row.
 - Removed the separate week row and grouped month/year periods from the timeline scale; it shows only the relevant year, month, day and hour rows.
 - Restricted the hourly grid to 6, 3 or 1-hour cells, labelled without minutes and restarted at each local midnight.

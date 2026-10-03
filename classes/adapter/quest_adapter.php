@@ -25,6 +25,27 @@ namespace local_reschedule\adapter;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class quest_adapter extends base_adapter {
+    /** @var float Default hours for a challenge without an answer-time estimate. */
+    public const DEFAULT_CHALLENGE_EFFORT = 1.0;
+
+    /**
+     * Estimate challenge effort from the teacher's answer-time estimate.
+     * Quest stores the duration in minutes and difficulty as 0, 1 or 2.
+     * An absent duration has no usable estimate; callers use the challenge
+     * default instead of the Quest activity's module-type weight.
+     *
+     * @param int|null $minutes Estimated answer time in minutes.
+     * @param int|null $difficulty 0 easy, 1 attainable, 2 hard.
+     * @return float|null Effort points, or null when no duration is available.
+     */
+    public static function estimate_effort(?int $minutes, ?int $difficulty): ?float {
+        if ($minutes === null || $minutes <= 0) {
+            return null;
+        }
+        $multipliers = [0 => 0.7, 1 => 1.0, 2 => 1.3];
+        return round(($minutes / 60) * ($multipliers[$difficulty] ?? 1.0), 4);
+    }
+
     #[\Override]
     public function supports(string $modname, array $item): bool {
         return ($modname === 'quest' || $item['table'] === 'quest' || $item['table'] === 'quest_submissions');

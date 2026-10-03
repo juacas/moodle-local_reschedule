@@ -49,6 +49,14 @@ class milestone_adapter extends base_adapter {
         $field = $item['startcol'];
         $extractor = editdates_bridge::get_extractor($item['table'], $this->course);
         $cm = $this->get_cm($item['table'], (int)$item['recordid']);
+        if (!empty($item['mappedrule']) && (!$extractor || !$cm)) {
+            $dbman = $DB->get_manager();
+            return $newstart === $newend && $newstart >= 0 &&
+                ($newstart > 0 || !empty($item['optional'])) &&
+                $dbman->table_exists($item['table']) && $dbman->field_exists($item['table'], $field) &&
+                $DB->record_exists($item['table'], ['id' => (int)$item['recordid']]) ? [] :
+                [get_string('errorinvaliddate', 'calendar')];
+        }
         if (!$extractor || !$cm || $newstart !== $newend) {
             return [get_string('errorinvaliddate', 'calendar')];
         }
@@ -94,6 +102,15 @@ class milestone_adapter extends base_adapter {
 
         $extractor = editdates_bridge::get_extractor($item['table'], $this->course);
         $cm = $this->get_cm($item['table'], (int)$item['recordid']);
+        if (!empty($item['mappedrule']) && (!$extractor || !$cm)) {
+            $this->raw_update_record($item['table'], (int)$item['recordid'],
+                $item['startcol'], $item['startcol'], $newstart, $newstart);
+            if (!empty($item['cmid'])) {
+                $parentcm = get_fast_modinfo($this->course->id)->get_cm((int)$item['cmid']);
+                $this->trigger_cm_updated($parentcm);
+            }
+            return;
+        }
         if (!$extractor || !$cm) {
             throw new \moodle_exception('invalidrecord', 'error');
         }
