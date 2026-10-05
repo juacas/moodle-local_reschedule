@@ -27,6 +27,7 @@ defined('MOODLE_INTERNAL') || die();
 
 $string['pluginname'] = 'Activity Rescheduler';
 $string['reschedule'] = 'Reschedule activities';
+$string['reschedulemodule'] = 'Reschedule this activity';
 $string['rescheduletitle'] = 'Course Activity Scheduling & Timeline';
 $string['effortdrops'] = 'Effort drops';
 $string['effortscale'] = 'Weekly effort';

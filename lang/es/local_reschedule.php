@@ -27,6 +27,7 @@ defined('MOODLE_INTERNAL') || die();
 
 $string['pluginname'] = 'Replanificador de Actividades';
 $string['reschedule'] = 'Replanificar fechas';
+$string['reschedulemodule'] = 'Replanificar esta actividad';
 $string['rescheduletitle'] = 'Replanificación y Línea Temporal del Curso';
 $string['effortdrops'] = 'Drops de esfuerzo';
 $string['effortscale'] = 'Esfuerzo semanal';

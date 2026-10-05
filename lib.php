@@ -44,3 +44,62 @@ function local_reschedule_extend_navigation_course(\navigation_node $parentnode,
         $parentnode->add_node($node);
     }
 }
+
+/**
+ * Add a scoped Reschedule link to a module's administration menu when it has child rows.
+ *
+ * @param settings_navigation $settings Module settings navigation.
+ * @param context $context Current page context.
+ */
+function local_reschedule_extend_settings_navigation(\settings_navigation $settings, \context $context): void {
+    global $PAGE;
+
+    if ($context->contextlevel !== CONTEXT_MODULE) {
+        return;
+    }
+
+    $cm = $PAGE->cm;
+    if (!$cm || (int)$cm->id !== (int)$context->instanceid) {
+        return;
+    }
+    $coursecontext = \context_course::instance((int)$cm->course);
+    if (!has_capability('moodle/course:manageactivities', $coursecontext) ||
+            !has_capability('moodle/course:manageactivities', $context)) {
+        return;
+    }
+
+    $modulesettings = $settings->get('modulesettings');
+    if (!$modulesettings || !\local_reschedule\manager::cm_has_subactivities((int)$cm->course, (int)$cm->id)) {
+        return;
+    }
+
+    $url = new \moodle_url('/local/reschedule/index.php', [
+        'id' => (int)$cm->course,
+        'cmid' => (int)$cm->id,
+        'editmode' => 1,
+    ]);
+    $modulesettings->add(
+        get_string('reschedulemodule', 'local_reschedule'),
+        $url,
+        \navigation_node::TYPE_SETTING,
+        null,
+        'local_reschedule_cmid',
+        new \pix_icon('i/calendar', '')
+    );
+}
+
+/**
+ * Whether Reschedule may edit dates in this request.
+ *
+ * The URL override is limited to Reschedule and does not change Moodle's
+ * course-wide editing preference. Callers must set the page context and
+ * editing capability before using this check.
+ *
+ * @param bool $forceeditmode Whether editmode=1 was requested.
+ * @return bool
+ */
+function local_reschedule_user_is_editing(bool $forceeditmode): bool {
+    global $PAGE;
+
+    return $PAGE->user_is_editing() || ($forceeditmode && $PAGE->user_allowed_editing());
+}

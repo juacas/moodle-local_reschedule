@@ -32,6 +32,7 @@ $singlecmid = optional_param('cmid', 0, PARAM_INT);
 $instancesparam = optional_param('instances', '', PARAM_RAW);
 $requestedstart = optional_param('datestart', 0, PARAM_INT);
 $requestedend = optional_param('dateend', 0, PARAM_INT);
+$forceeditmode = (bool)optional_param('editmode', 0, PARAM_BOOL);
 $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 
 require_login($course);
@@ -54,13 +55,16 @@ if ($requestedstart > 0) {
 if ($requestedend > 0) {
     $urlparams['dateend'] = $requestedend;
 }
+if ($forceeditmode) {
+    $urlparams['editmode'] = 1;
+}
 $PAGE->set_url(new \moodle_url('/local/reschedule/index.php', $urlparams));
 $PAGE->set_context($context);
 $PAGE->set_other_editing_capability('moodle/course:manageactivities');
 $PAGE->set_pagelayout('incourse');
 $PAGE->set_title(get_string('rescheduletitle', 'local_reschedule'));
 $PAGE->set_heading($course->fullname);
-$editing = $PAGE->user_is_editing();
+$editing = local_reschedule_user_is_editing($forceeditmode);
 
 $timeframe = \local_reschedule\manager::get_course_timeframe($course);
 $coursestart = $timeframe['start'];
@@ -159,6 +163,10 @@ $saveurl = new \moodle_url('/local/reschedule/save.php', [
     'sesskey' => sesskey(),
 ]);
 $weekifyurl = new \moodle_url('/local/reschedule/weekify.php');
+if ($forceeditmode) {
+    $saveurl->param('editmode', 1);
+    $weekifyurl->param('editmode', 1);
+}
 $courseurl = new \moodle_url('/course/view.php', ['id' => $courseid]);
 
 $templatecontext = [

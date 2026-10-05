@@ -53,7 +53,7 @@ In university and corporate training courses, Moodle courses often comprise doze
 - **Course-section backdrop**: Activities are separated by their Moodle course sections. A subtle band behind each section's rows spans the earliest and latest enabled activity dates, with the section title shown as a watermark. Bands update while dates move; sections without real dates have no time band.
 - **Bidirectional bar manipulation**: Lateral resize handles supporting stretch from both left (start) and right (end), even on very short activities where handles overlap.
 - **Selection mode**: Use the check icon in the Gantt activity header to show row checkboxes. Selected rows are the scope for drag, resize, Auto-sequence and Weekify; editable date availability ranges follow date transformations.
-- **Course Edit mode**: Scheduling controls follow Moodle's course Edit mode switch. With Edit mode off, the page shows a read-only Gantt and date table; zoom, navigation, row expansion and effort-model viewing remain available. Enable Edit mode to move or resize dates, change availability, select rows, Auto-sequence, Weekify, reset or save. Save and Weekify endpoints also check Edit mode.
+- **Course Edit mode**: Scheduling controls follow Moodle's course Edit mode switch. With Edit mode off, the page shows a read-only Gantt and date table; zoom, navigation, row expansion and effort-model viewing remain available. Enable Edit mode to move or resize dates, change availability, select rows, Auto-sequence, Weekify, reset or save. `editmode=1` enables editing for this Reschedule page and its Save and Weekify requests when the user has permission, without changing the course-wide Edit mode switch.
 - **Harmonic subactivity synchronization**: Moving a parent activity (e.g., a workshop or a `mod_quest` challenge) shifts its subactivities/phases in tandem; resizing it proportionally scales subactivities while respecting bounds.
 - **Interactive jump with highlight**: A single click on any GANTT bar automatically unfolds the activity (if collapsed), smoothly scrolls to its row in the detail table, and emits a highlight pulse animation.
 - **Manual editing via standard modal**: Clicking date cells in the table opens a modal with standard `<input type="datetime-local" class="form-control">` pickers, live duration preview, and semantic validations.
@@ -70,10 +70,15 @@ In university and corporate training courses, Moodle courses often comprise doze
 ## 3. User Manual & Operations
 
 ### Navigating the Interactive Timeline
-The timeline can be accessed from the course secondary navigation: **More > Reschedule dates** (`/local/reschedule/index.php?id={courseid}`). It also accepts optional startup parameters for embedding or focused scheduling:
+The timeline can be accessed from the course secondary navigation: **More > Reschedule dates** (`/local/reschedule/index.php?id={courseid}`).
+
+An activity with subactivities in the Gantt also offers **Reschedule this activity** in its module administration menu. That link opens the timeline for the current course with `cmid` set to the activity's course-module ID and `editmode=1`, so its child rows remain visible and editable.
+
+The timeline also accepts optional startup parameters for embedding or focused scheduling:
 
 - `cmids=12,18,25`: limit the interface to the activities whose course-module IDs are listed. Their mapped subactivities remain visible below each selected activity.
 - `cmid=12`: shorthand for a single course-module ID.
+- `editmode=1`: enable Reschedule editing for a user with permission, even when the course Edit mode switch is off.
 - `instances=quest:55,quiz:123`: alternative activity-instance filter using the module type and instance ID. Selecting a main activity also includes its mapped subactivities.
 - `datestart=UNIX_TIMESTAMP&dateend=UNIX_TIMESTAMP`: use a concrete visible GANTT window. The real course timeframe remains the validation boundary when dates are saved.
 

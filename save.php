@@ -95,7 +95,7 @@ try {
         ]);
         exit;
     }
-    if (!$PAGE->user_is_editing()) {
+    if (!local_reschedule_user_is_editing((bool)optional_param('editmode', 0, PARAM_BOOL))) {
         throw new \moodle_exception('editmoderequired', 'local_reschedule');
     }
 

@@ -26,6 +26,28 @@ namespace local_reschedule;
  */
 class manager {
     /**
+     * Whether a course module has child rows in the same schedule shown by Reschedule.
+     *
+     * This includes dependent intervals and point milestones. The module menu
+     * must use the same discovery rules as the Gantt, including JSON mappings.
+     *
+     * @param int $courseid Course ID.
+     * @param int $cmid Course module ID.
+     * @return bool True when the module owns at least one child row.
+     */
+    public static function cm_has_subactivities(int $courseid, int $cmid): bool {
+        if ($courseid <= 0 || $cmid <= 0) {
+            return false;
+        }
+        foreach (self::get_course_items($courseid) as $item) {
+            if ((int)($item['cmid'] ?? 0) === $cmid && empty($item['issubtype']) && !empty($item['haschildren'])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Parse mapping rules configured in settings.
      *
      * @return array Array of parsed rules.

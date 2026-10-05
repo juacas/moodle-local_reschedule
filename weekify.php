@@ -25,6 +25,7 @@
 define('AJAX_SCRIPT', true);
 
 require(__DIR__ . '/../../config.php');
+require_once(__DIR__ . '/lib.php');
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -42,7 +43,7 @@ try {
     $PAGE->set_context($context);
     $PAGE->set_other_editing_capability('moodle/course:manageactivities');
     require_sesskey();
-    if (!$PAGE->user_is_editing()) {
+    if (!local_reschedule_user_is_editing((bool)optional_param('editmode', 0, PARAM_BOOL))) {
         throw new \moodle_exception('editmoderequired', 'local_reschedule');
     }
     if (!in_array($action, ['preview', 'apply'], true)) {

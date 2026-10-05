@@ -41,6 +41,7 @@ final class quest_effort_test extends advanced_testcase {
             'datestart' => $now,
             'dateend' => $now + 7 * DAYSECS,
         ]);
+        $page = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
         $cases = [
             ['Easy', 120, 0, 1.4],
             ['Attainable', 90, 1, 1.5],
@@ -76,5 +77,7 @@ final class quest_effort_test extends advanced_testcase {
         }
         $this->assertEqualsWithDelta(10.15, $items['main_quest_' . $quest->id]['effort'], 0.0001);
         $this->assertSame('children', $items['main_quest_' . $quest->id]['effortsource']);
+        $this->assertTrue(manager::cm_has_subactivities($course->id, $quest->cmid));
+        $this->assertFalse(manager::cm_has_subactivities($course->id, $page->cmid));
     }
 }
