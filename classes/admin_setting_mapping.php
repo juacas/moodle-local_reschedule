@@ -8,14 +8,28 @@
 //
 // Moodle is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 namespace local_reschedule;
 
-/** Admin setting with a guided JSON rule editor. */
+/**
+ * Admin setting with a guided JSON rule editor.
+ *
+ * @package    local_reschedule
+ * @copyright  2026 Juan Pablo de Castro
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
 class admin_setting_mapping extends \admin_setting_configtextarea {
-    /** Reject malformed JSON rather than silently losing all configured rows. */
+    /**
+     * Reject malformed JSON rather than silently losing all configured rows.
+     *
+     * @param mixed $data Submitted setting value.
+     * @return bool|string True or a validation message.
+     */
     public function validate($data) {
         global $DB;
         $raw = trim((string)$data);
@@ -69,7 +83,13 @@ class admin_setting_mapping extends \admin_setting_configtextarea {
         return true;
     }
 
-    /** Append the editor to the standard Moodle settings control. */
+    /**
+     * Append the editor to the standard Moodle settings control.
+     *
+     * @param mixed $data Current setting value.
+     * @param string $query Search query.
+     * @return string Settings control HTML.
+     */
     public function output_html($data, $query = '') {
         global $OUTPUT, $PAGE;
         $helpidentifiers = [

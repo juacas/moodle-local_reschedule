@@ -8,14 +8,23 @@
 //
 // Moodle is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 namespace local_reschedule;
 
 use advanced_testcase;
 
-/** JSON mapping, owned adapters, and form-based field suggestions. */
+/**
+ * JSON mapping, owned adapters, and form-based field suggestions.
+ *
+ * @package    local_reschedule
+ * @copyright  2026 Juan Pablo de Castro
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
 final class mapping_test extends advanced_testcase {
     public function test_json_rules_cover_hierarchy_milestones_and_constraints(): void {
         $raw = json_encode([
@@ -36,7 +45,9 @@ final class mapping_test extends advanced_testcase {
         $this->assertTrue($rules[1]['optional']);
         $this->assertSame(['model' => 'fixed', 'value' => 2.5], $rules[1]['effortestimator']);
         $this->assertSame(2.5, mapping::estimate($rules[1]['effortestimator'], 100000, 100000 + 2 * DAYSECS));
-        $this->assertSame([], mapping::parse('[{"module":"x","start":"a","end":"b","effort":{"model":"perday","hoursperday":-2}}]'));
+        $this->assertSame([], mapping::parse(
+            '[{"module":"x","start":"a","end":"b","effort":{"model":"perday","hoursperday":-2}}]'
+        ));
         $this->assertSame([], mapping::parse('choice,name,Choice,timeopen,timeclose'));
         $this->assertSame([], mapping::parse('[{"module":"bad;drop","start":"x","end":"y"}]'));
     }

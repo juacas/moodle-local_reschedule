@@ -8,12 +8,21 @@
 //
 // Moodle is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 namespace local_reschedule;
 
-/** Validated JSON definitions of Gantt rows. */
+/**
+ * Validated JSON definitions of Gantt rows.
+ *
+ * @package    local_reschedule
+ * @copyright  2026 Juan Pablo de Castro
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
 final class mapping {
     /** Modules whose rows belong to code adapters. */
     public const OWNED_MODULES = ['assign', 'quiz', 'workshop', 'quest', 'quest_submissions',
@@ -33,19 +42,29 @@ JSON;
     /** Adapter-owned display definitions are never edited through the setting. */
     private const BUILTIN_JSON = <<<'JSON'
 [
-  {"module":"assign","title":"name","label":"Assignment","kind":"range","start":"allowsubmissionsfromdate","end":"duedate"},
+  {"module":"assign","title":"name","label":"Assignment","kind":"range",
+   "start":"allowsubmissionsfromdate","end":"duedate"},
   {"module":"quiz","title":"name","label":"Quiz","kind":"range","start":"timeopen","end":"timeclose"},
   {"module":"workshop","title":"name","label":"Workshop","kind":"range","start":"submissionstart","end":"assessmentend"},
-  {"module":"workshop","title":"name","label":"Workshop - Submission Phase","kind":"range","start":"submissionstart","end":"submissionend","parent":"workshop"},
-  {"module":"workshop","title":"name","label":"Workshop - Assessment Phase","kind":"range","start":"assessmentstart","end":"assessmentend","parent":"workshop"},
+  {"module":"workshop","title":"name","label":"Workshop - Submission Phase","kind":"range",
+   "start":"submissionstart","end":"submissionend","parent":"workshop"},
+  {"module":"workshop","title":"name","label":"Workshop - Assessment Phase","kind":"range",
+   "start":"assessmentstart","end":"assessmentend","parent":"workshop"},
   {"module":"quest","title":"name","label":"Questournament","kind":"range","start":"datestart","end":"dateend"},
-  {"module":"quest_submissions","title":"title","label":"Quest Challenge","kind":"range","start":"datestart","end":"dateend","parent":"quest","fk":"questid"},
+  {"module":"quest_submissions","title":"title","label":"Quest Challenge","kind":"range",
+   "start":"datestart","end":"dateend","parent":"quest","fk":"questid"},
   {"module":"kuet","title":"name","label":"Kuet","kind":"range","start":"startdate","end":"enddate"},
-  {"module":"kuet_sessions","title":"name","label":"Kuet Session","kind":"range","start":"startdate","end":"enddate","parent":"kuet","fk":"kuetid"}
+  {"module":"kuet_sessions","title":"name","label":"Kuet Session","kind":"range",
+   "start":"startdate","end":"enddate","parent":"kuet","fk":"kuetid"}
 ]
 JSON;
 
-    /** Parse and validate JSON rules before using identifiers in SQL. */
+    /**
+     * Parse and validate JSON rules before using identifiers in SQL.
+     *
+     * @param string $raw JSON mapping definition.
+     * @return array Valid mapping rules.
+     */
     public static function parse(string $raw): array {
         $decoded = json_decode($raw, true);
         $entries = is_array($decoded) ? (array_is_list($decoded) ? $decoded : ($decoded['rules'] ?? null)) : null;
@@ -110,7 +129,12 @@ JSON;
         return $rules;
     }
 
-    /** Normalise a fixed estimate or proportional hours-per-day estimate. */
+    /**
+     * Normalise a fixed estimate or proportional hours-per-day estimate.
+     *
+     * @param mixed $value Effort configuration.
+     * @return array|false|null Normalised estimator or invalid marker.
+     */
     private static function normalise_effort($value) {
         if ($value === null) {
             return null;
@@ -131,7 +155,14 @@ JSON;
         return ['model' => $model, 'value' => (float)$hours];
     }
 
-    /** Estimate effort in hours from actual endpoints, never from drawing fallbacks. */
+    /**
+     * Estimate effort in hours from actual endpoints, never from drawing fallbacks.
+     *
+     * @param array|null $estimator Effort estimator.
+     * @param int $start Actual start timestamp.
+     * @param int $end Actual end timestamp.
+     * @return float|null Estimated hours.
+     */
     public static function estimate(?array $estimator, int $start, int $end): ?float {
         if ($estimator === null) {
             return null;
@@ -143,7 +174,12 @@ JSON;
             round(($end - $start) / DAYSECS * $estimator['value'], 4) : 0.0;
     }
 
-    /** Combine adapter-owned rows with custom rules. */
+    /**
+     * Combine adapter-owned rows with custom rules.
+     *
+     * @param string|null $configured JSON mapping configuration.
+     * @return array Effective mapping rules.
+     */
     public static function effective_rules(?string $configured): array {
         $rules = self::parse(self::BUILTIN_JSON);
         foreach (self::parse($configured === null || $configured === '' ? self::DEFAULT_JSON : $configured) as $rule) {

@@ -27,7 +27,9 @@ use advanced_testcase;
  */
 #[\PHPUnit\Framework\Attributes\CoversClass(weekifier::class)]
 final class weekifier_test extends advanced_testcase {
-    /** A dated subactivity can supply the module start when the parent has none. */
+    /**
+     * A dated subactivity can supply the module start when the parent has none.
+     */
     public function test_earliest_dated_subactivity_sets_the_week(): void {
         global $DB;
 
@@ -101,7 +103,9 @@ final class weekifier_test extends advanced_testcase {
         $this->assertSame(1, weekifier::plan($course, [$first->cmid])['skipped']['already']);
     }
 
-    /** Weekify does not run on a non-weekly course. */
+    /**
+     * Weekify does not run on a non-weekly course.
+     */
     public function test_other_formats_are_rejected(): void {
         $this->resetAfterTest();
         $this->setAdminUser();
@@ -110,7 +114,9 @@ final class weekifier_test extends advanced_testcase {
         weekifier::plan($course, []);
     }
 
-    /** Activities without dates or an existing matching section stay where they are. */
+    /**
+     * Activities without dates or an existing matching section stay where they are.
+     */
     public function test_undated_and_out_of_range_activities_are_skipped(): void {
         global $DB;
 

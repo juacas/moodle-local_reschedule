@@ -16,8 +16,6 @@
 
 namespace local_reschedule;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Move dated course modules into their matching weekly section.
  *

@@ -8,14 +8,27 @@
 //
 // Moodle is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 namespace local_reschedule;
 
-/** Read installed module forms to suggest date mapping rules for administrators. */
+/**
+ * Read installed module forms to suggest date mapping rules for administrators.
+ *
+ * @package    local_reschedule
+ * @copyright  2026 Juan Pablo de Castro
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
 final class mapping_discovery {
-    /** Return available modules, schema-backed date fields and likely intervals. */
+    /**
+     * Return available modules, schema-backed date fields and likely intervals.
+     *
+     * @return array Module mapping suggestions.
+     */
     public static function modules(): array {
         global $CFG, $DB;
         $result = [];
@@ -30,7 +43,9 @@ final class mapping_discovery {
             if (is_readable($formfile)) {
                 $source = file_get_contents($formfile);
                 // A form can declare controls over several lines and may use either quote style.
-                preg_match_all('/addElement\s*\(\s*[\'\"](date_time_selector|date_selector)[\'\"]\s*,\s*[\'\"]([a-z][a-z0-9_]*)[\'\"]/i',
+                $datecontrolpattern = '/addElement\s*\(\s*[\'\"](date_time_selector|date_selector)[\'\"]' .
+                    '\s*,\s*[\'\"]([a-z][a-z0-9_]*)[\'\"]/i';
+                preg_match_all($datecontrolpattern,
                     $source, $matches, PREG_SET_ORDER);
                 foreach ($matches as $match) {
                     if ($dbman->field_exists($name, $match[2])) {
@@ -43,10 +58,12 @@ final class mapping_discovery {
                 }
             }
             // Modules often add form controls through helpers; schema names remain useful hints.
+            $dateprefixpattern = '/^(date|time|start|end|open|close|due|deadline|cutoff|available|' .
+                'submission|assessment|assess)/i';
             foreach ($DB->get_columns($name) as $column) {
                 $field = $column->name;
                 if (isset($fields[$field]) ||
-                        !preg_match('/^(date|time|start|end|open|close|due|deadline|cutoff|available|submission|assessment|assess)/i', $field) ||
+                        !preg_match($dateprefixpattern, $field) ||
                         !preg_match('/(date|time|start|end|open|close|due|finish|from|to|deadline)$/i', $field) ||
                         preg_match('/(created|modified|duration|limit|zone|stamp|update|validate|notification)/i', $field) ||
                         !in_array($column->meta_type ?? '', ['I', 'N'], true)) {
