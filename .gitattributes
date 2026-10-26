@@ -2,5 +2,6 @@
 # reusable workflow. Keep the public landing page and repository automation out
 # of the Moodle plugin ZIP package.
 /website export-ignore
+/amd/src export-ignore
 /.github export-ignore
 /.gitattributes export-ignore
