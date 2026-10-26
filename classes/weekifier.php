@@ -32,6 +32,8 @@ class weekifier {
      * @return array Move plan and skipped counts.
      */
     public static function plan(\stdClass $course, array $selectedcmids): array {
+        global $DB;
+
         if ($course->format !== 'weeks') {
             throw new \moodle_exception('weekifynotweeks', 'local_reschedule');
         }
@@ -77,19 +79,29 @@ class weekifier {
         }
 
         foreach ($parents as $cmid => $item) {
+            // Moodle marks the course's special Announcements forum with
+            // type=news. Its position is managed by the course, not Weekify.
+            if ($item['table'] === 'forum' && $DB->record_exists('forum', [
+                    'id' => (int)$item['recordid'],
+                    'course' => (int)$course->id,
+                    'type' => 'news',
+                ])) {
+                $result['skipped']['unsupported']++;
+                continue;
+            }
             $start = !empty($item['startenabled']) ? (int)$item['datestart'] : 0;
             if (!$start && !empty($childstarts[$cmid])) {
                 $start = min($childstarts[$cmid]);
             }
-            if (!$start) {
-                $result['skipped']['undated']++;
-                continue;
-            }
-            $target = null;
-            foreach ($weeks as $week) {
-                if ($start >= $week['start'] && $start < $week['end']) {
-                    $target = $week['section'];
-                    break;
+            // With neither a parent nor a child start, the interval is open
+            // toward the past and belongs in the first weekly section.
+            $target = $start ? null : ($weeks[0]['section'] ?? null);
+            if ($start) {
+                foreach ($weeks as $week) {
+                    if ($start >= $week['start'] && $start < $week['end']) {
+                        $target = $week['section'];
+                        break;
+                    }
                 }
             }
             if (!$target) {

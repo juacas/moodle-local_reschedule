@@ -26,6 +26,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 $string['pluginname'] = 'Replanificador de Actividades';
+$string['pendingchanges'] = 'Cambios pendientes de guardar';
 $string['openstart'] = 'Esta actividad no tiene una fecha de inicio editable.';
 $string['privacy:metadata'] = 'El replanificador no almacena datos personales. Los cambios de fecha se guardan en los módulos de actividad correspondientes.';
 $string['zoommeetingtime'] = 'Hora de la reunión';
@@ -125,8 +126,8 @@ $string['mappingraw_help'] = 'Representación JSON de las mismas reglas del edit
 $string['autosequence'] = 'Auto-secuenciar';
 $string['weekify'] = 'Weekify';
 $string['weekifytitle'] = 'Mover actividades a sus semanas';
-$string['weekifyintro'] = 'Weekify mueve cada actividad mostrada a la semana existente del curso que contiene su fecha de inicio guardada. Si la actividad no tiene fecha de inicio, usa la fecha más temprana de sus subactividades. No cambia las fechas de las actividades.';
-$string['weekifynote'] = 'Revisa los movimientos antes de confirmar. Se omiten las actividades sin fecha de inicio o sin una semana existente correspondiente. Mover una actividad a una semana oculta puede ocultarla.';
+$string['weekifyintro'] = 'Weekify mueve cada actividad mostrada a la semana que contiene su fecha de inicio guardada. Si no tiene inicio, usa la fecha más temprana de sus subactividades; si ninguna tiene inicio, la sitúa en la primera sección semanal. No cambia las fechas de las actividades.';
+$string['weekifynote'] = 'Revisa los movimientos antes de confirmar. Se omiten las actividades cuya fecha de inicio queda fuera de las semanas existentes y el foro de anuncios del curso. Mover una actividad a una semana oculta puede ocultarla.';
 $string['weekifyconfirm'] = 'Mover actividades';
 $string['weekifysavefirst'] = 'Guarda o restablece los cambios de fechas pendientes antes de usar Weekify.';
 $string['weekifyloading'] = 'Comprobando las secciones semanales…';

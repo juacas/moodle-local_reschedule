@@ -62,7 +62,7 @@ In university and corporate training courses, Moodle courses often comprise doze
   - *Sequential chaining*: Chains activities consecutively while preserving their current durations.
   - *Bounded proportional*: Distributes time according to the relative weights of each activity while capping outsized values.
   - *Relative scaling*: Applies one common shift and scale to the existing timeline, preserving its gaps and relative positions while fitting it to the course timeframe.
-- **Weekify for weekly courses**: Previews and moves displayed activities into the existing week containing their saved start date, without changing activity dates. An activity without its own start date uses its earliest dated subactivity. Save pending timeline changes first; modules without a usable date or matching week are skipped.
+- **Weekify for weekly courses**: Previews and moves displayed activities into the existing week containing their saved start date, without changing activity dates. If the parent has no start, the earliest dated subactivity determines the week; if none has a start, the activity goes to the first weekly section. Save pending timeline changes first; modules with a start outside the existing weeks and the course Announcements forum are skipped.
 - **Total autonomy**: Does not require the `report_editdates` plugin to be installed; its adapted extractor subsystem is bundled with the plugin.
 
 ---
@@ -148,7 +148,7 @@ The optional **Avoid blacklisted days (weekends)** checkbox places calculated st
 4. **Relative scaling (`relative`)**: Applies one affine transformation to all editable activities, preserving gaps and relative positions while adapting the existing timeline to the current course timeframe.
 
 ### Weekify for Weekly Courses
-The **Weekify** button appears beside Auto-sequence when the course format is `weeks`. Save any pending date edits first. The confirmation dialog previews the displayed activities that will move, along with counts skipped for missing dates, dates outside existing weeks, and activities already in the correct section. Confirming uses Moodle's course format API to move each course module; dates do not change. If a parent activity lacks a start date, Weekify uses its earliest dated subactivity. Moving into a hidden week may hide the activity.
+The **Weekify** button appears beside Auto-sequence when the course format is `weeks`. Save any pending date edits first. The confirmation dialog previews the displayed activities that will move, along with counts for dates outside existing weeks and activities already in the correct section. Confirming uses Moodle's course format API to move each course module; dates do not change. If a parent activity lacks a start date, Weekify uses its earliest dated subactivity. An activity with no dated start in either the parent or its children goes to the first weekly section. The course Announcements forum (`forum.type = news`) is excluded, even when selected. Moving into a hidden week may hide the activity.
 In selection mode, Weekify previews and moves only checked course activity rows. Subactivity and milestone checkboxes do not move a course module by themselves.
 
 ---

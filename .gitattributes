@@ -3,5 +3,8 @@
 # of the Moodle plugin ZIP package.
 /website export-ignore
 /amd/src export-ignore
+/amd/bin/**/*.map export-ignore
+/tests export-ignore
+/devtools export-ignore
 /.github export-ignore
 /.gitattributes export-ignore

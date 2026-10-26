@@ -26,6 +26,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 $string['pluginname'] = 'Activity Rescheduler';
+$string['pendingchanges'] = 'Changes pending save';
 $string['openstart'] = 'This activity has no editable start date.';
 $string['privacy:metadata'] = 'The Activity Rescheduler does not store personal data. Changes to activity dates are stored by their activity modules.';
 $string['zoommeetingtime'] = 'Meeting time';
@@ -125,8 +126,8 @@ $string['mappingraw_help'] = 'JSON representation of these visual rules. Use it 
 $string['autosequence'] = 'Auto-sequence';
 $string['weekify'] = 'Weekify';
 $string['weekifytitle'] = 'Move activities into their weeks';
-$string['weekifyintro'] = 'Weekify moves each displayed activity to the existing course week that contains its saved start date. When the activity has no start date, it uses the earliest dated subactivity. It does not change activity dates.';
-$string['weekifynote'] = 'Review the moves below before confirming. Activities without a start date or a matching existing week are skipped. Moving to a hidden week may hide the activity.';
+$string['weekifyintro'] = 'Weekify moves each displayed activity to the week containing its saved start date. If it has no start, Weekify uses its earliest dated subactivity; if none has a start, it goes to the first weekly section. Activity dates do not change.';
+$string['weekifynote'] = 'Review the moves below before confirming. Activities with a start date outside the existing weeks and the course Announcements forum are skipped. Moving to a hidden week may hide the activity.';
 $string['weekifyconfirm'] = 'Move activities';
 $string['weekifysavefirst'] = 'Save or reset pending date changes before using Weekify.';
 $string['weekifyloading'] = 'Checking weekly sections…';

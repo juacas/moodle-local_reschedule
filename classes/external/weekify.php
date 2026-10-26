@@ -21,6 +21,7 @@ use core_external\external_function_parameters;
 use core_external\external_multiple_structure;
 use core_external\external_single_structure;
 use core_external\external_value;
+use local_reschedule\manager;
 use local_reschedule\weekifier;
 
 /**
@@ -87,9 +88,23 @@ class weekify extends external_api {
                 'moved' => 0,
                 'failed' => 0,
                 'skipped' => $plan['skipped'],
+                'sections' => [],
             ];
         }
         $result = weekifier::apply($course, $params['cmids']);
+        $sections = [];
+        if ($result['moved'] > 0) {
+            // Return the authoritative course order and section membership so
+            // the open Gantt can redraw its headings and watermark intervals.
+            foreach (manager::get_course_items((int)$course->id) as $item) {
+                $sections[] = [
+                    'id' => (string)$item['id'],
+                    'sectionid' => (int)$item['sectionid'],
+                    'sectionnum' => (int)$item['sectionnum'],
+                    'sectiontitle' => (string)$item['sectiontitle'],
+                ];
+            }
+        }
         return [
             'success' => $result['failed'] === 0,
             'count' => 0,
@@ -97,6 +112,7 @@ class weekify extends external_api {
             'moved' => $result['moved'],
             'failed' => $result['failed'],
             'skipped' => $result['skipped'],
+            'sections' => $sections,
         ];
     }
 
@@ -119,6 +135,12 @@ class weekify extends external_api {
             ]), 'Proposed moves.'),
             'moved' => new external_value(PARAM_INT, 'Number of applied moves.'),
             'failed' => new external_value(PARAM_INT, 'Number of failed moves.'),
+            'sections' => new external_multiple_structure(new external_single_structure([
+                'id' => new external_value(PARAM_TEXT, 'Gantt item ID.'),
+                'sectionid' => new external_value(PARAM_INT, 'Current section ID.'),
+                'sectionnum' => new external_value(PARAM_INT, 'Current section number.'),
+                'sectiontitle' => new external_value(PARAM_TEXT, 'Current section title.'),
+            ]), 'Updated Gantt section membership in course order.'),
             'skipped' => new external_single_structure([
                 'undated' => new external_value(PARAM_INT, 'Undated activities.'),
                 'outofrange' => new external_value(PARAM_INT, 'Activities outside the course weeks.'),

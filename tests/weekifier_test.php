@@ -28,9 +28,9 @@ use advanced_testcase;
 #[\PHPUnit\Framework\Attributes\CoversClass(weekifier::class)]
 final class weekifier_test extends advanced_testcase {
     /**
-     * A dated subactivity can supply the module start when the parent has none.
+     * A dated child supplies the week when its parent has no start date.
      */
-    public function test_earliest_dated_subactivity_sets_the_week(): void {
+    public function test_missing_start_uses_earliest_dated_subactivity(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -40,7 +40,7 @@ final class weekifier_test extends advanced_testcase {
             'numsections' => 3,
             'startdate' => time(),
         ], ['createsections' => true]);
-        $assignment = $this->getDataGenerator()->create_module('assign', ['course' => $course->id, 'section' => 1]);
+        $assignment = $this->getDataGenerator()->create_module('assign', ['course' => $course->id, 'section' => 2]);
         $weekthree = \course_get_format($course)->get_section_dates(3);
         $DB->update_record('assign', (object)[
             'id' => $assignment->id,
@@ -51,8 +51,13 @@ final class weekifier_test extends advanced_testcase {
 
         $plan = weekifier::plan($course, [$assignment->cmid]);
         $this->assertCount(1, $plan['moves'], json_encode($plan));
-        $this->assertSame((int)\get_fast_modinfo($course)->get_section_info(3)->id,
+        $targetsectionid = (int)\get_fast_modinfo($course)->get_section_info(3)->id;
+        $this->assertSame($targetsectionid,
             $plan['moves'][0]['targetsectionid']);
+        $result = weekifier::apply($course, [$assignment->cmid]);
+        $this->assertSame(1, $result['moved']);
+        $this->assertSame($targetsectionid,
+            (int)$DB->get_field('course_modules', 'section', ['id' => $assignment->cmid]));
     }
 
     /**
@@ -100,7 +105,50 @@ final class weekifier_test extends advanced_testcase {
         $this->assertSame($targetid, (int)$DB->get_field('course_modules', 'section', ['id' => $first->cmid]));
         $this->assertSame($originalsection,
             (int)$DB->get_field('course_modules', 'section', ['id' => $second->cmid]));
+        $items = manager::get_course_items((int)$course->id);
+        $firstrow = array_values(array_filter($items, static function(array $item) use ($first): bool {
+            return (int)$item['cmid'] === (int)$first->cmid && empty($item['issubtype']);
+        }));
+        $this->assertCount(1, $firstrow);
+        $this->assertSame($targetid, (int)$firstrow[0]['sectionid']);
+        $this->assertSame(3, (int)$firstrow[0]['sectionnum']);
         $this->assertSame(1, weekifier::plan($course, [$first->cmid])['skipped']['already']);
+    }
+
+    /**
+     * The course Announcements forum stays in place while ordinary forums move.
+     */
+    public function test_course_announcements_forum_is_excluded(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        $course = $this->getDataGenerator()->create_course([
+            'format' => 'weeks',
+            'numsections' => 2,
+            'newsitems' => 5,
+            'startdate' => time(),
+        ], ['createsections' => true]);
+        $newsforum = $DB->get_record('forum', ['course' => $course->id, 'type' => 'news'], '*', MUST_EXIST);
+        $newscm = \get_fast_modinfo($course)->instances['forum'][$newsforum->id];
+        $newssection = (int)$DB->get_field('course_modules', 'section', ['id' => $newscm->id]);
+        $ordinary = $this->getDataGenerator()->create_module('forum', [
+            'course' => $course->id,
+            'section' => 2,
+            'name' => 'Ordinary forum',
+        ]);
+
+        $plan = weekifier::plan($course, [$newscm->id, $ordinary->cmid]);
+        $this->assertCount(1, $plan['moves'], json_encode($plan));
+        $this->assertSame((int)$ordinary->cmid, $plan['moves'][0]['cmid']);
+        $this->assertSame(1, $plan['skipped']['unsupported']);
+
+        $result = weekifier::apply($course, [$newscm->id, $ordinary->cmid]);
+        $this->assertSame(1, $result['moved']);
+        $this->assertSame($newssection,
+            (int)$DB->get_field('course_modules', 'section', ['id' => $newscm->id]));
+        $this->assertSame((int)\get_fast_modinfo($course)->get_section_info(1)->id,
+            (int)$DB->get_field('course_modules', 'section', ['id' => $ordinary->cmid]));
     }
 
     /**
@@ -115,9 +163,9 @@ final class weekifier_test extends advanced_testcase {
     }
 
     /**
-     * Activities without dates or an existing matching section stay where they are.
+     * An undated activity moves to week one; an out-of-range start is skipped.
      */
-    public function test_undated_and_out_of_range_activities_are_skipped(): void {
+    public function test_undated_moves_to_first_week_and_out_of_range_is_skipped(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -127,7 +175,7 @@ final class weekifier_test extends advanced_testcase {
             'numsections' => 2,
             'startdate' => time(),
         ], ['createsections' => true]);
-        $undated = $this->getDataGenerator()->create_module('assign', ['course' => $course->id, 'section' => 1]);
+        $undated = $this->getDataGenerator()->create_module('assign', ['course' => $course->id, 'section' => 2]);
         $late = $this->getDataGenerator()->create_module('assign', ['course' => $course->id, 'section' => 1]);
         $DB->update_record('assign', (object)[
             'id' => $undated->id,
@@ -144,8 +192,11 @@ final class weekifier_test extends advanced_testcase {
         ]);
 
         $plan = weekifier::plan($course, [$undated->cmid, $late->cmid]);
-        $this->assertCount(0, $plan['moves']);
-        $this->assertSame(1, $plan['skipped']['undated']);
+        $this->assertCount(1, $plan['moves']);
+        $this->assertSame($undated->cmid, $plan['moves'][0]['cmid']);
+        $this->assertSame((int)\get_fast_modinfo($course)->get_section_info(1)->id,
+            $plan['moves'][0]['targetsectionid']);
+        $this->assertSame(0, $plan['skipped']['undated']);
         $this->assertSame(1, $plan['skipped']['outofrange']);
     }
 

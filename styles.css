@@ -273,6 +273,16 @@
     background-color: #fafafa;
 }
 
+.quest-left-row.has-pending-changes,
+.quest-left-row.is-subtype.has-pending-changes,
+.quest-left-row.has-pending-changes:hover {
+    background-color: rgba(185, 28, 28, 0.13);
+}
+
+#reschedule-table tr.has-pending-changes > td {
+    background-image: linear-gradient(rgba(185, 28, 28, 0.13), rgba(185, 28, 28, 0.13));
+}
+
 .quest-bands-header {
     background: #fff;
     box-sizing: border-box;
@@ -388,6 +398,15 @@
 
 .quest-timeline-lane.is-subtype {
     background-color: #fcfdfe;
+}
+
+.quest-timeline-lane.has-pending-changes::before {
+    background-color: rgba(185, 28, 28, 0.13);
+    content: '';
+    inset: 0;
+    pointer-events: none;
+    position: absolute;
+    z-index: 1;
 }
 
 .quest-section-heading-left,

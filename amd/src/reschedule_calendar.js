@@ -1143,6 +1143,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
             self.renderVisibleGrid();
             syncHeaderScroll();
             self.updatePageStickyHeader();
+            self.refreshPendingRows();
         },
 
         /** Find each section's earliest and latest real activity dates. */
@@ -2216,10 +2217,8 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
                 drag.snapUnit, drag.mode === 'resize-end' ?
                     localDayDifference(drag.initialEnd, newEnd) : localDayDifference(drag.initialStart, newStart));
             this.updateAvailabilityHUD(e.clientX, e.clientY, drag.item, drag.range);
-            if (!drag.changed) {
-                drag.changed = true;
-                this.markDirty();
-            }
+            drag.changed = true;
+            this.markDirty();
         },
 
         /**
@@ -3623,6 +3622,68 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
         },
 
         /**
+         * Use the same row comparison as Save for pending-change highlighting.
+         *
+         * @param {Object} item Current activity item.
+         * @param {Object} initial Last saved activity item.
+         * @return {boolean} Whether this row has unsaved changes.
+         */
+        hasPendingItemChanges: function(item, initial) {
+            if (!this.isItemEditable(item) && !item.availabilityeditable) {
+                return false;
+            }
+            if (!initial) {
+                return true;
+            }
+            var initialStart = initial.startenabled === false ? 0 : Number(initial.datestart);
+            var initialEnd = initial.endenabled === false ? 0 : Number(initial.dateend);
+            var itemStart = item.startenabled === false ? 0 : Number(item.datestart);
+            var itemEnd = item.endenabled === false ? 0 : Number(item.dateend);
+            return itemStart !== initialStart || itemEnd !== initialEnd ||
+                (initial.startenabled !== false) !== (item.startenabled !== false) ||
+                (initial.endenabled !== false) !== (item.endenabled !== false) ||
+                this.hasAvailabilityChanges(item, initial);
+        },
+
+        /**
+         * Find rows whose current saved fields differ from the last baseline.
+         *
+         * @return {Array<Object>} Changed activity items.
+         */
+        getPendingItems: function() {
+            var self = this;
+            var originals = Object.create(null);
+            this.initialItems.forEach(function(item) {
+                originals[String(item.id)] = item;
+            });
+            return this.items.filter(function(item) {
+                return self.hasPendingItemChanges(item, originals[String(item.id)]);
+            });
+        },
+
+        /**
+         * Highlight Gantt and table rows that still need saving.
+         *
+         * @return {number} Number of changed activity items.
+         */
+        refreshPendingRows: function() {
+            var pending = new Set(this.getPendingItems().map(function(item) {
+                return String(item.id);
+            }));
+            document.querySelectorAll('#reschedule-table tr[data-itemid], ' +
+                '#reschedule-timeline-app .quest-left-row[data-itemid], ' +
+                '#reschedule-timeline-app .quest-timeline-lane[data-itemid]').forEach(function(row) {
+                var changed = pending.has(row.getAttribute('data-itemid'));
+                row.classList.toggle('has-pending-changes', changed);
+                var description = row.querySelector('.quest-pending-description');
+                if (description) {
+                    description.classList.toggle('d-none', !changed);
+                }
+            });
+            return pending.size;
+        },
+
+        /**
          * Return an item's parent, if it has one.
          *
          * @param {Object} item Activity item.
@@ -3685,14 +3746,23 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
             self.updateTableRow(parent);
         },
 
-        /**
-         * Mark state as dirty and enable Save button.
-         */
+        /** Keep Save, the notice and row highlighting aligned with actual pending fields. */
+        updatePendingState: function() {
+            this.isDirty = this.refreshPendingRows() > 0;
+            if (this.saveBtn) {
+                this.saveBtn.disabled = !this.isDirty;
+            }
+            if (this.unsavedAlert) {
+                this.unsavedAlert.classList.toggle('invisible', !this.isDirty);
+            }
+        },
+
+        /** Refresh pending changes and schedule graph decoration updates. */
         markDirty: function() {
             if (!this.canEditSchedule()) {
                 return;
             }
-            this.isDirty = true;
+            this.updatePendingState();
             if (!this.effortUpdatePending) {
                 var self = this;
                 this.effortUpdatePending = true;
@@ -3701,12 +3771,6 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
                     self.updateEffortDrops();
                     self.updateSectionDecorations(false);
                 });
-            }
-            if (this.saveBtn) {
-                this.saveBtn.disabled = false;
-            }
-            if (this.unsavedAlert) {
-                this.unsavedAlert.classList.remove('invisible');
             }
         },
 
@@ -3777,13 +3841,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
                     self.items.forEach(function(it) {
                         self.updateTableRow(it);
                     });
-                    self.isDirty = false;
-                    if (self.saveBtn) {
-                        self.saveBtn.disabled = true;
-                    }
-                    if (self.unsavedAlert) {
-                        self.unsavedAlert.classList.add('invisible');
-                    }
+                    self.updatePendingState();
                 });
             }
 
@@ -4308,7 +4366,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
             list.innerHTML = '';
             status.textContent = self.strings.weekifyloading;
             applyBtn.disabled = true;
-            ['undated', 'outofrange', 'already', 'unsupported'].forEach(function(reason) {
+            ['outofrange', 'already', 'unsupported'].forEach(function(reason) {
                 document.getElementById('weekify-' + reason).textContent = '0';
             });
             if (window.bootstrap && window.bootstrap.Modal) {
@@ -4380,6 +4438,60 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
             }
         },
 
+        /** Apply Weekify's current course order and section metadata to the open Gantt. */
+        refreshWeekifySections: function(sections) {
+            if (!Array.isArray(sections) || !sections.length) {
+                return;
+            }
+            var byId = Object.create(null);
+            this.items.forEach(function(item) {
+                byId[String(item.id)] = item;
+            });
+            var ordered = [];
+            var seen = new Set();
+            sections.forEach(function(section) {
+                var id = String(section.id);
+                var item = byId[id];
+                if (!item || seen.has(id)) {
+                    return;
+                }
+                item.sectionid = Number(section.sectionid);
+                item.sectionnum = Number(section.sectionnum);
+                item.sectiontitle = section.sectiontitle;
+                ordered.push(item);
+                seen.add(id);
+            });
+            this.items.forEach(function(item) {
+                if (!seen.has(String(item.id))) {
+                    ordered.push(item);
+                }
+            });
+            if (!seen.size) {
+                return;
+            }
+
+            var scrollContainer = this.getScrollContainer();
+            var scrollLeft = scrollContainer ? scrollContainer.scrollLeft : 0;
+            this.items = ordered;
+            this.initialItems = ordered.map(function(item) {
+                return JSON.parse(JSON.stringify(item));
+            });
+            var tableBody = document.querySelector('#reschedule-table tbody');
+            if (tableBody) {
+                ordered.forEach(function(item) {
+                    var row = document.getElementById('reschedule-row-' + item.id);
+                    if (row) {
+                        tableBody.appendChild(row);
+                    }
+                });
+            }
+            this.renderTimeline();
+            scrollContainer = this.getScrollContainer();
+            if (scrollContainer) {
+                scrollContainer.scrollLeft = this.clampScrollLeft(scrollLeft);
+            }
+        },
+
         /** Move the previewed activities after confirmation. */
         applyWeekify: function() {
             var self = this;
@@ -4395,6 +4507,9 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
             applyBtn.disabled = true;
             status.textContent = self.strings.weekifyloading;
             self.requestWeekify('apply').then(function(data) {
+                if (data.moved > 0) {
+                    self.refreshWeekifySections(data.sections);
+                }
                 var message = self.strings.weekifymoved + ': ' + (data.moved || 0);
                 if (data.failed) {
                     message += '. ' + self.strings.weekifyfailed + ': ' + data.failed;
@@ -5636,30 +5751,9 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
                 return;
             }
 
-            var changedItems = self.items.filter(function(item) {
-                if (!self.isItemEditable(item) && !item.availabilityeditable) {
-                    return false;
-                }
-                var initial = self.initialItems.find(function(original) {
-                    return String(original.id) === String(item.id);
-                });
-                var initialStart = initial && initial.startenabled === false ? 0 :
-                    (initial ? Number(initial.datestart) : 0);
-                var initialEnd = initial && initial.endenabled === false ? 0 :
-                    (initial ? Number(initial.dateend) : 0);
-                var itemStart = item.startenabled === false ? 0 : Number(item.datestart);
-                var itemEnd = item.endenabled === false ? 0 : Number(item.dateend);
-                return !initial || itemStart !== initialStart || itemEnd !== initialEnd ||
-                    (initial.startenabled !== false) !== (item.startenabled !== false) ||
-                    (initial.endenabled !== false) !== (item.endenabled !== false) ||
-                    self.hasAvailabilityChanges(item, initial);
-            });
+            var changedItems = self.getPendingItems();
             if (!changedItems.length) {
-                self.isDirty = false;
-                self.saveBtn.disabled = true;
-                if (self.unsavedAlert) {
-                    self.unsavedAlert.classList.add('invisible');
-                }
+                self.updatePendingState();
                 Notification.addNotification({
                     message: self.strings.noschedulablechanges,
                     type: 'warning'
@@ -5707,14 +5801,18 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
             .then(function(data) {
                 self.saveBtn.innerHTML = originalHtml;
                 if (data && data.success) {
-                    self.initialItems = self.items.map(function(it) {
-                        return JSON.parse(JSON.stringify(it));
+                    var warningIds = new Set((data.itemwarnings || []).map(function(warning) {
+                        return String(warning.id);
+                    }));
+                    var previousItems = Object.create(null);
+                    self.initialItems.forEach(function(item) {
+                        previousItems[String(item.id)] = item;
                     });
-                    self.isDirty = false;
-                    self.saveBtn.disabled = true;
-                    if (self.unsavedAlert) {
-                        self.unsavedAlert.classList.add('invisible');
-                    }
+                    self.initialItems = self.items.map(function(it) {
+                        var baseline = warningIds.has(String(it.id)) ? previousItems[String(it.id)] || it : it;
+                        return JSON.parse(JSON.stringify(baseline));
+                    });
+                    self.updatePendingState();
                     var successMsg = data.message || self.strings.schedulesaved;
                     var hasWarnings = !!(data.warnings && data.warnings.length);
                     var notice = self.escapeHtml(successMsg).replace(/\n/g, '<br>');

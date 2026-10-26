@@ -211,6 +211,7 @@
             </div>
             <div class="quest-row-text">
                 <div class="quest-row-title text-truncate fw-bold"></div>
+                <span class="quest-pending-description visually-hidden d-none">{{#str}}pendingchanges, local_reschedule{{/str}}</span>
                 <div class="quest-row-subtitle">
                     <span class="quest-row-typename text-truncate me-1"></span>
                     <span class="badge bg-light text-primary border quest-lbl-effort flex-shrink-0 d-none"></span>
@@ -274,6 +275,7 @@
                                 {{#iconurl}}
                                 <img src="{{iconurl}}" class="activityicon me-2" style="width: 18px; height: 18px; vertical-align: middle; object-fit: contain;" alt="">
                                 {{/iconurl}}
+                                <span class="quest-pending-description visually-hidden d-none">{{#str}}pendingchanges, local_reschedule{{/str}}</span>
                                 {{#viewurl}}<a href="{{viewurl}}" class="{{^issubtype}}text-dark{{/issubtype}} reschedule-activity-link">{{title}}</a>{{/viewurl}}
                                 {{^viewurl}}<strong class="{{^issubtype}}text-dark{{/issubtype}}">{{title}}</strong>{{/viewurl}}
                             </td>
@@ -409,7 +411,6 @@
                     <div id="weekify-preview-status" class="mb-2" role="status"></div>
                     <ul class="list-group small mb-3" id="weekify-preview-list"></ul>
                     <div class="small text-muted" id="weekify-preview-skipped">
-                        <span id="weekify-undated">0</span> {{#str}}weekifyundated, local_reschedule{{/str}} ·
                         <span id="weekify-outofrange">0</span> {{#str}}weekifyoutofrange, local_reschedule{{/str}} ·
                         <span id="weekify-already">0</span> {{#str}}weekifyalready, local_reschedule{{/str}} ·
                         <span id="weekify-unsupported">0</span> {{#str}}weekifyunsupported, local_reschedule{{/str}}
