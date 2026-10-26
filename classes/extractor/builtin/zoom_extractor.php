@@ -24,6 +24,7 @@ use report_editdates_date_setting;
  * Replicated date extractor for the zoom activity module.
  *
  * @package    local_reschedule
+ * @copyright  2014 The Open University (based on report_editdates)
  * @copyright  2026 Juan Pablo de Castro
  * @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -50,7 +51,7 @@ class zoom_extractor extends base_builtin_extractor {
         }
 
         $label = get_string_manager()->string_exists('meeting_time', 'zoom') ?
-            get_string('meeting_time', 'zoom') : 'Meeting time';
+            get_string('meeting_time', 'zoom') : get_string('zoommeetingtime', 'local_reschedule');
 
         return [
             'starttime' => new report_editdates_date_setting(
@@ -72,7 +73,7 @@ class zoom_extractor extends base_builtin_extractor {
         if (empty($zoom->recurring) && isset($dates['starttime'])) {
             if ($dates['starttime'] != $zoom->start_time && $dates['starttime'] < strtotime('today')) {
                 $msg = get_string_manager()->string_exists('err_start_time_past', 'zoom') ?
-                    get_string('err_start_time_past', 'zoom') : 'Meeting cannot start in the past';
+                    get_string('err_start_time_past', 'zoom') : get_string('zoomstarttimepast', 'local_reschedule');
                 $errors['starttime'] = $msg;
             }
         }

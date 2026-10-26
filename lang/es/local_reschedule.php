@@ -26,6 +26,13 @@
 defined('MOODLE_INTERNAL') || die();
 
 $string['pluginname'] = 'Replanificador de Actividades';
+$string['openstart'] = 'Esta actividad no tiene una fecha de inicio editable.';
+$string['privacy:metadata'] = 'El replanificador no almacena datos personales. Los cambios de fecha se guardan en los módulos de actividad correspondientes.';
+$string['zoommeetingtime'] = 'Hora de la reunión';
+$string['zoomstarttimepast'] = 'La reunión no puede comenzar en el pasado';
+$string['saving'] = 'Guardando…';
+$string['phase'] = 'Fase';
+$string['errorcode'] = 'Código de error';
 $string['reschedule'] = 'Replanificar fechas';
 $string['reschedulemodule'] = 'Replanificar esta actividad';
 $string['rescheduletitle'] = 'Replanificación y Línea Temporal del Curso';

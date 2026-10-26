@@ -32,6 +32,14 @@ class editdates_bridge extends base_adapter {
     private static array $parentboundscache = [];
 
     /**
+     * Discard date relationships inferred from an earlier schedule read.
+     */
+    public static function reset_cache(): void {
+        self::$dependencycache = [];
+        self::$parentboundscache = [];
+    }
+
+    /**
      * Check whether date extractor infrastructure is available for this module.
      * Uses local_reschedule's autonomous extractor_factory (compatible with report_editdates if installed,
      * but fully functional without it).
@@ -229,7 +237,10 @@ class editdates_bridge extends base_adapter {
     #[\Override]
     public function validate(array $item, int $newstart, int $newend): array {
         global $DB;
-        $errors = parent::validate($item, $newstart, $newend);
+        $errors = !empty($item['isopenstart']) ? [] : parent::validate($item, $newstart, $newend);
+        if (!empty($item['isopenstart']) && !empty($item['endenabled']) && $newend <= 0) {
+            $errors[] = get_string('errorinvaliddate', 'calendar');
+        }
         if (!empty($errors)) {
             return $errors;
         }
@@ -271,7 +282,9 @@ class editdates_bridge extends base_adapter {
             // Map timeline start and end cols.
             $startcol = $item['startcol'];
             $endcol = $item['endcol'] ?? '';
-            $dates[$startcol] = !empty($item['startenabled']) ? $newstart : 0;
+            if ($startcol !== '') {
+                $dates[$startcol] = !empty($item['startenabled']) ? $newstart : 0;
+            }
             if ($endcol !== '' && empty($item['isopenended'])) {
                 $dates[$endcol] = !empty($item['endenabled']) ? $newend : 0;
             }
@@ -333,7 +346,9 @@ class editdates_bridge extends base_adapter {
 
         $startcol = $item['startcol'];
         $endcol = $item['endcol'] ?? '';
-        $dates[$startcol] = $newstart;
+        if ($startcol !== '') {
+            $dates[$startcol] = $newstart;
+        }
         if ($endcol !== '' && empty($item['isopenended'])) {
             $dates[$endcol] = $newend;
         }

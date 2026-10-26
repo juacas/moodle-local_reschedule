@@ -26,19 +26,21 @@
 <div class="local-reschedule-container mb-4{{#readonly}} is-readonly{{/readonly}}" id="reschedule-page-root"
     data-courseid="{{courseid}}"
     data-editing="{{#editing}}1{{/editing}}{{^editing}}0{{/editing}}"
+    data-force-editmode="{{#forceeditmode}}1{{/forceeditmode}}{{^forceeditmode}}0{{/forceeditmode}}"
     data-course-start="{{coursestart}}"
     data-course-end="{{courseend}}"
     data-timeline-start="{{timelineStart}}"
     data-timeline-end="{{timelineEnd}}"
-    data-save-url="{{saveurl}}"
-    data-weekify-url="{{weekifyurl}}"
-    data-sesskey="{{sesskey}}"
     data-lang="{{language}}"
     data-error-saving="{{#str}}error_saving, local_reschedule{{/str}}"
     data-error-saving-header="{{#str}}error_saving_header, local_reschedule{{/str}}"
     data-error-saving-affected="{{#str}}error_saving_affected, local_reschedule{{/str}}"
     data-error-saving-pending="{{#str}}error_saving_pending, local_reschedule{{/str}}"
     data-schedulesaved="{{#str}}schedulesaved, local_reschedule{{/str}}"
+    data-saving="{{#str}}saving, local_reschedule{{/str}}"
+    data-error-code="{{#str}}errorcode, local_reschedule{{/str}}"
+    data-phase="{{#str}}phase, local_reschedule{{/str}}"
+    data-activity="{{#str}}activity, local_reschedule{{/str}}"
     data-activity-before-timeline="{{#str}}activitybeforetimeline, local_reschedule{{/str}}"
     data-activity-after-timeline="{{#str}}activityaftertimeline, local_reschedule{{/str}}"
     data-activity-start-disabled="{{#str}}activitystartdisabled, local_reschedule{{/str}}"
@@ -158,6 +160,65 @@
     {{/hasitems}}
 
     {{#hasitems}}
+    {{! Static timeline fragments are rendered by Moodle and cloned by the calendar controller. }}
+    <template id="reschedule-left-header-template">
+        <div class="quest-left-header p-2 border-bottom border-end d-flex flex-column justify-content-center">
+            <div class="quest-left-drops-label fw-bold small">
+                <span><i class="fa fa-tint me-1" aria-hidden="true"></i>{{#str}}effortdrops, local_reschedule{{/str}}</span>
+                <span class="quest-effort-actions">
+                    <button type="button" class="quest-effort-settings quest-effort-table-button btn btn-sm"
+                        aria-label="{{#str}}efforttabletitle, local_reschedule{{/str}}"
+                        title="{{#str}}efforttabletitle, local_reschedule{{/str}}"><i class="fa fa-table" aria-hidden="true"></i></button>
+                    <button type="button" class="quest-effort-settings btn btn-sm"
+                        aria-label="{{#str}}effortsettings, local_reschedule{{/str}}"
+                        title="{{#str}}effortsettings, local_reschedule{{/str}}"><i class="fa fa-cog" aria-hidden="true"></i></button>
+                </span>
+            </div>
+            <div class="quest-left-header-summary">
+                <div class="quest-left-summary-top">
+                    <div class="quest-left-summary-count fw-bold small text-dark text-truncate">
+                        <i class="fa fa-tasks me-1 text-primary" aria-hidden="true"></i>
+                        <span class="quest-left-count-value"></span> {{#str}}activities, local_reschedule{{/str}}
+                    </div>
+                    <div class="quest-left-summary-controls">
+                        <button type="button" class="quest-drag-snap-toggle btn btn-sm btn-outline-secondary" aria-pressed="false">
+                            {{#str}}snapto, local_reschedule{{/str}} <span class="quest-drag-snap-value"></span>
+                        </button>
+                        <button type="button" class="quest-selection-toggle btn btn-sm btn-outline-secondary" aria-pressed="false"
+                            aria-label="{{#str}}selectionmode, local_reschedule{{/str}}">
+                            <i class="fa fa-check-square-o" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="smaller text-muted quest-selection-summary" aria-live="polite"></div>
+            </div>
+        </div>
+    </template>
+    <template id="reschedule-left-row-template">
+        <div class="quest-left-row border-bottom border-end">
+            <input type="checkbox" class="quest-row-select form-check-input d-none">
+            <div class="quest-row-expander">
+                <button type="button" class="btn btn-xs btn-outline-secondary py-0 px-1 quest-toggle-subtasks d-none"
+                    title="{{#str}}togglesubtasks, local_reschedule{{/str}}" aria-expanded="false">
+                    <i class="fa fa-plus" aria-hidden="true"></i>
+                </button>
+                <i class="fa fa-level-up fa-rotate-90 text-muted small d-none" aria-hidden="true"></i>
+            </div>
+            <div class="quest-row-icon">
+                <img class="quest-activity-icon d-none" alt="">
+                <i class="fa fa-circle text-muted d-none" style="font-size: 6px;" aria-hidden="true"></i>
+                <i class="fa fa-cube text-primary d-none" aria-hidden="true"></i>
+            </div>
+            <div class="quest-row-text">
+                <div class="quest-row-title text-truncate fw-bold"></div>
+                <div class="quest-row-subtitle">
+                    <span class="quest-row-typename text-truncate me-1"></span>
+                    <span class="badge bg-light text-primary border quest-lbl-effort flex-shrink-0 d-none"></span>
+                    <span class="badge bg-light text-secondary border quest-lbl-dur flex-shrink-0"></span>
+                </div>
+            </div>
+        </div>
+    </template>
     <!-- Interactive Timeline Board Card -->
     <div class="card shadow-sm border-0 mb-4">
         <div class="card-body p-0">

@@ -158,15 +158,6 @@ foreach ($items as $item) {
     ]);
 }
 
-$saveurl = new \moodle_url('/local/reschedule/save.php', [
-    'courseid' => $courseid,
-    'sesskey' => sesskey(),
-]);
-$weekifyurl = new \moodle_url('/local/reschedule/weekify.php');
-if ($forceeditmode) {
-    $saveurl->param('editmode', 1);
-    $weekifyurl->param('editmode', 1);
-}
 $courseurl = new \moodle_url('/course/view.php', ['id' => $courseid]);
 
 $templatecontext = [
@@ -183,12 +174,10 @@ $templatecontext = [
     'itemscount' => count($itemsforview),
     'items' => $itemsforview,
     'itemsjson' => json_encode($items, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP),
-    'saveurl' => $saveurl->out(false),
-    'weekifyurl' => $weekifyurl->out(false),
     'showweekify' => $course->format === 'weeks' && !empty($itemsforview),
     'editing' => $editing,
     'readonly' => !$editing,
-    'sesskey' => sesskey(),
+    'forceeditmode' => $forceeditmode,
     'language' => current_language(),
 ];
 

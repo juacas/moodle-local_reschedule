@@ -25,6 +25,7 @@ compat::init();
  * Base class for all replicated built-in extractors in local_reschedule.
  *
  * @package    local_reschedule
+ * @copyright  2011 The Open University (based on report_editdates)
  * @copyright  2026 Juan Pablo de Castro
  * @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later

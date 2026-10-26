@@ -26,6 +26,13 @@
 defined('MOODLE_INTERNAL') || die();
 
 $string['pluginname'] = 'Activity Rescheduler';
+$string['openstart'] = 'This activity has no editable start date.';
+$string['privacy:metadata'] = 'The Activity Rescheduler does not store personal data. Changes to activity dates are stored by their activity modules.';
+$string['zoommeetingtime'] = 'Meeting time';
+$string['zoomstarttimepast'] = 'Meeting cannot start in the past';
+$string['saving'] = 'Saving…';
+$string['phase'] = 'Phase';
+$string['errorcode'] = 'Error code';
 $string['reschedule'] = 'Reschedule activities';
 $string['reschedulemodule'] = 'Reschedule this activity';
 $string['rescheduletitle'] = 'Course Activity Scheduling & Timeline';

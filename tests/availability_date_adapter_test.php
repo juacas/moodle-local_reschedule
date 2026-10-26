@@ -35,6 +35,7 @@ final class availability_date_adapter_test extends advanced_testcase {
      */
     public function test_describe_and_save_multiple_ranges(): void {
         $this->resetAfterTest(true);
+        $this->setAdminUser();
         global $DB;
 
         $course = $this->getDataGenerator()->create_course();

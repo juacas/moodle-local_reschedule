@@ -6,7 +6,7 @@
 
 **Activity Rescheduler & Interactive Timeline for Moodle**
 A local plugin for Moodle 4.x and 5.x that provides an interactive timeline (GANTT chart) and advanced tools for visual rescheduling, automated sequencing, and precise date editing of course activities with atomic, safe subsystem synchronization.
-Deeply inspired by [report_editdates](https://marketplace.moodle.com/plugins/report_editdates) and extending its functionality with a modern, touch-friendly interface.
+The extractor subsystem is adapted from [report_editdates](https://marketplace.moodle.com/plugins/report_editdates) by The Open University. Activity Rescheduler extends it with a modern, touch-friendly interface and separate scheduling adapters. The original copyright notices are retained in the adapted classes.
 
 - **Author:** Juan Pablo de Castro <[juan.pablo.de.castro@gmail.com](mailto:juan.pablo.de.castro@gmail.com)>
 - **License:** GNU General Public License v3 or later (GPLv3+)
@@ -63,7 +63,7 @@ In university and corporate training courses, Moodle courses often comprise doze
   - *Bounded proportional*: Distributes time according to the relative weights of each activity while capping outsized values.
   - *Relative scaling*: Applies one common shift and scale to the existing timeline, preserving its gaps and relative positions while fitting it to the course timeframe.
 - **Weekify for weekly courses**: Previews and moves displayed activities into the existing week containing their saved start date, without changing activity dates. An activity without its own start date uses its earliest dated subactivity. Save pending timeline changes first; modules without a usable date or matching week are skipped.
-- **Total autonomy**: Does not require the `report_editdates` plugin to be installed, replicating and isolating the entire extractor subsystem.
+- **Total autonomy**: Does not require the `report_editdates` plugin to be installed; its adapted extractor subsystem is bundled with the plugin.
 
 ---
 
@@ -190,20 +190,21 @@ The optional `effort` estimator overrides the activity type's default. `{"model"
    ```bash
    php admin/cli/upgrade.php
    ```
+If you deploy the new Ajax services without changing the plugin version, sync their Moodle service definitions once from the Moodle checkout root:
+
+```bash
+php -r 'define("CLI_SCRIPT", true); require "config.php"; require_once($CFG->libdir . "/upgradelib.php"); external_update_descriptions("local_reschedule");'
+```
+
 3. Purge Moodle caches:
    ```bash
    php admin/cli/purge_caches.php
    ```
 
 ### Frontend Recompilation (Development)
-If you make changes to `amd/src/reschedule_calendar.js`:
+If you make changes to `amd/src/`, run Moodle's AMD build from the Moodle checkout root:
 ```bash
-node -e '
-const fs = require("fs");
-let src = fs.readFileSync("amd/src/reschedule_calendar.js", "utf8");
-src = src.replace("define([\x27core/notification\x27, \x27core/chartjs\x27],", "define(\x27local_reschedule/reschedule_calendar\x27, [\x27core/notification\x27, \x27core/chartjs\x27],");
-fs.writeFileSync("/tmp/reschedule_calendar.named.js", src);
-' && npx terser /tmp/reschedule_calendar.named.js --comments "/@license|@copyright|@author|@package|@module/" -o amd/build/reschedule_calendar.min.js --source-map "url=reschedule_calendar.min.js.map,filename=amd/build/reschedule_calendar.min.js.map"
+npx grunt rollup:dist --root=public/local/reschedule
 ```
 
 ### Project website and releases
@@ -218,6 +219,14 @@ git push origin v1.0.8
 ```
 
 The `moodle_release.yml` workflow uses the official Moodle Marketplace release workflow. The repository must define the `MOODLE_MARKETPLACE_TOKEN` GitHub Actions secret. The package excludes `website/` and `.github/` through `.gitattributes`, so the Marketplace ZIP contains only the Moodle plugin.
+
+For a manual Marketplace upload, build a ZIP from a committed revision with the required `reschedule/` root directory:
+
+```bash
+git archive --format=zip --prefix=reschedule/ -o local_reschedule.zip HEAD
+```
+
+GitHub's automatically generated **Source code (zip)** archive has the repository name as its root and is not a Moodle plugin package. The release workflow checks the archive root and the presence of `version.php` and `LICENSE` before submitting a tag.
 
 To enable the landing page deployment, go to the repository's **Settings > Pages** and select **GitHub Actions** as the source. The Pages workflow validates pull requests without querying the Pages API, then deploys pushes to `main`. Optionally, a `PAGES_TOKEN` secret with repository administration/pages write permissions can be configured so `configure-pages` enables Pages automatically.
 
@@ -346,14 +355,14 @@ sequenceDiagram
     autonumber
     actor User as Instructor / Browser
     participant UI as AMD reschedule_calendar
-    participant Endpoint as save.php
+    participant Endpoint as local_reschedule_save_schedule
     participant Mgr as manager::save_schedule
     participant Factory as adapter_manager
     participant Adapter as Date Adapter
     participant DB as Moodle Database
 
     User->>UI: Click "Save changes"
-    UI->>Endpoint: POST save.php {items: [...]}
+    UI->>Endpoint: core/ajax {items: [...]}
     Endpoint->>Mgr: save_schedule($courseid, $items)
 
     rect rgb(240, 248, 255)
@@ -444,7 +453,8 @@ local/reschedule/
 │   └── reschedule.mustache                # Mustache template (UI, modals, table)
 ├── index.php                              # Main view controller
 ├── lib.php                                # Navigation hooks (course secondary menu)
-├── save.php                               # AJAX endpoint for atomic save
+├── db/services.php                        # Moodle Ajax external function declarations
+├── classes/external/                     # Save and Weekify external functions
 ├── settings.php                           # Global configuration in Site Administration
 ├── styles.css                             # CSS styles, animations, and design tokens
 └── version.php                            # Plugin metadata (version, requirements)

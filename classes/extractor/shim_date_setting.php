@@ -20,6 +20,7 @@ namespace local_reschedule\extractor;
  * Fallback date setting matching the report_editdates API.
  *
  * @package    local_reschedule
+ * @copyright  2011 The Open University (based on report_editdates)
  * @copyright  2026 Juan Pablo de Castro
  * @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later

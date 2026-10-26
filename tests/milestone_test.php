@@ -119,10 +119,18 @@ final class milestone_test extends advanced_testcase {
         $items = array_column(manager::get_course_items($course->id), null, 'id');
         $parentid = 'main_forum_' . $forum->id;
         $milestoneid = 'milestone_forum_' . $forum->id . '_duedate';
+        $cutoffid = 'milestone_forum_' . $forum->id . '_cutoffdate';
         $this->assertArrayHasKey($parentid, $items);
         $this->assertArrayHasKey($milestoneid, $items);
+        $this->assertArrayNotHasKey($cutoffid, $items);
+        $this->assertSame('', $items[$parentid]['startcol']);
+        $this->assertSame('cutoffdate', $items[$parentid]['endcol']);
+        $this->assertTrue($items[$parentid]['isopenstart']);
+        $this->assertFalse($items[$parentid]['startenabled']);
+        $this->assertFalse($items[$parentid]['endenabled']);
         $this->assertSame($parentid, $items[$milestoneid]['parentkey']);
         $this->assertSame($due, $items[$milestoneid]['datestart']);
+        $this->assertTrue($items[$milestoneid]['ismilestone']);
 
         $result = manager::save_schedule($course->id, [
             ['id' => $milestoneid, 'datestart' => $due + HOURSECS,
@@ -130,5 +138,47 @@ final class milestone_test extends advanced_testcase {
         ]);
         $this->assertTrue($result['success'], $result['message']);
         $this->assertEquals($due + HOURSECS, $DB->get_field('forum', 'duedate', ['id' => $forum->id]));
+
+        $cutoff = $due + (2 * HOURSECS);
+        $result = manager::save_schedule($course->id, [
+            ['id' => $parentid, 'dateend' => $cutoff, 'startenabled' => false, 'endenabled' => true],
+        ]);
+        $this->assertTrue($result['success'], $result['message']);
+        $this->assertEquals($cutoff, $DB->get_field('forum', 'cutoffdate', ['id' => $forum->id]));
+        $this->assertFalse($items[$parentid]['startenabled']);
+        $invalidstart = manager::save_schedule($course->id, [
+            ['id' => $parentid, 'datestart' => $due, 'startenabled' => true],
+        ]);
+        $this->assertFalse($invalidstart['success']);
+        $this->assertSame($parentid, $invalidstart['itemerrors'][0]['id']);
+        $invalid = manager::save_schedule($course->id, [
+            ['id' => $milestoneid, 'datestart' => $cutoff + HOURSECS, 'dateend' => $cutoff + HOURSECS],
+        ]);
+        $this->assertFalse($invalid['success']);
+        $this->assertSame($milestoneid, $invalid['itemerrors'][0]['id']);
+        $this->assertEquals($due + HOURSECS, $DB->get_field('forum', 'duedate', ['id' => $forum->id]));
+    }
+
+    /**
+     * Reading a schedule again must use activity dates currently in the database.
+     */
+    public function test_date_settings_refresh_between_schedule_reads(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        $course = $this->getDataGenerator()->create_course();
+        $assignment = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
+        $milestoneid = 'milestone_assign_' . $assignment->id . '_cutoffdate';
+
+        $before = array_column(manager::get_course_items($course->id), null, 'id');
+        $this->assertArrayHasKey($milestoneid, $before);
+        $this->assertFalse($before[$milestoneid]['startenabled']);
+
+        $cutoff = time() + (3 * DAYSECS);
+        $DB->set_field('assign', 'cutoffdate', $cutoff, ['id' => $assignment->id]);
+        $after = array_column(manager::get_course_items($course->id), null, 'id');
+        $this->assertTrue($after[$milestoneid]['startenabled']);
+        $this->assertSame($cutoff, $after[$milestoneid]['datestart']);
     }
 }

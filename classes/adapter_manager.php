@@ -66,6 +66,14 @@ class adapter_manager {
     private static array $availabilityadapters = [];
 
     /**
+     * Discard adapters that hold a course record from an earlier schedule read.
+     */
+    public static function reset_cache(): void {
+        self::$adapters = [];
+        self::$availabilityadapters = [];
+    }
+
+    /**
      * Estimate total effort for one dated activity interval from its module type.
      *
      * These are planning weights, not measured student work. The chart spreads

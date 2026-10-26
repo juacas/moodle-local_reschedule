@@ -24,6 +24,7 @@ use report_editdates_date_setting;
  * Replicated date extractor for the choice activity module.
  *
  * @package    local_reschedule
+ * @copyright  2012 The Open University (based on report_editdates)
  * @copyright  2026 Juan Pablo de Castro
  * @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later

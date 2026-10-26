@@ -20,8 +20,8 @@
  * @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
-    function(Notification, Chart, EffortTable) {
+define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'core/ajax'],
+    function(Notification, Chart, EffortTable, Ajax) {
     'use strict';
 
     /**
@@ -314,6 +314,9 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
         if (item.ismilestone) {
             return 'move';
         }
+        if (item.isopenstart) {
+            return endHandle || clickX >= width * 0.75 ? 'resize-end' : 'none';
+        }
         if (width < 24) {
             if (clickX <= width * 0.25) {
                 return 'resize-start';
@@ -476,11 +479,9 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                 cfg.courseEnd = Number(getRootData('data-course-end', cfg.courseEnd || 0));
                 cfg.timelineStart = Number(getRootData('data-timeline-start', cfg.timelineStart || cfg.courseStart));
                 cfg.timelineEnd = Number(getRootData('data-timeline-end', cfg.timelineEnd || cfg.courseEnd));
-                cfg.saveUrl = getRootData('data-save-url', cfg.saveUrl || '');
-                cfg.weekifyUrl = getRootData('data-weekify-url', cfg.weekifyUrl || '');
-                cfg.sesskey = getRootData('data-sesskey', cfg.sesskey || '');
                 cfg.lang = getRootData('data-lang', cfg.lang || '');
                 cfg.editing = getRootData('data-editing', cfg.editing ? '1' : '0') === '1';
+                cfg.forceEditMode = getRootData('data-force-editmode', cfg.forceEditMode ? '1' : '0') === '1';
                 cfg.strings = cfg.strings || {};
 
                 [
@@ -489,6 +490,10 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                     ['data-error-saving-affected', 'error_saving_affected'],
                     ['data-error-saving-pending', 'error_saving_pending'],
                     ['data-schedulesaved', 'schedulesaved'],
+                    ['data-saving', 'saving'],
+                    ['data-error-code', 'errorcode'],
+                    ['data-phase', 'phase'],
+                    ['data-activity', 'activity'],
                     ['data-activity-before-timeline', 'activitybeforetimeline'],
                     ['data-activity-after-timeline', 'activityaftertimeline'],
                     ['data-activity-start-disabled', 'activitystartdisabled'],
@@ -848,53 +853,33 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
             leftCol.className = 'quest-timeline-left-column flex-shrink-0';
             leftCol.style.width = '280px';
 
-            var leftHeader = document.createElement('div');
-            leftHeader.className = 'quest-left-header p-2 border-bottom border-end d-flex flex-column justify-content-center';
-            leftHeader.innerHTML = '<div class="quest-left-drops-label fw-bold small"><span>' +
-                '<i class="fa fa-tint me-1" aria-hidden="true"></i>' +
-                self.escapeHtml(self.strings.effortdrops || 'Effort drops') + '</span><span class="quest-effort-actions">' +
-                '<button type="button" class="quest-effort-settings quest-effort-table-button btn btn-sm" aria-label="' +
-                self.escapeHtml(self.strings.efforttabletitle || 'Effort table') + '" title="' +
-                self.escapeHtml(self.canEditSchedule() ? (self.strings.efforttabletitle || 'Effort table') :
-                    (self.strings.editmoderequired || 'Turn on Edit mode to change dates.')) + '"' +
-                (self.canEditSchedule() ? '' : ' disabled aria-disabled="true"') + '>' +
-                '<i class="fa fa-table" aria-hidden="true"></i></button>' +
-                '<button type="button" class="quest-effort-settings btn btn-sm" aria-label="' +
-                self.escapeHtml(self.strings.effortsettings || 'Effort chart settings') + '" title="' +
-                self.escapeHtml(self.strings.effortsettings || 'Effort chart settings') + '">' +
-                '<i class="fa fa-cog" aria-hidden="true"></i></button></span></div>' +
-                '<div class="quest-left-header-summary"><div class="quest-left-summary-top">' +
-                '<div class="quest-left-summary-count fw-bold small text-dark text-truncate">' +
-                '<i class="fa fa-tasks me-1 text-primary" ' +
-                'aria-hidden="true"></i> ' + self.items.length + ' ' +
-                self.escapeHtml(self.strings.selectionactivities || 'Activities') + '</div>' +
-                '<div class="quest-left-summary-controls">' +
-                '<button type="button" class="quest-drag-snap-toggle btn btn-sm ' +
-                (self.dragSnapUnit === 'days' ? 'btn-outline-primary' : 'btn-outline-secondary') +
-                '" aria-pressed="' + (self.dragSnapUnit === 'days' ? 'true' : 'false') + '" title="' +
-                self.escapeHtml(self.canEditSchedule() ? (self.strings.snapto || 'Snap:') + ' ' +
-                    (self.dragSnapUnit === 'days' ? (self.strings.snapdays || 'days') :
-                        (self.strings.snaphours || 'hours')) :
-                    (self.strings.editmoderequired || 'Turn on Edit mode to change dates.')) + '"' +
-                (self.canEditSchedule() ? '' : ' disabled aria-disabled="true"') + '>' +
-                self.escapeHtml(self.strings.snapto || 'Snap:') + ' <span class="quest-drag-snap-value">' +
-                self.escapeHtml(self.dragSnapUnit === 'days' ? (self.strings.snapdays || 'days') :
-                    (self.strings.snaphours || 'hours')) + '</span></button>' +
-                '<button type="button" class="quest-selection-toggle btn btn-sm ' +
-                (self.selectionMode ? 'btn-primary' : 'btn-outline-secondary') + '" aria-pressed="' +
-                (self.selectionMode ? 'true' : 'false') + '" aria-label="' +
-                self.escapeHtml(self.strings.selectionmode || 'Selection mode') + '" title="' +
-                self.escapeHtml(self.canEditSchedule() ? (self.strings.selectionmode || 'Selection mode') :
-                    (self.strings.editmoderequired || 'Turn on Edit mode to change dates.')) + '"' +
-                (self.canEditSchedule() ? '' : ' disabled aria-disabled="true"') + '>' +
-                '<i class="fa fa-check-square-o" aria-hidden="true"></i></button></div></div>' +
-                '<div class="smaller text-muted quest-selection-summary" aria-live="polite">' +
-                (self.selectionMode ? self.selectedItemIds.size + ' ' +
-                self.escapeHtml(self.strings.selectionselected || 'selected') :
-                self.escapeHtml(self.canEditSchedule() ?
-                    (self.strings.selectiondraghint || 'Drag bars to adjust the schedule') :
-                    (self.strings.readonlynotice || 'Read-only view'))) +
-                '</div></div>';
+            var leftHeader = document.getElementById('reschedule-left-header-template').content
+                .firstElementChild.cloneNode(true);
+            leftHeader.querySelector('.quest-left-count-value').textContent = self.items.length;
+            var effortTableButton = leftHeader.querySelector('.quest-effort-table-button');
+            var snapToggle = leftHeader.querySelector('.quest-drag-snap-toggle');
+            var selectionToggle = leftHeader.querySelector('.quest-selection-toggle');
+            var snapValue = self.dragSnapUnit === 'days' ? self.strings.snapdays : self.strings.snaphours;
+            snapToggle.querySelector('.quest-drag-snap-value').textContent = snapValue;
+            snapToggle.classList.toggle('btn-outline-primary', self.dragSnapUnit === 'days');
+            snapToggle.classList.toggle('btn-outline-secondary', self.dragSnapUnit !== 'days');
+            snapToggle.setAttribute('aria-pressed', self.dragSnapUnit === 'days' ? 'true' : 'false');
+            selectionToggle.classList.toggle('btn-primary', self.selectionMode);
+            selectionToggle.classList.toggle('btn-outline-secondary', !self.selectionMode);
+            selectionToggle.setAttribute('aria-pressed', self.selectionMode ? 'true' : 'false');
+            if (self.canEditSchedule()) {
+                snapToggle.title = self.strings.snapto + ' ' + snapValue;
+                selectionToggle.title = self.strings.selectionmode;
+            } else {
+                [effortTableButton, snapToggle, selectionToggle].forEach(function(button) {
+                    button.disabled = true;
+                    button.setAttribute('aria-disabled', 'true');
+                    button.title = self.strings.editmoderequired;
+                });
+            }
+            leftHeader.querySelector('.quest-selection-summary').textContent = self.selectionMode ?
+                self.selectedItemIds.size + ' ' + self.strings.selectionselected :
+                (self.canEditSchedule() ? self.strings.selectiondraghint : self.strings.readonlynotice);
 
             var lastLeftSectionId = null;
             self.items.forEach(function(item) {
@@ -909,11 +894,13 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                     leftCol.appendChild(sectionHeading);
                 }
                 lastLeftSectionId = sectionId;
-                var rowLabel = document.createElement('div');
+                var rowLabel = document.getElementById('reschedule-left-row-template').content
+                    .firstElementChild.cloneNode(true);
                 var isSub = !!item.issubtype;
-                rowLabel.className = 'quest-left-row border-bottom border-end' +
-                    (isSub ? ' is-subtype ps-3' : '') +
-                    (self.selectedItemIds.has(String(item.id)) && self.selectionMode ? ' is-selected' : '');
+                rowLabel.classList.toggle('is-subtype', isSub);
+                rowLabel.classList.toggle('ps-3', isSub);
+                rowLabel.classList.toggle('is-selected',
+                    self.selectedItemIds.has(String(item.id)) && self.selectionMode);
                 rowLabel.setAttribute('data-itemid', item.id);
                 if (isSub) {
                     rowLabel.setAttribute('data-parentkey', item.parentkey);
@@ -922,68 +909,55 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                     }
                 }
                 if (!self.canEditSchedule()) {
-                    rowLabel.setAttribute('title', self.strings.editmoderequired || 'Turn on Edit mode to change dates.');
+                    rowLabel.setAttribute('title', self.strings.editmoderequired);
                 } else if (!self.isItemEditable(item) && item.editreason) {
                     rowLabel.setAttribute('title', item.interactreason || item.editreason);
                 }
                 var dur = formatItemDuration(item);
                 var effort = item.effort === null || typeof item.effort === 'undefined' ?
                     EFFORT_DEFAULT : Number(item.effort);
-                var effortBadge = !item.ismilestone && isFinite(effort) && effort >= 0 ?
-                    '<span class="badge bg-light text-primary border quest-lbl-effort flex-shrink-0">' +
-                    self.escapeHtml(self.strings.effortlabel || 'Effort') + ': ' +
-                    self.escapeHtml(formatEffort(effort, self.locale)) + ' ' +
-                    self.escapeHtml(self.strings.effortpoints || 'pts') + '</span>' : '';
+                var effortBadge = rowLabel.querySelector('.quest-lbl-effort');
+                if (!item.ismilestone && isFinite(effort) && effort >= 0) {
+                    effortBadge.classList.remove('d-none');
+                    effortBadge.textContent = self.strings.effortlabel + ': ' +
+                        formatEffort(effort, self.locale) + ' ' + self.strings.effortpoints;
+                }
 
-                var expanderHtml = '';
+                var checkbox = rowLabel.querySelector('.quest-row-select');
+                checkbox.classList.toggle('d-none', !self.selectionMode);
+                checkbox.setAttribute('data-itemid', String(item.id));
+                checkbox.setAttribute('aria-label', self.strings.selectactivity + ': ' + item.title);
+                checkbox.checked = self.selectedItemIds.has(String(item.id));
+
+                var expander = rowLabel.querySelector('.quest-toggle-subtasks');
                 if (item.haschildren) {
                     var isExp = !!self.expandedParents[item.id];
-                    expanderHtml = '<button type="button" ' +
-                        'class="btn btn-xs btn-outline-secondary py-0 px-1 quest-toggle-subtasks"' +
-                        ' data-parentkey="' + self.escapeHtml(item.id) + '"' +
-                        ' aria-expanded="' + (isExp ? 'true' : 'false') + '"' +
-                        ' title="Expand / Collapse"><i class="fa ' + (isExp ? 'fa-minus' : 'fa-plus') + '"></i></button>';
+                    expander.classList.remove('d-none');
+                    expander.setAttribute('data-parentkey', String(item.id));
+                    expander.setAttribute('aria-expanded', isExp ? 'true' : 'false');
+                    expander.querySelector('i').classList.replace('fa-plus', isExp ? 'fa-minus' : 'fa-plus');
                 } else if (isSub) {
-                    expanderHtml = '<i class="fa fa-level-up fa-rotate-90 text-muted small"></i>';
+                    rowLabel.querySelector('.quest-row-expander > i').classList.remove('d-none');
                 }
 
-                var iconHtml = '';
+                var iconContainer = rowLabel.querySelector('.quest-row-icon');
                 if (item.iconurl) {
-                    iconHtml = '<img src="' + self.escapeHtml(item.iconurl) + '" class="quest-activity-icon" alt="">';
+                    var icon = iconContainer.querySelector('img');
+                    icon.src = item.iconurl;
+                    icon.classList.remove('d-none');
                 } else if (isSub) {
-                    iconHtml = '<i class="fa fa-circle text-muted" style="font-size: 6px;"></i>';
+                    iconContainer.querySelector('.fa-circle').classList.remove('d-none');
                 } else {
-                    iconHtml = '<i class="fa fa-cube text-primary"></i>';
+                    iconContainer.querySelector('.fa-cube').classList.remove('d-none');
                 }
-
-                rowLabel.innerHTML = (self.selectionMode ?
-                    '<input type="checkbox" class="quest-row-select form-check-input" data-itemid="' +
-                    self.escapeHtml(String(item.id)) + '" aria-label="' +
-                    self.escapeHtml((self.strings.selectactivity || 'Select activity') + ': ' + item.title) + '"' +
-                    (self.selectedItemIds.has(String(item.id)) ? ' checked' : '') + '>' : '') +
-                    '<div class="quest-row-expander">' +
-                    expanderHtml +
-                    '</div>' +
-                    '<div class="quest-row-icon">' +
-                    iconHtml +
-                    '</div>' +
-                    '<div class="quest-row-text">' +
-                    '<div class="quest-row-title text-truncate fw-bold ' +
-                    (isSub ? 'text-secondary' : 'text-dark') + '"' +
-                    ' title="' + self.escapeHtml(item.title) + '">' +
-                    self.escapeHtml(item.title) +
-                    '</div>' +
-                    '<div class="quest-row-subtitle">' +
-                    '<span class="quest-row-typename text-truncate me-1" ' +
-                    'title="' + self.escapeHtml(item.typelabel || '') + '">' +
-                    self.escapeHtml(item.typelabel || '') +
-                    '</span>' +
-                    effortBadge +
-                    '<span class="badge bg-light text-secondary border quest-lbl-dur flex-shrink-0">' +
-                    dur +
-                    '</span>' +
-                    '</div>' +
-                    '</div>';
+                var title = rowLabel.querySelector('.quest-row-title');
+                title.classList.add(isSub ? 'text-secondary' : 'text-dark');
+                title.title = item.title;
+                title.textContent = item.title;
+                var type = rowLabel.querySelector('.quest-row-typename');
+                type.title = item.typelabel || '';
+                type.textContent = item.typelabel || '';
+                rowLabel.querySelector('.quest-lbl-dur').textContent = dur;
                 leftCol.appendChild(rowLabel);
             });
             board.appendChild(leftCol);
@@ -1002,7 +976,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
             var dropsCanvas = document.createElement('canvas');
             dropsCanvas.className = 'quest-drops-canvas';
             dropsCanvas.setAttribute('role', 'img');
-            dropsCanvas.setAttribute('aria-label', self.strings.effortdrops || 'Effort drops');
+            dropsCanvas.setAttribute('aria-label', self.strings.effortdrops);
             dropsRow.appendChild(dropsCanvas);
             bandsHeader.appendChild(dropsRow);
 
@@ -1414,7 +1388,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                 type: 'line',
                 data: {
                     datasets: [{
-                        label: self.strings.effortscale || 'Effort',
+                        label: self.strings.effortscale,
                         data: data.line,
                         parsing: false,
                         order: 2,
@@ -1426,7 +1400,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                         tension: 0
                     }, {
                         type: 'scatter',
-                        label: self.strings.effortdrops || 'Effort drops',
+                        label: self.strings.effortdrops,
                         data: data.drops,
                         parsing: false,
                         order: -1,
@@ -1451,9 +1425,9 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                                 },
                                 label: function(point) {
                                     var name = point.raw.title || point.dataset.label ||
-                                        (self.strings.effortscale || 'Effort');
+                                        (self.strings.effortscale);
                                     return name + ': ' + formatEffort(point.parsed.y, self.locale) + ' ' +
-                                        (self.strings.effortweeklyunit || 'h/week');
+                                        (self.strings.effortweeklyunit);
                                 }
                             }
                         }
@@ -1470,7 +1444,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                                 font: {size: 10},
                                 callback: function(value) {
                                     return value === 0 ? '0' : value + ' ' +
-                                        (self.strings.effortweeklyunit || 'h/week');
+                                        (self.strings.effortweeklyunit);
                                 }
                             }
                         }
@@ -1538,8 +1512,8 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                     }
                     var badge = row.querySelector('.quest-lbl-effort');
                     if (badge) {
-                        badge.textContent = (self.strings.effortlabel || 'Effort') + ': ' +
-                            formatEffort(changed[id], self.locale) + ' ' + (self.strings.effortpoints || 'pts');
+                        badge.textContent = (self.strings.effortlabel) + ': ' +
+                            formatEffort(changed[id], self.locale) + ' ' + (self.strings.effortpoints);
                     }
                 });
             }
@@ -1657,7 +1631,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
             }
             bar.setAttribute('data-itemid', item.id);
             bar.setAttribute('data-base-title', !this.canEditSchedule() ?
-                (this.strings.editmoderequired || 'Turn on Edit mode to change dates.') :
+                (this.strings.editmoderequired) :
                 (!this.isItemEditable(item) && (item.interactreason || item.editreason) ?
                     (item.interactreason || item.editreason) : ''));
 
@@ -1672,9 +1646,11 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                 return bar;
             }
 
-            var hStart = document.createElement('div');
-            hStart.className = 'quest-bar-handle quest-bar-handle-start';
-            bar.appendChild(hStart);
+            if (!item.isopenstart) {
+                var hStart = document.createElement('div');
+                hStart.className = 'quest-bar-handle quest-bar-handle-start';
+                bar.appendChild(hStart);
+            }
 
             var content = document.createElement('div');
             content.className = 'quest-bar-content text-truncate';
@@ -1737,14 +1713,14 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                     (self.canEditSchedule() ? '' : ' is-viewonly');
                 overlay.setAttribute('data-availability-rangeid', range.id || ('range-' + index));
                 overlay.setAttribute('data-itemid', item.id);
-                overlay.setAttribute('aria-label', self.strings.availabilityrestriction || 'Date availability restriction');
+                overlay.setAttribute('aria-label', self.strings.availabilityrestriction);
                 if (!self.canEditSchedule()) {
                     overlay.setAttribute('aria-disabled', 'true');
                 }
                 overlay.setAttribute('title', item.availabilityeditable && self.canEditSchedule() ?
-                    (self.strings.availabilityrestrictionhint || 'Drag to adjust the date restriction.') :
-                    (self.canEditSchedule() ? (item.availabilityreason || 'Date availability restriction') :
-                        (self.strings.editmoderequired || 'Turn on Edit mode to change dates.')));
+                    (self.strings.availabilityrestrictionhint) :
+                    (self.canEditSchedule() ? (item.availabilityreason || self.strings.availabilityrestriction) :
+                        (self.strings.editmoderequired)));
                 self.positionAvailabilityOverlay(overlay, range, totalSec, cStart);
 
                 if (range.startcondition) {
@@ -1843,15 +1819,13 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
             var messages = [];
             if (startsBefore) {
                 messages.push(item.startenabled === false ?
-                    ((this.strings && this.strings.activitystartdisabled) || 'The start date is disabled.') :
-                    ((this.strings && this.strings.activitybeforetimeline) ||
-                        'The activity starts before the visible timeline.'));
+                    this.strings.activitystartdisabled :
+                    this.strings.activitybeforetimeline);
             }
             if (endsAfter) {
                 messages.push(item.endenabled === false ?
-                    ((this.strings && this.strings.activityenddisabled) || 'The end date is disabled.') :
-                    ((this.strings && this.strings.activityaftertimeline) ||
-                        'The activity ends after the visible timeline.'));
+                    this.strings.activityenddisabled :
+                    this.strings.activityaftertimeline);
             }
             var baseTitle = bar.getAttribute('data-base-title') || '';
             var titleParts = baseTitle ? [baseTitle] : [];
@@ -2265,7 +2239,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
             var dateText = (range.start ? formatDateTime(range.start, this.locale) : '<<') +
                 '  \u2192  ' + (range.end ? formatDateTime(range.end, this.locale) : '>>');
             if (this.availabilityHudDateText !== dateText) {
-                this.hudTitle.textContent = (this.strings.availabilityrestriction || 'Date availability restriction') +
+                this.hudTitle.textContent = (this.strings.availabilityrestriction) +
                     ': ' + item.title;
                 this.hudDates.textContent = dateText;
                 this.availabilityHudDateText = dateText;
@@ -2572,6 +2546,17 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                 var isEndHandle = !!e.target.closest('.quest-bar-handle-end');
 
                 var mode = getBarDragMode(item, barW, clickX, isStartHandle, isEndHandle);
+
+                if (mode === 'none') {
+                    self.clickCandidate = {
+                        itemId: itemId,
+                        startX: e.clientX,
+                        startY: e.clientY,
+                        hasMoved: false,
+                        startTime: Date.now()
+                    };
+                    return;
+                }
 
                 // An activity with a disabled endpoint has no movable interval yet.
                 // Its handles are still active so dragging one enables that endpoint.
@@ -3166,6 +3151,9 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
          */
         getAdjustableChildren: function(parent) {
             var self = this;
+            if (parent.isopenstart) {
+                return [];
+            }
             return this.items.filter(function(child) {
                 return child.parentkey === parent.id && self.isItemEditable(child) &&
                     (!child.ismilestone || child.startenabled !== false);
@@ -3222,7 +3210,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                 return true;
             }
             Notification.addNotification({
-                message: this.strings.selectionempty || 'Select at least one activity first.',
+                message: this.strings.selectionempty,
                 type: 'warning'
             });
             return false;
@@ -3251,10 +3239,10 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
             button.setAttribute('aria-pressed', this.dragSnapUnit === 'days' ? 'true' : 'false');
             button.classList.toggle('btn-outline-primary', this.dragSnapUnit === 'days');
             button.classList.toggle('btn-outline-secondary', this.dragSnapUnit === 'hours');
-            var value = this.dragSnapUnit === 'days' ? (this.strings.snapdays || 'days') :
-                (this.strings.snaphours || 'hours');
+            var value = this.dragSnapUnit === 'days' ? (this.strings.snapdays) :
+                (this.strings.snaphours);
             button.querySelector('.quest-drag-snap-value').textContent = value;
-            button.title = (this.strings.snapto || 'Snap:') + ' ' + value;
+            button.title = (this.strings.snapto) + ' ' + value;
         },
 
         /** Update selection state in the Gantt and detail table. */
@@ -3303,7 +3291,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
             var summary = this.board.querySelector('.quest-selection-summary');
             if (summary) {
                 summary.textContent = this.selectedItemIds.size + ' ' +
-                    (this.strings.selectionselected || 'selected');
+                    (this.strings.selectionselected);
             }
         },
 
@@ -3480,7 +3468,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
         getSelectedDragRoots: function() {
             var self = this;
             return self.getActionItems().filter(function(item) {
-                return self.isItemInteractive(item) && self.hasDefinedSchedule(item) &&
+                return !item.isopenstart && self.isItemInteractive(item) && self.hasDefinedSchedule(item) &&
                     (!item.parentkey || !self.selectedItemIds.has(String(item.parentkey)));
             });
         },
@@ -3503,6 +3491,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
             var timelineStart = self.getTimelineStart();
             drag.selectedRoots.forEach(function(item) {
                 if (String(item.id) === String(drag.item.id) ||
+                        item.isopenstart ||
                         (item.parentkey && String(item.parentkey) === String(drag.item.id)) ||
                         (mode !== 'move' && item.ismilestone)) {
                     return;
@@ -4021,7 +4010,8 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                 if (!modalItem) {
                     return;
                 }
-                var startEnabled = modalItem.derived || !dateModalStartEnabled || dateModalStartEnabled.checked;
+                var startEnabled = !modalItem.isopenstart &&
+                    (modalItem.derived || !dateModalStartEnabled || dateModalStartEnabled.checked);
                 var endEnabled = !modalItem.isopenended &&
                     (modalItem.derived || !dateModalEndEnabled || dateModalEndEnabled.checked);
                 dateModalStartInput.disabled = !startEnabled;
@@ -4035,7 +4025,8 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                 var missingEnd = endEnabled && !eTs;
                 var visibleStart = startEnabled ? sTs : self.getTimelineStart();
                 var visibleEnd = endEnabled ? eTs : self.getTimelineEnd();
-                var badOrder = !missingStart && !missingEnd && visibleEnd <= visibleStart;
+                var badOrder = !modalItem.isopenstart && !missingStart && !missingEnd &&
+                    visibleEnd <= visibleStart;
                 dateModalStartInput.classList.toggle('is-invalid', missingStart || (badOrder && !endEnabled));
                 dateModalEndInput.classList.toggle('is-invalid', missingEnd || (badOrder && endEnabled));
                 if (dateModalDurBadge) {
@@ -4111,8 +4102,8 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
             if (!items.length) {
                 return '';
             }
-            var label = specific ? (self.strings.error_saving_affected || 'Activities to review in the table:') :
-                (self.strings.error_saving_pending || 'Activities with changes pending in the table:');
+            var label = specific ? (self.strings.error_saving_affected) :
+                (self.strings.error_saving_pending);
             var html = '<div class="mt-2"><span class="fw-bold">' + self.escapeHtml(label) + '</span>' +
                 '<ul class="mb-0 ps-3">';
             items.forEach(function(item) {
@@ -4198,8 +4189,8 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                 }
                 var badge = row.querySelector('.quest-lbl-effort');
                 if (badge) {
-                    badge.textContent = (self.strings.effortlabel || 'Effort') + ': ' +
-                        formatEffort(efforts[id], self.locale) + ' ' + (self.strings.effortpoints || 'pts');
+                    badge.textContent = (self.strings.effortlabel) + ': ' +
+                        formatEffort(efforts[id], self.locale) + ' ' + (self.strings.effortpoints);
                 }
             });
             this.updateEffortDrops();
@@ -4273,22 +4264,15 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                     selected[item.cmid] = true;
                 }
             });
-            var body = new URLSearchParams({
-                courseid: String(this.config.courseid),
-                sesskey: this.config.sesskey,
-                action: action,
-                cmids: (this.weekifyPreviewCmids || Object.keys(selected)).join(',')
-            });
-            return fetch(this.config.weekifyUrl, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
-                body: body.toString()
-            }).then(function(response) {
-                if (!response.ok) {
-                    throw new Error('HTTP ' + response.status);
+            return Ajax.call([{
+                methodname: 'local_reschedule_weekify',
+                args: {
+                    courseid: this.config.courseid,
+                    forceeditmode: this.config.forceEditMode,
+                    action: action,
+                    cmids: (this.weekifyPreviewCmids || Object.keys(selected)).map(Number)
                 }
-                return response.json();
-            });
+            }])[0];
         },
 
         /** Show the confirmation dialog after loading an actual move preview. */
@@ -4312,7 +4296,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
             if (!self.weekifyPreviewCmids.length) {
                 self.weekifyPreviewCmids = null;
                 Notification.addNotification({
-                    message: self.strings.selectionweekifyempty || 'Select a course activity row to use Weekify.',
+                    message: self.strings.selectionweekifyempty,
                     type: 'warning'
                 });
                 return;
@@ -4509,7 +4493,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
 
         /** Explain why a strategy could not be applied, keeping the dialog open. */
         reportAutoSequenceError: function(key, values) {
-            var template = this.strings[key] || 'Auto-sequence could not be applied to the selected activities.';
+            var template = this.strings[key] || this.strings.autosequencenoitems;
             var message = template.replace(/\{([a-z]+)\}/g, function(match, name) {
                 return values && Object.prototype.hasOwnProperty.call(values, name) ? String(values[name]) : match;
             });
@@ -4578,7 +4562,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                 endGroup.classList.toggle('d-none', !!item.ismilestone || !!item.isopenended);
             }
             if (startToggle) {
-                startToggle.classList.toggle('d-none', !showEndpointToggles);
+                startToggle.classList.toggle('d-none', !showEndpointToggles || !!item.isopenstart);
             }
             if (endToggle) {
                 endToggle.classList.toggle('d-none', !showEndpointToggles || !!item.isopenended);
@@ -4594,7 +4578,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                     startLabel.dataset.rangeLabel = startLabel.textContent;
                 }
                 startLabel.textContent = item.ismilestone ?
-                    (self.strings.milestonedate || 'Milestone date') :
+                    (self.strings.milestonedate) :
                     startLabel.dataset.rangeLabel;
             }
 
@@ -4605,7 +4589,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                 titleEl.textContent = item.title;
             }
             if (typeBadge) {
-                typeBadge.textContent = item.typelabel || (item.issubtype ? 'Phase' : 'Activity');
+                typeBadge.textContent = item.typelabel || (item.issubtype ? self.strings.phase : self.strings.activity);
             }
             if (durBadge) {
                 durBadge.textContent = formatItemDuration(item);
@@ -4615,9 +4599,9 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                 startInput.value = item.ismilestone && item.dateonly ?
                     timestampToDateTimeLocal(item.datestart).split('T')[0] :
                     timestampToDateTimeLocal(item.datestart);
-                startInput.disabled = item.ismilestone ?
+                startInput.disabled = !!item.isopenstart || (item.ismilestone ?
                     !!item.optional && item.startenabled === false :
-                    showEndpointToggles && item.startenabled === false;
+                    showEndpointToggles && item.startenabled === false);
                 startInput.required = !startInput.disabled;
                 startInput.classList.remove('is-invalid');
             }
@@ -4751,7 +4735,8 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
 
             var startEnabledInput = document.getElementById('date-modal-start-enabled');
             var endEnabledInput = document.getElementById('date-modal-end-enabled');
-            var startEnabled = item.derived || !startEnabledInput || startEnabledInput.checked;
+            var startEnabled = !item.isopenstart &&
+                (item.derived || !startEnabledInput || startEnabledInput.checked);
             var endEnabled = !item.isopenended &&
                 (item.derived || !endEnabledInput || endEnabledInput.checked);
             var enteredStart = startEnabled ? dateTimeLocalToTimestamp(startInput.value) : 0;
@@ -4790,15 +4775,14 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                 }
             }
 
-            if (!newStart || !newEnd || newEnd <= newStart) {
+            if (!newStart || !newEnd || (!item.isopenstart && newEnd <= newStart)) {
                 if (errorEl) {
                     errorEl.classList.remove('d-none');
                 }
                 if (errorText && parent && !parent.derived &&
                         ((startEnabled && item.boundtoparentstart !== false) ||
                             (endEnabled && item.boundtoparentend !== false))) {
-                    errorText.textContent = (self.strings && self.strings.subactivityparentbounds) ||
-                        'The subactivity must remain within the parent activity timeframe.';
+                    errorText.textContent = self.strings.subactivityparentbounds;
                 } else if (errorText) {
                     errorText.textContent = errorText.dataset.orderMessage;
                 }
@@ -5677,8 +5661,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                     self.unsavedAlert.classList.add('invisible');
                 }
                 Notification.addNotification({
-                    message: (self.strings && self.strings.noschedulablechanges) ||
-                        'There are no editable schedule changes to save.',
+                    message: self.strings.noschedulablechanges,
                     type: 'warning'
                 });
                 return;
@@ -5686,11 +5669,16 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
 
             var originalHtml = self.saveBtn.innerHTML;
             self.saveBtn.disabled = true;
-            self.saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Saving...';
+            self.saveBtn.replaceChildren();
+            var spinner = document.createElement('span');
+            spinner.className = 'spinner-border spinner-border-sm me-1';
+            spinner.setAttribute('role', 'status');
+            self.saveBtn.appendChild(spinner);
+            self.saveBtn.appendChild(document.createTextNode(' ' + self.strings.saving));
 
             var payload = {
                 courseid: self.config.courseid,
-                sesskey: self.config.sesskey,
+                forceeditmode: self.config.forceEditMode,
                 items: changedItems.map(function(it) {
                     var initial = self.initialItems.find(function(original) {
                         return String(original.id) === String(it.id);
@@ -5715,32 +5703,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                 })
             };
 
-            fetch(self.config.saveUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(payload)
-            })
-            .then(function(res) {
-                return res.text().then(function(text) {
-                    var json = null;
-                    try {
-                        json = JSON.parse(text);
-                    } catch (e) {
-                        // Not valid JSON.
-                    }
-
-                    if (!json) {
-                        var snippet = text ? text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : '';
-                        if (snippet.length > 200) {
-                            snippet = snippet.substring(0, 200) + '...';
-                        }
-                        throw new Error('Server returned HTTP ' + res.status + (snippet ? ': ' + snippet : ''));
-                    }
-                    return json;
-                });
-            })
+            Ajax.call([{methodname: 'local_reschedule_save_schedule', args: payload}])[0]
             .then(function(data) {
                 self.saveBtn.innerHTML = originalHtml;
                 if (data && data.success) {
@@ -5752,9 +5715,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                     if (self.unsavedAlert) {
                         self.unsavedAlert.classList.add('invisible');
                     }
-                    var successMsg = data.message ||
-                        (self.strings && self.strings.schedulesaved) ||
-                        'Schedule successfully saved.';
+                    var successMsg = data.message || self.strings.schedulesaved;
                     var hasWarnings = !!(data.warnings && data.warnings.length);
                     var notice = self.escapeHtml(successMsg).replace(/\n/g, '<br>');
                     if (hasWarnings) {
@@ -5766,10 +5727,8 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                     });
                 } else {
                     self.saveBtn.disabled = false;
-                    var headerText = (self.strings && self.strings.error_saving_header) ?
-                        self.strings.error_saving_header : 'Could not save schedule';
-                    var defaultError = (self.strings && self.strings.error_saving) ?
-                        self.strings.error_saving : 'An error occurred while saving the schedule.';
+                    var headerText = self.strings.error_saving_header;
+                    var defaultError = self.strings.error_saving;
 
                     var errorList = [];
                     if (data && data.errors && Array.isArray(data.errors) && data.errors.length > 0) {
@@ -5779,7 +5738,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
                     } else if (data && data.error) {
                         errorList = [data.error];
                     } else if (data && data.errorcode) {
-                        errorList = ['Error code: ' + data.errorcode];
+                        errorList = [self.strings.errorcode + ': ' + data.errorcode];
                     } else {
                         errorList = [defaultError];
                     }
@@ -5809,8 +5768,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table'],
             .catch(function(err) {
                 self.saveBtn.innerHTML = originalHtml;
                 self.saveBtn.disabled = false;
-                var headerText = (self.strings && self.strings.error_saving_header) ?
-                    self.strings.error_saving_header : 'Could not save schedule';
+                var headerText = self.strings.error_saving_header;
                 var errText = (err && err.message) ? err.message : String(err);
                 var html = '<div><strong>' + self.escapeHtml(headerText) + '</strong>' +
                     '<div class="mt-1">' + self.escapeHtml(errText) + '</div>' +

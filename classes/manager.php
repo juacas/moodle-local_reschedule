@@ -90,6 +90,13 @@ class manager {
     public static function get_course_items(int $courseid): array {
         global $DB, $OUTPUT;
 
+        // Extractors load module records at construction. Begin each schedule
+        // read with fresh instances so dates changed since the previous read
+        // cannot leak into this one, including when PHPUnit reuses IDs.
+        adapter_manager::reset_cache();
+        \local_reschedule\adapter\editdates_bridge::reset_cache();
+        \local_reschedule\extractor\extractor_factory::reset_cache();
+
         $rules = self::get_mapping_rules();
         $dbman = $DB->get_manager();
         $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
@@ -588,10 +595,17 @@ class manager {
             $dependencies = \local_reschedule\adapter\editdates_bridge::discover_date_dependencies(
                 $cm, $extractor, $settings);
             $datefieldmap = array_fill_keys($datefields, true);
-            $dependencies = array_values(array_filter($dependencies, static function(array $dependency) use ($datefieldmap): bool {
-                return isset($datefieldmap[$dependency['startfield']]) &&
-                    isset($datefieldmap[$dependency['endfield']]);
-            }));
+            // An ordering rule does not necessarily describe a work interval.
+            // Extractors may identify point dates that must remain milestones.
+            $pointfields = method_exists($extractor, 'get_reschedule_point_fields') ?
+                array_fill_keys($extractor->get_reschedule_point_fields(), true) : [];
+            $dependencies = array_values(array_filter($dependencies,
+                static function(array $dependency) use ($datefieldmap, $pointfields): bool {
+                    return isset($datefieldmap[$dependency['startfield']]) &&
+                        isset($datefieldmap[$dependency['endfield']]) &&
+                        !isset($pointfields[$dependency['startfield']]) &&
+                        !isset($pointfields[$dependency['endfield']]);
+                }));
             usort($dependencies, static function(array $left, array $right): int {
                 return $left['declarationstart'] <=> $right['declarationstart'] ?:
                     $left['declarationend'] <=> $right['declarationend'];
@@ -606,9 +620,35 @@ class manager {
                     (int)($settings[$field]->currentvalue ?? 0);
             };
 
+            // An extractor may identify an end date whose interval has no
+            // stored start. Keep the start unset instead of inventing a date.
+            if (empty($parentitem['mappedrule']) && empty($parentitem['startcol']) &&
+                    empty($parentitem['endcol']) && method_exists($extractor, 'get_reschedule_end_fields')) {
+                foreach ($extractor->get_reschedule_end_fields() as $endfield) {
+                    if (!isset($datefieldmap[$endfield])) {
+                        continue;
+                    }
+                    $endvalue = $getdate($endfield);
+                    $parentitem['endcol'] = $endfield;
+                    $parentitem['startenabled'] = false;
+                    $parentitem['endenabled'] = $endvalue > 0;
+                    $parentitem['datestart'] = $coursestart;
+                    $parentitem['dateend'] = $endvalue > 0 ? $endvalue : $courseend;
+                    $parentitem['isopenstart'] = true;
+                    $parentitem['isdateinterval'] = true;
+                    $parentitem['editable'] = true;
+                    $parentitem['interactive'] = true;
+                    break;
+                }
+            }
+
             $mappedrange = !empty($parentitem['mappedrule']) ||
-                (!empty($parentitem['startcol']) && !empty($parentitem['endcol']));
+                (!empty($parentitem['startcol']) && !empty($parentitem['endcol'])) ||
+                !empty($parentitem['isopenstart']);
             $usedfields = [];
+            if (!empty($parentitem['isopenstart'])) {
+                $usedfields[$parentitem['endcol']] = true;
+            }
 
             // For an unmapped activity, the earliest dependency pair defines
             // the activity interval. If earlier declarations are independent,
@@ -912,7 +952,8 @@ class manager {
         $proposeddates = [];
         foreach ($updates as $up) {
             $candidate = $itemmap[$up['id'] ?? ''] ?? null;
-            if (!$candidate || empty($candidate['cmid']) || empty($candidate['startcol']) ||
+            if (!$candidate || empty($candidate['cmid']) ||
+                    (empty($candidate['startcol']) && empty($candidate['endcol'])) ||
                     ($candidate['editable'] ?? true) === false ||
                     (!empty($candidate['issubtype']) && empty($candidate['ismilestone']) &&
                         empty($candidate['isdateinterval']) && empty($candidate['isopenended']))) {
@@ -962,6 +1003,13 @@ class manager {
             $activitychanged = $storedstart !== $currentstart || $storedend !== $currentend ||
                     $startenabled !== ($item['startenabled'] ?? true) ||
                     $endenabled !== ($item['endenabled'] ?? true);
+
+            if (!empty($item['isopenstart']) && ($startenabled || $storedstart !== 0)) {
+                $message = ($item['title'] ?? $key) . ': ' . get_string('openstart', 'local_reschedule');
+                $validationerrors[] = $message;
+                $validationitemerrors[] = ['id' => $key, 'message' => $message];
+                continue;
+            }
 
             $availabilitychanged = false;
             $availabilityupdates = null;
@@ -1099,6 +1147,12 @@ class manager {
         }
 
         $transaction->allow_commit();
+
+        // Adapters and extractors keep course and module records in memory.
+        // The next read or adapter use must see the committed dates.
+        adapter_manager::reset_cache();
+        \local_reschedule\adapter\editdates_bridge::reset_cache();
+        \local_reschedule\extractor\extractor_factory::reset_cache();
 
         // Phase 3: Course cache rebuild.
         rebuild_course_cache($courseid, true);

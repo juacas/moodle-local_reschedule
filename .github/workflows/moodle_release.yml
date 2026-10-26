@@ -12,7 +12,25 @@ on:
         type: string
 
 jobs:
+  verify-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Check Moodle plugin archive root
+        run: |
+          git archive --format=zip --prefix=reschedule/ -o /tmp/local_reschedule.zip HEAD
+          unzip -Z1 /tmp/local_reschedule.zip > /tmp/reschedule-files.txt
+          test -s /tmp/reschedule-files.txt
+          if grep -v '^reschedule/' /tmp/reschedule-files.txt; then
+            echo 'Archive contains files outside reschedule/' >&2
+            exit 1
+          fi
+          grep -qx 'reschedule/version.php' /tmp/reschedule-files.txt
+          grep -qx 'reschedule/LICENSE' /tmp/reschedule-files.txt
   release-to-marketplace:
+    needs: verify-package
     uses: moodlehq/moodle-plugin-release/.github/workflows/moodle-release.yml@main
     with:
       tag: ${{ inputs.tag }}

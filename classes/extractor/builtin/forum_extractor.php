@@ -24,6 +24,7 @@ use report_editdates_date_setting;
  * Replicated date extractor for the forum activity module.
  *
  * @package    local_reschedule
+ * @copyright  2012 The Open University (based on report_editdates)
  * @copyright  2026 Juan Pablo de Castro
  * @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -37,6 +38,24 @@ class forum_extractor extends base_builtin_extractor {
     public function __construct($course) {
         parent::__construct($course, 'forum');
         parent::load_data();
+    }
+
+    /**
+     * The due date is a point; the cutoff ends the forum's activity interval.
+     *
+     * @return string[] Date fields represented as milestones.
+     */
+    public function get_reschedule_point_fields(): array {
+        return ['duedate'];
+    }
+
+    /**
+     * The cutoff closes a forum interval whose start is not specified.
+     *
+     * @return string[] Date fields used as open-start interval ends.
+     */
+    public function get_reschedule_end_fields(): array {
+        return ['cutoffdate'];
     }
 
     #[\Override]
