@@ -35,7 +35,9 @@ final class mapping {
   {"module":"feedback","title":"name","label":"Feedback","kind":"range","start":"timeopen","end":"timeclose"},
   {"module":"choice","title":"name","label":"Choice","kind":"range","start":"timeopen","end":"timeclose"},
   {"module":"data","title":"name","label":"Database","kind":"range","start":"timeavailablefrom","end":"timeavailableto"},
-  {"module":"scorm","title":"name","label":"SCORM","kind":"range","start":"timeopen","end":"timeclose"}
+  {"module":"scorm","title":"name","label":"SCORM","kind":"range","start":"timeopen","end":"timeclose"},
+  {"module":"treasurehunt","title":"name","label":"Treasure hunt","kind":"range",
+   "start":"allowattemptsfromdate","end":"cutoffdate","optional":true}
 ]
 JSON;
 

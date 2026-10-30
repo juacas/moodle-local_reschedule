@@ -31,7 +31,6 @@ class admin_setting_mapping extends \admin_setting_configtextarea {
      * @return bool|string True or a validation message.
      */
     public function validate($data) {
-        global $DB;
         $raw = trim((string)$data);
         if ($raw === '') {
             return true;
@@ -43,42 +42,6 @@ class admin_setting_mapping extends \admin_setting_configtextarea {
         }
         if (count(mapping::parse($raw)) !== count($entries)) {
             return get_string('mappinginvalidrules', 'local_reschedule');
-        }
-        $mainmodules = [];
-        foreach ($entries as $entry) {
-            if (empty($entry['parent'])) {
-                $name = (string)($entry['module'] ?? '');
-                if (isset($mainmodules[$name])) {
-                    return get_string('mappinginvalidrules', 'local_reschedule');
-                }
-                $mainmodules[$name] = true;
-            }
-        }
-        $dbman = $DB->get_manager();
-        foreach ($entries as $entry) {
-            if (in_array($entry['module'] ?? '', mapping::OWNED_MODULES, true) ||
-                    in_array($entry['parent'] ?? '', mapping::OWNED_MODULES, true)) {
-                return get_string('mappingownedrule', 'local_reschedule');
-            }
-            $table = (string)$entry['module'];
-            $parent = (string)($entry['parent'] ?? '');
-            if (!$dbman->table_exists($table) ||
-                    ($parent === '' && !$dbman->field_exists($table, 'course')) ||
-                    ($parent !== '' && !isset($mainmodules[$parent]))) {
-                return get_string('mappinginvalidrules', 'local_reschedule');
-            }
-            $fields = [(string)$entry['title'], (string)$entry['start']];
-            if (($entry['kind'] ?? 'range') === 'range') {
-                $fields[] = (string)$entry['end'];
-            }
-            if ($parent !== '' && $parent !== $table) {
-                $fields[] = (string)($entry['fk'] ?? $parent . 'id');
-            }
-            foreach ($fields as $field) {
-                if (!$dbman->field_exists($table, $field)) {
-                    return get_string('mappinginvalidrules', 'local_reschedule');
-                }
-            }
         }
         return true;
     }
@@ -153,6 +116,12 @@ class admin_setting_mapping extends \admin_setting_configtextarea {
                 'originform' => get_string('mappingoriginform', 'local_reschedule'),
                 'originschema' => get_string('mappingoriginschema', 'local_reschedule'),
                 'ownedrule' => get_string('mappingownedrule', 'local_reschedule'),
+                'incompatible' => get_string('mappingincompatible', 'local_reschedule'),
+                'incompatiblemodule' => get_string('mappingincompatiblemodule', 'local_reschedule'),
+                'incompatiblefield' => get_string('mappingincompatiblefield', 'local_reschedule'),
+                'incompatiblecourse' => get_string('mappingincompatiblecourse', 'local_reschedule'),
+                'incompatibleparent' => get_string('mappingincompatibleparent', 'local_reschedule'),
+                'incompatibleduplicate' => get_string('mappingincompatibleduplicate', 'local_reschedule'),
             ],
         ];
         $PAGE->requires->js_call_amd('local_reschedule/mapping_editor', 'init', [$this->get_id()]);

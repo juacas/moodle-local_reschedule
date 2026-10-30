@@ -75,6 +75,31 @@ final class mapping_test extends advanced_testcase {
             $modules['choice']['fields']);
     }
 
+    public function test_default_mapping_includes_optional_treasurehunt_range(): void {
+        $rules = mapping::effective_rules(null);
+        $treasurehunt = array_values(array_filter($rules,
+            static fn(array $rule): bool => $rule['table'] === 'treasurehunt'));
+
+        $this->assertCount(1, $treasurehunt);
+        $this->assertSame('allowattemptsfromdate', $treasurehunt[0]['startcol']);
+        $this->assertSame('cutoffdate', $treasurehunt[0]['endcol']);
+        $this->assertTrue($treasurehunt[0]['optional']);
+    }
+
+    public function test_formally_valid_rule_for_missing_module_can_be_saved(): void {
+        $setting = new admin_setting_mapping('local_reschedule/testmapping', 'Mapping', '', '[]');
+        $json = json_encode([[
+            'module' => 'module_not_installed',
+            'title' => 'name',
+            'label' => 'Missing module',
+            'kind' => 'range',
+            'start' => 'timeopen',
+            'end' => 'timeclose',
+        ]], JSON_THROW_ON_ERROR);
+
+        $this->assertTrue($setting->validate($json));
+    }
+
     public function test_open_rule_updates_only_its_start_field(): void {
         $this->resetAfterTest(true);
         $this->setAdminUser();

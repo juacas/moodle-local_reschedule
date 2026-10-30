@@ -40,6 +40,7 @@ final class mapping_discovery {
             }
             $formfile = $CFG->dirroot . '/mod/' . $name . '/mod_form.php';
             $fields = [];
+            $columns = $DB->get_columns($name);
             if (is_readable($formfile)) {
                 $source = file_get_contents($formfile);
                 // A form can declare controls over several lines and may use either quote style.
@@ -60,7 +61,7 @@ final class mapping_discovery {
             // Modules often add form controls through helpers; schema names remain useful hints.
             $dateprefixpattern = '/^(date|time|start|end|open|close|due|deadline|cutoff|available|' .
                 'submission|assessment|assess)/i';
-            foreach ($DB->get_columns($name) as $column) {
+            foreach ($columns as $column) {
                 $field = $column->name;
                 if (isset($fields[$field]) ||
                         !preg_match($dateprefixpattern, $field) ||
@@ -100,6 +101,8 @@ final class mapping_discovery {
                 'owned' => in_array($name, mapping::OWNED_MODULES, true),
                 'fields' => array_values($fields),
                 'pairs' => $pairs,
+                'columns' => array_keys($columns),
+                'hascourse' => isset($columns['course']),
                 'title' => $dbman->field_exists($name, 'name') ? 'name' :
                     ($dbman->field_exists($name, 'title') ? 'title' : ''),
             ];

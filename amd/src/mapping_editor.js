@@ -69,8 +69,70 @@ define([], function() {
         const write = () => {
             textarea.value = JSON.stringify(rules, null, 2);
         };
+        const expandedRules = new Set();
         let suggestionid = 0;
         let controlid = 0;
+        const getCompatibilityIssues = (rule, index) => {
+            const issues = [];
+            const moduleName = rule.module || '';
+            const info = modules[moduleName];
+            if (owned.has(moduleName) || owned.has(rule.parent)) {
+                issues.push(s.ownedrule);
+            }
+            if (!info) {
+                issues.push(s.incompatiblemodule + ': ' + (moduleName || '—'));
+                return issues;
+            }
+            if (!rule.parent && !info.hascourse) {
+                issues.push(s.incompatiblecourse + ': ' + moduleName + '.course');
+            }
+            if (rule.parent && !rules.some(candidate => !candidate.parent && candidate.module === rule.parent)) {
+                issues.push(s.incompatibleparent + ': ' + rule.parent);
+            }
+            if (!rule.parent && rules.some((candidate, candidateIndex) => candidateIndex !== index &&
+                    !candidate.parent && candidate.module === moduleName)) {
+                issues.push(s.incompatibleduplicate + ': ' + moduleName);
+            }
+            const fields = [rule.title, rule.start];
+            if (rule.kind === 'range') {
+                fields.push(rule.end);
+            }
+            if (rule.parent && rule.parent !== moduleName) {
+                fields.push(rule.fk || rule.parent + 'id');
+            }
+            const columns = new Set(info.columns || []);
+            fields.filter(Boolean).filter(field => !columns.has(field)).forEach(field => {
+                issues.push(s.incompatiblefield + ': ' + moduleName + '.' + field);
+            });
+            return issues;
+        };
+        const markCompatibility = (card, rule, index) => {
+            const issues = getCompatibilityIssues(rule, index);
+            const summary = card.querySelector('.local-reschedule-mapping-summary');
+            const body = card.querySelector('.local-reschedule-mapping-rule-body');
+            const previous = body.querySelector('.local-reschedule-mapping-incompatibility');
+            if (previous) {
+                previous.remove();
+            }
+            card.classList.toggle('is-incompatible', issues.length > 0);
+            summary.setAttribute('aria-invalid', issues.length > 0 ? 'true' : 'false');
+            summary.title = issues.join('\n');
+            if (!issues.length) {
+                return;
+            }
+            const alert = create('div',
+                'local-reschedule-mapping-incompatibility alert alert-danger py-2 mb-3');
+            alert.appendChild(create('strong', 'd-block', s.incompatible));
+            const details = create('ul', 'mb-0 ps-3');
+            issues.forEach(issue => details.appendChild(create('li', '', issue)));
+            alert.appendChild(details);
+            body.prepend(alert);
+        };
+        const refreshCompatibility = () => {
+            list.querySelectorAll('.local-reschedule-mapping-rule').forEach((card, index) => {
+                markCompatibility(card, rules[index], index);
+            });
+        };
         const addHeading = (container, input, label, key) => {
             input.id = 'reschedule-mapping-field-' + (++controlid);
             const heading = create('div', 'd-flex align-items-center');
@@ -162,6 +224,7 @@ define([], function() {
                     }
                 }
                 write();
+                refreshCompatibility();
             });
             addHeading(wrap, input, label, key);
             wrap.appendChild(input);
@@ -171,21 +234,36 @@ define([], function() {
         const render = () => {
             list.replaceChildren();
             rules.forEach((rule, index) => {
-                const card = create('div', 'border rounded p-3 my-2');
-                const title = create('div', 'd-flex justify-content-between align-items-center mb-2');
-                title.appendChild(create('strong', '', (index + 1) + '. ' + (rule.label || rule.module || s.add)));
+                const card = create('details', 'local-reschedule-mapping-rule border rounded my-2');
+                card.open = expandedRules.has(rule);
+                card.addEventListener('toggle', () => {
+                    if (card.open) {
+                        expandedRules.add(rule);
+                    } else {
+                        expandedRules.delete(rule);
+                    }
+                });
+                const summary = create('summary',
+                    'local-reschedule-mapping-summary d-flex align-items-center gap-2 p-3');
+                const title = create('strong', 'me-auto',
+                    (index + 1) + '. ' + (rule.label || rule.module || s.add));
+                summary.appendChild(title);
+                const kindLabels = {range: s.range, milestone: s.milestone, open: s.open};
+                summary.appendChild(create('span', 'badge bg-light text-secondary border',
+                    s.type + ': ' + (kindLabels[rule.kind] || rule.kind || s.range)));
                 const remove = create('button', 'btn btn-sm btn-outline-danger', s.remove);
                 remove.type = 'button';
-                remove.addEventListener('click', () => {
+                remove.addEventListener('click', event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    expandedRules.delete(rule);
                     rules.splice(index, 1);
                     write();
                     render();
                 });
-                title.appendChild(remove);
-                card.appendChild(title);
-                if (owned.has(rule.module) || owned.has(rule.parent)) {
-                    card.appendChild(create('div', 'alert alert-warning py-2', s.ownedrule));
-                }
+                summary.appendChild(remove);
+                card.appendChild(summary);
+                const body = create('div', 'local-reschedule-mapping-rule-body px-3 pb-3');
                 const grid = create('div', 'row row-cols-1 row-cols-md-3 g-2');
                 const cell = () => {
                     const col = create('div', 'col');
@@ -201,7 +279,7 @@ define([], function() {
                     datalist.appendChild(option);
                 });
                 moduleinput.setAttribute('list', datalist.id);
-                card.appendChild(datalist);
+                body.appendChild(datalist);
                 addField(cell(), rule, 'kind', s.type, [
                     ['range', s.range], ['milestone', s.milestone], ['open', s.open],
                 ]);
@@ -269,7 +347,7 @@ define([], function() {
                 ['optional', 'dateonly', 'boundstart', 'boundend', 'editable'].forEach(key => {
                     addField(cell(), rule, key, s[key], null, 'check');
                 });
-                card.appendChild(grid);
+                body.appendChild(grid);
                 if (info && info.pairs.length) {
                     const suggestions = create('div', 'mt-2 small');
                     suggestions.appendChild(create('span', 'me-2', s.suggestions + ':'));
@@ -286,14 +364,18 @@ define([], function() {
                         });
                         suggestions.appendChild(button);
                     });
-                    card.appendChild(suggestions);
+                    body.appendChild(suggestions);
                 }
+                card.appendChild(body);
                 list.appendChild(card);
+                markCompatibility(card, rule, index);
             });
         };
         add.addEventListener('click', () => {
-            rules.push({module: '', title: 'name', label: '', kind: 'range', start: '', end: '',
-                availability: 'auto', editable: true});
+            const rule = {module: '', title: 'name', label: '', kind: 'range', start: '', end: '',
+                availability: 'auto', editable: true};
+            rules.push(rule);
+            expandedRules.add(rule);
             write();
             render();
         });
