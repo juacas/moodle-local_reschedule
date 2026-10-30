@@ -60,19 +60,32 @@ class manager {
     /**
      * Compute effective course start and end timestamps.
      *
+     * When the course has no valid end date, dated schedule items provide the
+     * visible end. The fixed fallback is kept only for completely undated
+     * courses and for the first extraction pass that discovers those items.
+     *
      * @param \stdClass $course Course object.
+     * @param array $items Extracted schedule items, if already available.
      * @return array Associative array with 'start' and 'end' keys.
      */
-    public static function get_course_timeframe(\stdClass $course): array {
+    public static function get_course_timeframe(\stdClass $course, array $items = []): array {
         $start = (int)$course->startdate;
         if ($start <= 0) {
             $start = (int)($course->timecreated ?? time());
         }
 
         $end = (int)$course->enddate;
-        // If end date is missing or not greater than start date, default to 4 months (120 days) after start.
         if ($end <= 0 || $end <= $start) {
-            $end = $start + (120 * 86400);
+            $latestitemdate = 0;
+            foreach ($items as $item) {
+                if (!empty($item['startenabled'])) {
+                    $latestitemdate = max($latestitemdate, (int)($item['datestart'] ?? 0));
+                }
+                if (!empty($item['endenabled'])) {
+                    $latestitemdate = max($latestitemdate, (int)($item['dateend'] ?? 0));
+                }
+            }
+            $end = $latestitemdate > $start ? $latestitemdate : $start + (120 * DAYSECS);
         }
 
         return [
@@ -260,7 +273,7 @@ class manager {
                     'optional' => $rule['optional'],
                     'dateonly' => $rule['dateonly'],
                     'availabilitymapping' => $rule['availability'],
-                    'effort' => mapping::estimate($rule['effortestimator'], $rawstart, $rawend),
+                    'effort' => mapping::estimate($rule['effortestimator'], $ds, $de),
                     'effortestimator' => $rule['effortestimator'],
                     'startenabled' => $startenabled,
                     'endenabled' => $endenabled,
@@ -367,7 +380,7 @@ class manager {
                         'dateonly' => $rule['dateonly'],
                         'boundtoparentstart' => $rule['boundtoparentstart'],
                         'boundtoparentend' => $rule['boundtoparentend'],
-                        'effort' => mapping::estimate($rule['effortestimator'], $rawstart, $rawend),
+                        'effort' => mapping::estimate($rule['effortestimator'], $ds, $de),
                         'effortestimator' => $rule['effortestimator'],
                         'startenabled' => $startenabled,
                         'endenabled' => $endenabled,
@@ -478,7 +491,7 @@ class manager {
                         'dateonly' => $rule['dateonly'],
                         'boundtoparentstart' => $rule['boundtoparentstart'],
                         'boundtoparentend' => $rule['boundtoparentend'],
-                        'effort' => mapping::estimate($rule['effortestimator'], $rawstart, $rawend),
+                        'effort' => mapping::estimate($rule['effortestimator'], $ds, $de),
                         'effortestimator' => $rule['effortestimator'],
                         'startenabled' => $startenabled,
                         'endenabled' => $endenabled,
@@ -899,6 +912,10 @@ class manager {
             }
         }
         unset($ordereditem);
+
+        // Manual estimates are stored against durable row locators. Apply
+        // leaf overrides before calculating parent totals.
+        effort_store::apply($courseid, $ordereditems);
 
         // A parent with duration subactivities displays their combined effort.
         // Point milestones are excluded, just as they are from the effort plot.

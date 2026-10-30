@@ -66,10 +66,10 @@ $PAGE->set_title(get_string('rescheduletitle', 'local_reschedule'));
 $PAGE->set_heading($course->fullname);
 $editing = local_reschedule_user_is_editing($forceeditmode);
 
-$timeframe = \local_reschedule\manager::get_course_timeframe($course);
+$items = \local_reschedule\manager::get_course_items($courseid);
+$timeframe = \local_reschedule\manager::get_course_timeframe($course, $items);
 $coursestart = $timeframe['start'];
 $courseend = $timeframe['end'];
-$items = \local_reschedule\manager::get_course_items($courseid);
 
 $cmids = array_filter(array_map('intval', preg_split('/,/', $cmidsparam, -1, PREG_SPLIT_NO_EMPTY)));
 if ($singlecmid > 0) {
@@ -115,6 +115,41 @@ if ($timelineend <= $timelinestart) {
     $timelineend = $courseend;
 }
 
+// Open intervals use the effective Gantt bounds for display and effort density.
+foreach ($items as &$item) {
+    if (!empty($item['ismilestone'])) {
+        continue;
+    }
+    if (empty($item['startenabled'])) {
+        $item['datestart'] = $timelinestart;
+    }
+    if (empty($item['endenabled'])) {
+        $item['dateend'] = $timelineend;
+    }
+    if (($item['effortsource'] ?? '') === 'mapping' &&
+            ($item['effortestimator']['model'] ?? '') === 'perday') {
+        $item['effort'] = \local_reschedule\mapping::estimate(
+            $item['effortestimator'], (int)$item['datestart'], (int)$item['dateend']);
+    }
+}
+unset($item);
+
+// Recalculate derived parents after bounded child estimates have changed.
+$parentsums = [];
+foreach ($items as $item) {
+    if (!empty($item['issubtype']) && empty($item['ismilestone']) && !empty($item['parentkey'])) {
+        $parentsums[(string)$item['parentkey']] = ($parentsums[(string)$item['parentkey']] ?? 0) +
+            (float)($item['effort'] ?? 0);
+    }
+}
+foreach ($items as &$item) {
+    if (isset($parentsums[(string)$item['id']])) {
+        $item['effort'] = round($parentsums[(string)$item['id']], 4);
+        $item['effortsource'] = 'children';
+    }
+}
+unset($item);
+
 $dateformat = get_string('strftimedatetimeshort', 'langconfig');
 $itemsforview = [];
 
@@ -155,6 +190,9 @@ foreach ($items as $item) {
         'startformatted' => !empty($item['startenabled']) ? userdate($item['datestart'], $dateformat) : '',
         'endformatted' => !empty($item['endenabled']) ? userdate($item['dateend'], $dateformat) : '',
         'durationformatted' => $durstr,
+        'efforteditable' => $editing && empty($item['ismilestone']) &&
+            !in_array($item['effortsource'] ?? '', ['adapter', 'children'], true),
+        'effortformatted' => number_format((float)($item['effort'] ?? 0), 1, '.', ''),
     ]);
 }
 
@@ -178,6 +216,7 @@ $templatecontext = [
     'editing' => $editing,
     'readonly' => !$editing,
     'forceeditmode' => $forceeditmode,
+    'effortmodel' => \local_reschedule\effort_store::get_model($courseid),
     'language' => current_language(),
 ];
 

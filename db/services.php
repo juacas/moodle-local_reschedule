@@ -41,4 +41,12 @@ $functions = [
         'ajax' => true,
         'capabilities' => 'moodle/course:manageactivities',
     ],
+    'local_reschedule_save_efforts' => [
+        'classname' => \local_reschedule\external\save_efforts::class,
+        'methodname' => 'execute',
+        'description' => 'Save course activity effort estimates.',
+        'type' => 'write',
+        'ajax' => true,
+        'capabilities' => 'moodle/course:manageactivities',
+    ],
 ];

@@ -39,7 +39,7 @@ class adapter_manager {
     /** @var int Estimated effort for activity types without a specific weight. */
     private const DEFAULT_EFFORT = 5;
 
-    /** @var array<string, int> Estimated total effort points by Moodle activity module. */
+    /** @var array<string, int> Estimated total work hours by Moodle activity module. */
     private const EFFORT_WEIGHTS = [
         'offlinequiz' => 0,
         'choice' => 1,
@@ -80,7 +80,7 @@ class adapter_manager {
      * each weight over the item's dated interval according to the chosen model.
      *
      * @param string $modname Moodle activity module name.
-     * @return int Effort points, from 0 to 10.
+     * @return int Estimated work hours, from 0 to 10.
      */
     public static function get_effort(string $modname): int {
         return self::EFFORT_WEIGHTS[$modname] ?? self::DEFAULT_EFFORT;

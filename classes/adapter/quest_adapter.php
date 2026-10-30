@@ -36,7 +36,7 @@ class quest_adapter extends base_adapter {
      *
      * @param int|null $minutes Estimated answer time in minutes.
      * @param int|null $difficulty 0 easy, 1 attainable, 2 hard.
-     * @return float|null Effort points, or null when no duration is available.
+     * @return float|null Estimated work hours, or null when no duration is available.
      */
     public static function estimate_effort(?int $minutes, ?int $difficulty): ?float {
         if ($minutes === null || $minutes <= 0) {

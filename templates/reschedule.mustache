@@ -27,6 +27,7 @@
     data-courseid="{{courseid}}"
     data-editing="{{#editing}}1{{/editing}}{{^editing}}0{{/editing}}"
     data-force-editmode="{{#forceeditmode}}1{{/forceeditmode}}{{^forceeditmode}}0{{/forceeditmode}}"
+    data-effort-model="{{effortmodel}}"
     data-course-start="{{coursestart}}"
     data-course-end="{{courseend}}"
     data-timeline-start="{{timelineStart}}"
@@ -56,7 +57,7 @@
     data-effort-weekly-unit="{{#str}}effortweeklyunit, local_reschedule{{/str}}"
     data-effort-settings="{{#str}}effortsettings, local_reschedule{{/str}}"
     data-effort-label="{{#str}}effortlabel, local_reschedule{{/str}}"
-    data-effort-points="{{#str}}effortpoints, local_reschedule{{/str}}"
+    data-effort-hours="{{#str}}efforthours, local_reschedule{{/str}}"
     data-effort-table-title="{{#str}}efforttabletitle, local_reschedule{{/str}}"
     data-effort-table-hours="{{#str}}efforttablehours, local_reschedule{{/str}}"
     data-effort-table-adapter="{{#str}}efforttableadapter, local_reschedule{{/str}}"
@@ -252,6 +253,7 @@
                             <th scope="col" style="width: 160px;">{{#str}}type, local_reschedule{{/str}}</th>
                             <th scope="col" style="width: 170px;">{{#str}}datestart, local_reschedule{{/str}}</th>
                             <th scope="col" style="width: 170px;">{{#str}}dateend, local_reschedule{{/str}}</th>
+                            <th scope="col" style="width: 130px;">{{#str}}effortlabel, local_reschedule{{/str}}</th>
                             <th scope="col" style="width: 120px;" class="text-center">{{#str}}duration, local_reschedule{{/str}}</th>
                         </tr>
                     </thead>
@@ -287,6 +289,15 @@
                             <td class="col-datestart text-nowrap {{^interactive}}date-cell-disabled{{/interactive}}"{{#interactive}} role="button" title="{{#interactreason}}{{interactreason}}{{/interactreason}}{{^interactreason}}{{#str}}clicktoeditdate, local_reschedule{{/str}}{{/interactreason}}" tabindex="0"{{/interactive}}{{^interactive}} aria-disabled="true" title="{{#editreason}}{{editreason}}{{/editreason}}{{^editreason}}{{#str}}noteditable, local_reschedule{{/str}}{{/editreason}}"{{/interactive}}><span class="date-text">{{startformatted}}</span>{{#editable}} <i class="fa fa-pencil text-muted ms-1 col-edit-icon small opacity-50" aria-hidden="true"></i>{{/editable}}{{#derived}} <i class="fa fa-arrows-alt text-muted ms-1 col-edit-icon small opacity-50" aria-hidden="true"></i>{{/derived}}</td>
                             {{#ismilestone}}<td class="text-muted" aria-label="{{#str}}milestone, local_reschedule{{/str}}">—</td>{{/ismilestone}}
                             {{^ismilestone}}<td class="col-dateend text-nowrap {{^interactive}}date-cell-disabled{{/interactive}}"{{#interactive}} role="button" title="{{#interactreason}}{{interactreason}}{{/interactreason}}{{^interactreason}}{{#str}}clicktoeditdate, local_reschedule{{/str}}{{/interactreason}}" tabindex="0"{{/interactive}}{{^interactive}} aria-disabled="true" title="{{#editreason}}{{editreason}}{{/editreason}}{{^editreason}}{{#str}}noteditable, local_reschedule{{/str}}{{/editreason}}"{{/interactive}}><span class="date-text">{{endformatted}}</span>{{#editable}} <i class="fa fa-pencil text-muted ms-1 col-edit-icon small opacity-50" aria-hidden="true"></i>{{/editable}}{{#derived}} <i class="fa fa-arrows-alt text-muted ms-1 col-edit-icon small opacity-50" aria-hidden="true"></i>{{/derived}}</td>{{/ismilestone}}
+                            <td class="col-effort text-nowrap">
+                                {{#ismilestone}}—{{/ismilestone}}
+                                {{^ismilestone}}
+                                <div class="input-group input-group-sm flex-nowrap">
+                                    <input type="number" min="0" step="any" class="form-control reschedule-effort-input" style="min-width: 5rem;" value="{{effortformatted}}" data-itemid="{{id}}" aria-label="{{#str}}efforttablehours, local_reschedule{{/str}}: {{title}}"{{^efforteditable}} disabled{{/efforteditable}}>
+                                    <span class="input-group-text">{{#str}}efforthoursabbr, local_reschedule{{/str}}</span>
+                                </div>
+                                {{/ismilestone}}
+                            </td>
                             <td class="col-duration text-center text-nowrap">
                                 <span class="badge bg-light text-secondary border">{{durationformatted}}</span>
                             </td>
@@ -308,7 +319,6 @@
                 </div>
                 <div class="modal-body">
                     <p class="text-dark mb-2">{{#str}}efforttablehelp, local_reschedule{{/str}}</p>
-                    <div class="alert alert-info small py-2" role="note">{{#str}}efforttablenotpersisted, local_reschedule{{/str}}</div>
                     <div id="reschedule-effort-table-error" class="alert alert-danger d-none" role="alert" aria-live="assertive"></div>
                     <div class="table-responsive quest-effort-table-scroll">
                         <table class="table table-sm table-striped align-middle mb-0">

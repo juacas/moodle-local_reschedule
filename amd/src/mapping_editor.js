@@ -121,8 +121,13 @@ define([], function() {
                 if (type === 'number' && input.value === '') {
                     delete rule[key];
                 } else {
-                    rule[key] = type === 'check' ? input.checked :
-                        (type === 'number' ? Number(input.value) : input.value);
+                    var value = input.value;
+                    if (type === 'check') {
+                        value = input.checked;
+                    } else if (type === 'number') {
+                        value = Number(input.value);
+                    }
+                    rule[key] = value;
                 }
                 if (key === 'kind') {
                     if (input.value !== 'range') {

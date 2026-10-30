@@ -18,7 +18,7 @@ Maintenance release. It contains no database changes and no changes to the sched
 - Extended magnetic snap and its visual guide to activity, milestone and availability edges across visible Gantt rows, with selection and parent bounds respected.
 - Replaced the activity mapping CSV with a guided JSON editor, suggested date fields from installed module forms, explicit hierarchy/milestone/availability rules, and fixed or duration-proportional effort estimates. Dedicated adapter rows are defined in code.
 - Parent activities now display the sum of their duration subactivities' effort, including Quest challenges; manual child edits recalculate the read-only parent total without adding a duplicate curve.
-- Quest activities and challenges without an estimated answer time now use 1 effort point, including null and unset (`-1`) durations; estimated challenges retain their time-and-difficulty calculation.
+- Quest activities and challenges without an estimated answer time now use 1 work hour, including null and unset (`-1`) durations; estimated challenges retain their time-and-difficulty calculation.
 - Added an in-memory effort table editor beside the graph settings. Adapter-owned estimates and milestones are read-only; editable hours update Gantt badges and the effort plot without a database save.
 - Quest challenges now derive effort from estimated answer minutes at one point per hour, adjusted by perceived difficulty (0.7, 1 or 1.3).
 - Hovering a parent activity now overlays each contributing subactivity's individual effort curve with its own label and colour.

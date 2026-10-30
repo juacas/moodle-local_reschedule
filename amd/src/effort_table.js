@@ -14,7 +14,7 @@
 // along with Moodle. If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * In-memory editor for Gantt effort estimates.
+ * Editor for persisted Gantt effort estimates.
  *
  * @module     local_reschedule/effort_table
  * @copyright  2026 Juan Pablo de Castro
@@ -23,7 +23,11 @@
 define([], function() {
     'use strict';
 
-    /** Build one independent editor bound to the current calendar instance. */
+    /**
+     * Build one independent editor bound to the current calendar instance.
+     *
+     * @param {Object} options Editor callbacks and translated strings.
+     */
     function EffortTable(options) {
         this.options = options;
         this.modal = document.getElementById('reschedule-effort-table-modal');
@@ -53,6 +57,7 @@ define([], function() {
         this.body.textContent = '';
         this.options.getItems().forEach(function(item) {
             var row = document.createElement('tr');
+            row.setAttribute('data-itemid', String(item.id));
             var titleCell = document.createElement('th');
             titleCell.scope = 'row';
             titleCell.className = 'align-middle';
@@ -86,18 +91,26 @@ define([], function() {
                 input.disabled = item.effortsource === 'adapter' || item.effortsource === 'children' ||
                     !self.options.canEdit();
                 valueCell.appendChild(input);
-                sourceCell.textContent = item.effortsource === 'children' ?
-                    (strings.efforttablechildren || 'Sum of subactivities') :
-                    (item.effortsource === 'adapter' ?
-                        (strings.efforttableadapter || 'Activity adapter') :
-                        (item.effortsource === 'manual' ?
-                            (strings.efforttablemanual || 'Edited in this visit') :
-                            (strings.efforttabledefault || 'Editable estimate')));
+                var sourceLabels = {
+                    children: strings.efforttablechildren || 'Sum of subactivities',
+                    adapter: strings.efforttableadapter || 'Activity adapter',
+                    manual: strings.efforttablemanual || 'Saved estimate',
+                    'default': strings.efforttabledefault || 'Editable estimate'
+                };
+                sourceCell.textContent = sourceLabels[item.effortsource] || sourceLabels.default;
             }
             row.appendChild(valueCell);
             row.appendChild(sourceCell);
             self.body.appendChild(row);
         });
+    };
+
+    /** Synchronise a rendered modal with the current calendar values. */
+    EffortTable.prototype.sync = function() {
+        if (!this.body) {
+            return;
+        }
+        this.render();
     };
 
     /** Open the table with fresh values from the current Gantt state. */
@@ -161,8 +174,15 @@ define([], function() {
             invalid.focus();
             return false;
         }
-        self.options.onApply(updates);
-        this.close();
+        var result = self.options.onApply(updates);
+        Promise.resolve(result).then(function() {
+            self.close();
+            return true;
+        }).catch(function(error) {
+            self.error.textContent = error && error.message ? error.message : 'Could not save effort estimates.';
+            self.error.classList.remove('d-none');
+            return false;
+        });
         return true;
     };
 
