@@ -934,6 +934,20 @@
     padding: 0.2em 0.35em;
 }
 
+.quest-lbl-effort.is-editable {
+    cursor: ew-resize;
+    touch-action: none;
+    user-select: none;
+}
+
+.quest-lbl-effort.is-editable:hover,
+.quest-lbl-effort.is-editable:focus-visible,
+.quest-lbl-effort.is-adjusting {
+    background-color: #e0f2fe;
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.12rem rgba(13, 110, 253, 0.2);
+}
+
 .quest-timeline-wrapper img.activityicon,
 .quest-left-row img.activityicon,
 #reschedule-table img.activityicon {

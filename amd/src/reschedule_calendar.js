@@ -24,6 +24,137 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
     function(Notification, Chart, EffortTable, Ajax) {
     'use strict';
 
+    var activeLocale;
+    var activeDateTimeFormat = '%d/%m/%Y %H:%M';
+    var activeDateOnlyFormat = '%d/%m/%Y';
+    var activeTimezone;
+    var activeTimezoneOffset = null;
+
+    /**
+     * Return numeric calendar fields in the user's Moodle timezone.
+     *
+     * @param {Date} date Instant to convert.
+     * @return {Object}
+     */
+    function getZonedDateParts(date) {
+        if (activeTimezoneOffset !== null) {
+            var shifted = new Date(date.getTime() + activeTimezoneOffset * 1000);
+            return {
+                year: shifted.getUTCFullYear(), month: shifted.getUTCMonth() + 1, day: shifted.getUTCDate(),
+                hour: shifted.getUTCHours(), minute: shifted.getUTCMinutes(), second: shifted.getUTCSeconds()
+            };
+        }
+        var options = {
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+        };
+        if (activeTimezone) {
+            options.timeZone = activeTimezone;
+        }
+        try {
+            var parts = new Intl.DateTimeFormat('en-CA', options).formatToParts(date);
+            var values = {};
+            parts.forEach(function(part) {
+                if (part.type !== 'literal') {
+                    values[part.type] = Number(part.value);
+                }
+            });
+            return values;
+        } catch (e) {
+            return {
+                year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate(),
+                hour: date.getHours(), minute: date.getMinutes(), second: date.getSeconds()
+            };
+        }
+    }
+
+    /**
+     * Format a month or weekday name in the active locale and timezone.
+     *
+     * @param {Date} date Instant to format.
+     * @param {Object} options Intl formatting options.
+     * @return {string}
+     */
+    function formatDateName(date, options) {
+        if (activeTimezoneOffset !== null) {
+            date = new Date(date.getTime() + activeTimezoneOffset * 1000);
+            options.timeZone = 'UTC';
+        } else if (activeTimezone) {
+            options.timeZone = activeTimezone;
+        }
+        try {
+            return new Intl.DateTimeFormat(activeLocale || undefined, options).format(date);
+        } catch (e) {
+            delete options.timeZone;
+            return new Intl.DateTimeFormat(activeLocale || undefined, options).format(date);
+        }
+    }
+
+    /**
+     * Return the locale-specific AM or PM marker for an instant.
+     *
+     * @param {Date} date Instant to format.
+     * @return {string}
+     */
+    function formatDayPeriod(date) {
+        var options = {hour: 'numeric', hour12: true};
+        if (activeTimezoneOffset !== null) {
+            date = new Date(date.getTime() + activeTimezoneOffset * 1000);
+            options.timeZone = 'UTC';
+        } else if (activeTimezone) {
+            options.timeZone = activeTimezone;
+        }
+        try {
+            var part = new Intl.DateTimeFormat(activeLocale || undefined, options).formatToParts(date)
+                .find(function(candidate) {
+                    return candidate.type === 'dayPeriod';
+                });
+            return part ? part.value : '';
+        } catch (e) {
+            return getZonedDateParts(date).hour < 12 ? 'AM' : 'PM';
+        }
+    }
+
+    /**
+     * Apply a Moodle langconfig strftime pattern in the user's locale and timezone.
+     *
+     * @param {number} sec Unix timestamp in seconds.
+     * @param {string} pattern Moodle date pattern.
+     * @return {string}
+     */
+    function formatMoodleDate(sec, pattern) {
+        var date = new Date(sec * 1000);
+        var parts = getZonedDateParts(date);
+        var hour12 = parts.hour % 12 || 12;
+        var dayPeriod = formatDayPeriod(date);
+        var pad = function(value) {
+            return String(value).padStart(2, '0');
+        };
+        var replacements = {
+            '%Y': String(parts.year),
+            '%y': pad(parts.year % 100),
+            '%m': pad(parts.month),
+            '%d': pad(parts.day),
+            '%e': String(parts.day),
+            '%H': pad(parts.hour),
+            '%k': String(parts.hour),
+            '%I': pad(hour12),
+            '%l': String(hour12),
+            '%M': pad(parts.minute),
+            '%S': pad(parts.second),
+            '%p': dayPeriod,
+            '%P': dayPeriod.toLocaleLowerCase(activeLocale || undefined),
+            '%B': formatDateName(date, {month: 'long'}),
+            '%b': formatDateName(date, {month: 'short'}),
+            '%A': formatDateName(date, {weekday: 'long'}),
+            '%a': formatDateName(date, {weekday: 'short'}),
+            '%%': '%'
+        };
+        return String(pattern).replace(/%[YymdeHkIlMSPpBbAa%]/g, function(token) {
+            return Object.prototype.hasOwnProperty.call(replacements, token) ? replacements[token] : token;
+        });
+    }
+
     /**
      * Format a timestamp in seconds using active locale.
      *
@@ -32,26 +163,8 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
      * @return {string} Formatted date and time.
      */
     function formatDateTime(sec, locale) {
-        var d = new Date(sec * 1000);
-        var loc = locale || undefined;
-        try {
-            var formatter = new Intl.DateTimeFormat(loc, {
-                day: '2-digit',
-                month: '2-digit',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false
-            });
-            return formatter.format(d);
-        } catch (e) {
-            var yr = d.getFullYear();
-            var mo = String(d.getMonth() + 1).padStart(2, '0');
-            var dy = String(d.getDate()).padStart(2, '0');
-            var hr = String(d.getHours()).padStart(2, '0');
-            var mn = String(d.getMinutes()).padStart(2, '0');
-            return dy + '/' + mo + '/' + yr + ' ' + hr + ':' + mn;
-        }
+        activeLocale = locale || activeLocale;
+        return formatMoodleDate(sec, activeDateTimeFormat);
     }
 
     /**
@@ -110,13 +223,12 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
      * @return {string} Datetime local string.
      */
     function timestampToDateTimeLocal(sec) {
-        var d = new Date(sec * 1000);
-        var yr = d.getFullYear();
-        var mo = String(d.getMonth() + 1).padStart(2, '0');
-        var dy = String(d.getDate()).padStart(2, '0');
-        var hr = String(d.getHours()).padStart(2, '0');
-        var mn = String(d.getMinutes()).padStart(2, '0');
-        return yr + '-' + mo + '-' + dy + 'T' + hr + ':' + mn;
+        var parts = getZonedDateParts(new Date(sec * 1000));
+        var pad = function(value) {
+            return String(value).padStart(2, '0');
+        };
+        return parts.year + '-' + pad(parts.month) + '-' + pad(parts.day) + 'T' +
+            pad(parts.hour) + ':' + pad(parts.minute);
     }
 
     /**
@@ -135,15 +247,27 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
             return 0;
         }
         var timeParts = parts.length > 1 ? parts[1].split(':') : ['0', '0'];
-        var d = new Date(
-            parseInt(dateParts[0], 10),
-            parseInt(dateParts[1], 10) - 1,
-            parseInt(dateParts[2], 10),
-            parseInt(timeParts[0], 10),
-            parseInt(timeParts[1], 10),
-            0
-        );
-        return Math.floor(d.getTime() / 1000);
+        var desired = {
+            year: parseInt(dateParts[0], 10), month: parseInt(dateParts[1], 10),
+            day: parseInt(dateParts[2], 10), hour: parseInt(timeParts[0], 10),
+            minute: parseInt(timeParts[1], 10)
+        };
+        var desiredUtc = Date.UTC(desired.year, desired.month - 1, desired.day, desired.hour, desired.minute, 0);
+        if (activeTimezoneOffset !== null) {
+            return Math.floor((desiredUtc - activeTimezoneOffset * 1000) / 1000);
+        }
+        if (!activeTimezone) {
+            return Math.floor(new Date(desired.year, desired.month - 1, desired.day,
+                desired.hour, desired.minute, 0).getTime() / 1000);
+        }
+        var candidate = desiredUtc;
+        for (var iteration = 0; iteration < 2; iteration++) {
+            var zoned = getZonedDateParts(new Date(candidate));
+            var representedUtc = Date.UTC(zoned.year, zoned.month - 1, zoned.day,
+                zoned.hour, zoned.minute, zoned.second || 0);
+            candidate += desiredUtc - representedUtc;
+        }
+        return Math.floor(candidate / 1000);
     }
 
     /**
@@ -154,9 +278,8 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
      * @return {string} Local date.
      */
     function formatDateOnly(sec, locale) {
-        return new Intl.DateTimeFormat(locale || undefined, {
-            day: '2-digit', month: '2-digit', year: 'numeric'
-        }).format(new Date(sec * 1000));
+        activeLocale = locale || activeLocale;
+        return formatMoodleDate(sec, activeDateOnlyFormat);
     }
 
     /**
@@ -519,6 +642,9 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
                 cfg.editing = getRootData('data-editing', cfg.editing ? '1' : '0') === '1';
                 cfg.forceEditMode = getRootData('data-force-editmode', cfg.forceEditMode ? '1' : '0') === '1';
                 cfg.effortModel = getRootData('data-effort-model', cfg.effortModel || '');
+                cfg.dateTimeFormat = getRootData('data-datetime-format', cfg.dateTimeFormat || '');
+                cfg.dateOnlyFormat = getRootData('data-dateonly-format', cfg.dateOnlyFormat || '');
+                cfg.userTimezone = getRootData('data-user-timezone', cfg.userTimezone || '');
                 cfg.strings = cfg.strings || {};
 
                 [
@@ -590,6 +716,21 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
             this.pageRoot = root;
             this.editingEnabled = cfg.editing === true;
             this.strings = cfg.strings || {};
+            activeLocale = cfg.lang || undefined;
+            activeDateTimeFormat = cfg.dateTimeFormat || activeDateTimeFormat;
+            activeDateOnlyFormat = cfg.dateOnlyFormat || activeDateOnlyFormat;
+            activeTimezone = cfg.userTimezone || undefined;
+            activeTimezoneOffset = null;
+            if (/^[+-]?\d+(\.\d+)?$/.test(activeTimezone || '')) {
+                activeTimezoneOffset = Number(activeTimezone) * 3600;
+                activeTimezone = undefined;
+            } else if (activeTimezone) {
+                try {
+                    new Intl.DateTimeFormat('en', {timeZone: activeTimezone}).format(new Date());
+                } catch (e) {
+                    activeTimezone = undefined;
+                }
+            }
             this.effortModel = cfg.effortModel === 'ideal' ? 'ideal' : 'real';
             if (!cfg.effortModel) {
                 try {
@@ -651,6 +792,9 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
             this.selectedItemIds = new Set();
             this.effortSaveChain = Promise.resolve();
             this.effortUpdateVersions = Object.create(null);
+            this.effortBadgeSaveTimers = Object.create(null);
+            this.activeEffortBadgeDrag = null;
+            this.suppressEffortBadgeClick = null;
 
             if (!this.board || !this.items.length) {
                 return;
@@ -994,6 +1138,17 @@ b3 = [];
                     effortBadge.classList.remove('d-none');
                     effortBadge.textContent = self.strings.effortlabel + ': ' +
                         formatEffort(effort, self.locale) + ' ' + self.strings.efforthours;
+                    effortBadge.setAttribute('data-itemid', String(item.id));
+                    effortBadge.setAttribute('data-effort-value', String(effort));
+                    effortBadge.setAttribute('aria-valuenow', String(effort));
+                    var effortEditable = self.canEditSchedule() && item.effortsource !== 'adapter' &&
+                        item.effortsource !== 'children';
+                    effortBadge.classList.toggle('is-editable', effortEditable);
+                    if (effortEditable) {
+                        effortBadge.setAttribute('role', 'spinbutton');
+                        effortBadge.setAttribute('aria-valuemin', '0');
+                        effortBadge.setAttribute('tabindex', '0');
+                    }
                 }
 
                 var checkbox = rowLabel.querySelector('.quest-row-select');
@@ -2547,6 +2702,108 @@ b3 = [];
          */
         bindGlobalEvents: function() {
             var self = this;
+
+            self.board.addEventListener('click', function(e) {
+                var suppressed = self.suppressEffortBadgeClick;
+                var badge = e.target.closest('.quest-lbl-effort');
+                if (!suppressed || !badge || Date.now() > suppressed.until ||
+                        badge.getAttribute('data-itemid') !== suppressed.itemId) {
+                    return;
+                }
+                self.suppressEffortBadgeClick = null;
+                e.preventDefault();
+                e.stopImmediatePropagation();
+            }, true);
+
+            self.board.addEventListener('wheel', function(e) {
+                var badge = e.target.closest('.quest-lbl-effort.is-editable');
+                if (!badge || !self.canEditSchedule() || e.deltaY === 0) {
+                    return;
+                }
+                var itemId = badge.getAttribute('data-itemid');
+                var item = self.getEditableEffortItem(itemId);
+                if (!item) {
+                    return;
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                var direction = e.deltaY < 0 ? 1 : -1;
+                var currentEffort = isFinite(Number(item.effort)) ? Number(item.effort) : EFFORT_DEFAULT;
+                self.changeEffortFromBadge(itemId, currentEffort + direction * 0.1);
+            }, {passive: false});
+
+            self.board.addEventListener('pointerdown', function(e) {
+                var badge = e.target.closest('.quest-lbl-effort.is-editable');
+                if (!badge || !self.canEditSchedule() || (e.pointerType === 'mouse' && e.button !== 0)) {
+                    return;
+                }
+                var itemId = badge.getAttribute('data-itemid');
+                var item = self.getEditableEffortItem(itemId);
+                if (!item) {
+                    return;
+                }
+                var initialEffort = isFinite(Number(item.effort)) ? Number(item.effort) : EFFORT_DEFAULT;
+                self.activeEffortBadgeDrag = {
+                    pointerId: e.pointerId,
+                    itemId: itemId,
+                    badge: badge,
+                    startX: e.clientX,
+                    initialEffort: initialEffort,
+                    currentEffort: initialEffort,
+                    hasMoved: false
+                };
+                badge.classList.add('is-adjusting');
+                if (badge.setPointerCapture) {
+                    badge.setPointerCapture(e.pointerId);
+                }
+                e.preventDefault();
+                e.stopImmediatePropagation();
+            });
+
+            document.addEventListener('pointermove', function(e) {
+                var drag = self.activeEffortBadgeDrag;
+                if (!drag || drag.pointerId !== e.pointerId) {
+                    return;
+                }
+                var steps = Math.trunc(Math.abs(e.clientX - drag.startX) / 12);
+                steps *= e.clientX < drag.startX ? -1 : 1;
+                var effort = Math.max(0, Math.round((drag.initialEffort + steps * 0.1) * 10) / 10);
+                if (effort !== drag.currentEffort) {
+                    drag.currentEffort = effort;
+                    drag.hasMoved = true;
+                    self.applyEffortTableUpdates([{id: drag.itemId, hours: effort}]);
+                }
+                e.preventDefault();
+                e.stopImmediatePropagation();
+            });
+
+            var finishEffortBadgeDrag = function(e, cancelled) {
+                var drag = self.activeEffortBadgeDrag;
+                if (!drag || drag.pointerId !== e.pointerId) {
+                    return false;
+                }
+                drag.badge.classList.remove('is-adjusting');
+                self.activeEffortBadgeDrag = null;
+                if (cancelled && drag.hasMoved) {
+                    self.applyEffortTableUpdates([{id: drag.itemId, hours: drag.initialEffort}]);
+                } else if (drag.hasMoved) {
+                    self.suppressEffortBadgeClick = {
+                        itemId: String(drag.itemId),
+                        until: Date.now() + 500
+                    };
+                    self.queueEffortBadgeSave(drag.itemId, drag.currentEffort, drag.initialEffort);
+                }
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                return true;
+            };
+
+            document.addEventListener('pointerup', function(e) {
+                finishEffortBadgeDrag(e, false);
+            });
+            document.addEventListener('pointercancel', function(e) {
+                finishEffortBadgeDrag(e, true);
+            });
 
             var hoveredItemId = function(target) {
                 var row = target && target.closest ? target.closest(
@@ -4526,12 +4783,77 @@ b3 = [];
                 if (badge) {
                     badge.textContent = (self.strings.effortlabel) + ': ' +
                         formatEffort(efforts[id], self.locale) + ' ' + (self.strings.efforthours);
+                    badge.setAttribute('data-effort-value', String(efforts[id] || 0));
+                    badge.setAttribute('aria-valuenow', String(efforts[id] || 0));
                 }
             });
             if (this.effortTable) {
                 this.effortTable.sync();
             }
             this.updateEffortDrops();
+        },
+
+        /**
+         * Find an activity whose effort can be manually adjusted.
+         *
+         * @param {string} itemId Gantt row identifier.
+         * @return {Object|null}
+         */
+        getEditableEffortItem: function(itemId) {
+            return this.items.find(function(item) {
+                return String(item.id) === String(itemId) && !item.ismilestone &&
+                    item.effortsource !== 'adapter' && item.effortsource !== 'children';
+            }) || null;
+        },
+
+        /**
+         * Apply one wheel adjustment immediately and debounce its persistence.
+         *
+         * @param {string} itemId Gantt row identifier.
+         * @param {number} effort New effort in work hours.
+         */
+        changeEffortFromBadge: function(itemId, effort) {
+            var item = this.getEditableEffortItem(itemId);
+            if (!item) {
+                return;
+            }
+            var previous = isFinite(Number(item.effort)) ? Number(item.effort) : EFFORT_DEFAULT;
+            var value = Math.max(0, Math.round(effort * 10) / 10);
+            if (value === previous) {
+                return;
+            }
+            this.applyEffortTableUpdates([{id: itemId, hours: value}]);
+            this.queueEffortBadgeSave(itemId, value, previous);
+        },
+
+        /**
+         * Debounce badge changes while retaining the value to restore after a failed save.
+         *
+         * @param {string} itemId Gantt row identifier.
+         * @param {number} effort New effort in work hours.
+         * @param {number} previous Value before this interaction.
+         */
+        queueEffortBadgeSave: function(itemId, effort, previous) {
+            var self = this;
+            var id = String(itemId);
+            var state = self.effortBadgeSaveTimers[id];
+            if (!state) {
+                state = {baseline: previous, timer: null};
+                self.effortBadgeSaveTimers[id] = state;
+            }
+            window.clearTimeout(state.timer);
+            state.value = effort;
+            state.timer = window.setTimeout(function() {
+                var submitted = state.value;
+                delete self.effortBadgeSaveTimers[id];
+                self.saveEffortUpdates([{id: id, hours: submitted}]).catch(function() {
+                    var current = self.getEditableEffortItem(id);
+                    if (current && Number(current.effort) === submitted) {
+                        self.applyEffortTableUpdates([{id: id, hours: state.baseline}]);
+                    }
+                    return false;
+                });
+            }, 220);
         },
 
         /** Open the model picker using Moodle's Bootstrap modal when available. */

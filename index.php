@@ -151,6 +151,11 @@ foreach ($items as &$item) {
 unset($item);
 
 $dateformat = get_string('strftimedatetimeshort', 'langconfig');
+$dateonlyformat = get_string('strftimedate', 'langconfig');
+$localecldr = get_string('localecldr', 'langconfig');
+if ($localecldr === 'localecldr') {
+    $localecldr = str_replace('_', '-', current_language());
+}
 $itemsforview = [];
 
 foreach ($items as $item) {
@@ -163,7 +168,7 @@ foreach ($items as $item) {
     if (!empty($item['ismilestone'])) {
         $itemsforview[] = array_merge($item, [
             'startformatted' => !empty($item['startenabled']) ? userdate($item['datestart'],
-                !empty($item['dateonly']) ? get_string('strftimedate', 'langconfig') : $dateformat) : '',
+                !empty($item['dateonly']) ? $dateonlyformat : $dateformat) : '',
             'endformatted' => '',
             'durationformatted' => get_string('milestone', 'local_reschedule'),
         ]);
@@ -217,7 +222,10 @@ $templatecontext = [
     'readonly' => !$editing,
     'forceeditmode' => $forceeditmode,
     'effortmodel' => \local_reschedule\effort_store::get_model($courseid),
-    'language' => current_language(),
+    'language' => $localecldr,
+    'datetimeformat' => $dateformat,
+    'dateonlyformat' => $dateonlyformat,
+    'usertimezone' => \core_date::get_user_timezone(),
 ];
 
 $PAGE->requires->js_call_amd('local_reschedule/reschedule_calendar', 'init');
