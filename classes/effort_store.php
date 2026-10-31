@@ -47,7 +47,22 @@ class effort_store {
         }
         $categoryid = $handler->create_category('Activity Rescheduler');
         $categories = $handler->get_categories_with_fields();
-        $category = $handler->get_category_from_array($categories, $categoryid, 'local_reschedule', 'effort', 0);
+        // get_category_from_array() was added after Moodle 4.5. In 4.5 the
+        // category list is keyed by category ID and scoped to this handler.
+        if (method_exists($handler, 'get_category_from_array')) {
+            $category = $handler->get_category_from_array(
+                $categories,
+                $categoryid,
+                'local_reschedule',
+                'effort',
+                0
+            );
+        } else {
+            $category = $categories[$categoryid] ?? null;
+        }
+        if (!$category) {
+            throw new \coding_exception('Could not load the effort custom-field category.');
+        }
         $field = \core_customfield\field_controller::create(0, (object)['type' => 'textarea'], $category);
         $handler->save_field_configuration($field, (object)[
             'name' => 'Effort overrides',
@@ -69,10 +84,10 @@ class effort_store {
         $handler = effort_handler::create();
         $field = self::ensure_field();
         $data = $handler->get_instance_fields_data([(int)$field->get('id') => $field], $courseid, false);
-        if (!$data) {
+        $controller = $data[(int)$field->get('id')] ?? null;
+        if (!$controller) {
             return ['version' => self::SCHEMA_VERSION, 'model' => self::DEFAULT_MODEL, 'entries' => []];
         }
-        $controller = reset($data);
         $decoded = json_decode((string)$controller->get('value'), true);
         if (!is_array($decoded) || ($decoded['version'] ?? null) !== self::SCHEMA_VERSION ||
                 !is_array($decoded['entries'] ?? null)) {
@@ -96,7 +111,10 @@ class effort_store {
         $handler = effort_handler::create();
         $field = self::ensure_field();
         $data = $handler->get_instance_fields_data([(int)$field->get('id') => $field], $courseid);
-        $controller = reset($data);
+        $controller = $data[(int)$field->get('id')] ?? null;
+        if (!$controller) {
+            throw new \coding_exception('Could not load the effort custom-field data controller.');
+        }
         $controller->set('instanceid', $courseid);
         $controller->set('contextid', \context_course::instance($courseid)->id);
         $controller->set('value', json_encode([

@@ -25,6 +25,25 @@ namespace local_reschedule\customfield;
  */
 class effort_handler extends \core_customfield\handler {
     /**
+     * Load data for the requested fields, keeping compatibility with Moodle 4.5.
+     *
+     * Newer core versions provide this wrapper on the handler, while Moodle
+     * 4.5 exposes the equivalent operation on core_customfield\api.
+     *
+     * @param \core_customfield\field_controller[] $fields Fields keyed by ID.
+     * @param int $instanceid Course ID.
+     * @param bool $adddefaults Include controllers for fields without saved data.
+     * @return \core_customfield\data_controller[] Data controllers keyed by field ID.
+     */
+    public function get_instance_fields_data(array $fields, int $instanceid, bool $adddefaults = true): array {
+        if (method_exists(\core_customfield\handler::class, __FUNCTION__)) {
+            return parent::get_instance_fields_data($fields, $instanceid, $adddefaults);
+        }
+
+        return \core_customfield\api::get_instance_fields_data($fields, $instanceid, $adddefaults);
+    }
+
+    /**
      * Return the field configuration context.
      * @return \context Configuration context.
      */
