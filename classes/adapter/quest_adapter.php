@@ -29,6 +29,39 @@ class quest_adapter extends base_adapter {
     public const DEFAULT_CHALLENGE_EFFORT = 1.0;
 
     /**
+     * Load challenge records through mod_quest's tournament API.
+     *
+     * @param array $rule Normalised subtype mapping rule.
+     * @param int[] $parentids Parent tournament IDs.
+     * @return \stdClass[] Challenge records keyed by challenge ID.
+     */
+    #[\Override]
+    public function get_subitems(array $rule, array $parentids): array {
+        return self::get_challenges($parentids);
+    }
+
+    /**
+     * Provide challenge-specific effort and answer-bound metadata.
+     *
+     * @param \stdClass $record Loaded challenge record.
+     * @param array $rule Normalised subtype mapping rule.
+     * @return array Adapter-specific item attributes.
+     */
+    #[\Override]
+    public function get_subitem_attributes(\stdClass $record, array $rule): array {
+        $effort = self::estimate_effort(
+            isset($record->predictedduration) ? (int)$record->predictedduration : null,
+            isset($record->perceiveddifficulty) ? (int)$record->perceiveddifficulty : null
+        );
+        return [
+            'editable' => (bool)$rule['editable'],
+            'absolutelimits' => $record->absolutelimits ?? [],
+            'effort' => $effort ?? self::DEFAULT_CHALLENGE_EFFORT,
+            'effortsource' => $effort === null ? 'default' : 'adapter',
+        ];
+    }
+
+    /**
      * Estimate challenge effort from the teacher's answer-time estimate.
      * Quest stores the duration in minutes and difficulty as 0, 1 or 2.
      * An absent duration has no usable estimate; callers use the challenge
@@ -53,9 +86,12 @@ class quest_adapter extends base_adapter {
      * @return \stdClass[] Challenge records keyed by submission id.
      */
     public static function get_challenges(array $questids): array {
+        global $CFG;
+
         if (!class_exists(\mod_quest\service\tournament_manager::class)) {
             return [];
         }
+        require_once($CFG->dirroot . '/mod/quest/lib.php');
 
         $challenges = [];
         foreach (array_unique(array_filter(array_map('intval', $questids))) as $questid) {
@@ -68,14 +104,115 @@ class quest_adapter extends base_adapter {
             }
         }
 
+        foreach ($challenges as $challenge) {
+            $answerdates = self::get_challenge_answer_dates($challenge);
+            $challenge->firstanswerdate = $answerdates['first'];
+            $challenge->lastanswerdate = $answerdates['last'];
+            $challenge->answerstartvalidationmessage = $challenge->firstanswerdate > 0 ?
+                get_string('scheduleerroranswerbeforestart', 'quest', (object)[
+                    'title' => format_string($challenge->title),
+                    'date' => userdate($challenge->firstanswerdate,
+                        get_string('strftimedatetimeshort', 'langconfig')),
+                ]) : '';
+            $challenge->answerendvalidationmessage = $challenge->lastanswerdate > 0 ?
+                get_string('scheduleerroranswerafterend', 'quest', (object)[
+                    'title' => format_string($challenge->title),
+                    'date' => userdate($challenge->lastanswerdate,
+                        get_string('strftimedatetimeshort', 'langconfig')),
+                ]) : '';
+            $challenge->absolutelimits = self::get_answer_absolute_limits($challenge);
+        }
+
         uasort($challenges, static fn(\stdClass $left, \stdClass $right): int =>
             [$left->datestart, $left->id] <=> [$right->datestart, $right->id]);
         return $challenges;
     }
 
+    /**
+     * Get response time bounds using the public mod_quest helper.
+     *
+     * @param \stdClass $challenge Quest challenge.
+     * @return array First and last answer timestamps.
+     */
+    private static function get_challenge_answer_dates(\stdClass $challenge): array {
+        global $CFG;
+
+        require_once($CFG->dirroot . '/mod/quest/lib.php');
+        $answers = quest_get_challenge_answers($challenge);
+        $dates = array_map(static fn(\stdClass $answer): int => (int)$answer->date, $answers);
+        if (!$dates) {
+            return ['first' => 0, 'last' => 0];
+        }
+
+        return ['first' => min($dates), 'last' => max($dates)];
+    }
+
+    /**
+     * Build the two possible answer submission bounds for one challenge.
+     *
+     * @param \stdClass $challenge Challenge with answer dates already loaded.
+     * @return array Absolute bounds on the challenge interval.
+     */
+    private static function get_answer_absolute_limits(\stdClass $challenge): array {
+        $limits = [];
+        $firstanswerdate = (int)($challenge->firstanswerdate ?? 0);
+        if ($firstanswerdate > 0) {
+            $limits[] = [
+                'type' => 'start_max',
+                'date' => $firstanswerdate,
+                'reason' => (string)($challenge->answerstartvalidationmessage ?? ''),
+            ];
+        }
+        $lastanswerdate = (int)($challenge->lastanswerdate ?? 0);
+        if ($lastanswerdate > 0) {
+            $limits[] = [
+                'type' => 'end_min',
+                'date' => $lastanswerdate,
+                'reason' => (string)($challenge->answerendvalidationmessage ?? ''),
+            ];
+        }
+        return $limits;
+    }
+
     #[\Override]
     public function supports(string $modname, array $item): bool {
         return ($modname === 'quest' || $item['table'] === 'quest' || $item['table'] === 'quest_submissions');
+    }
+
+    /**
+     * Prevent moving a challenge start beyond answers that have already been submitted.
+     *
+     * @param array $item Reschedule item metadata.
+     * @param int $newstart Proposed start timestamp.
+     * @param int $newend Proposed end timestamp.
+     * @return array Error messages when the proposed range violates response boundaries.
+     */
+    #[\Override]
+    public function validate(array $item, int $newstart, int $newend): array {
+        $errors = parent::validate($item, $newstart, $newend);
+        if (($item['table'] ?? '') !== 'quest_submissions') {
+            return $errors;
+        }
+
+        $questid = (int)($item['parentrecordid'] ?? 0);
+        $challenges = $questid > 0 ? self::get_challenges([$questid]) : [];
+        $challenge = $challenges[(int)$item['recordid']] ?? null;
+        $firstanswerdate = (int)($challenge->firstanswerdate ?? 0);
+        if ($firstanswerdate > 0 && $newstart > $firstanswerdate) {
+            $errors[] = get_string('scheduleerroranswerbeforestart', 'quest', (object)[
+                'title' => format_string((string)($item['title'] ?? '')),
+                'date' => userdate($firstanswerdate, get_string('strftimedatetimeshort', 'langconfig')),
+            ]);
+        }
+        $lastanswerdate = (int)($challenge->lastanswerdate ?? 0);
+        if ($lastanswerdate > 0 && $newend < $lastanswerdate) {
+            $errors[] = get_string('scheduleerroranswerafterend', 'quest', (object)[
+                'title' => format_string((string)($item['title'] ?? '')),
+                'date' => userdate($lastanswerdate, get_string('strftimedatetimeshort', 'langconfig')),
+            ]);
+        }
+
+        return $errors;
     }
 
     #[\Override]
@@ -116,6 +253,32 @@ class quest_adapter extends base_adapter {
             }
             $this->trigger_cm_updated($cm);
         }
+    }
+
+    /**
+     * Save adjacent Quest challenge edits together through the module service.
+     *
+     * @param array $tasks Planned changes with item, newstart and newend keys.
+     */
+    #[\Override]
+    public function save_batch(array $tasks): void {
+        $challenges = [];
+        $flush = function() use (&$challenges): void {
+            if ($challenges) {
+                $this->save_challenge_schedules($challenges);
+                $challenges = [];
+            }
+        };
+
+        foreach ($tasks as $task) {
+            if (($task['item']['table'] ?? '') === 'quest_submissions') {
+                $challenges[] = $task;
+            } else {
+                $flush();
+                $this->save($task['item'], (int)$task['newstart'], (int)$task['newend']);
+            }
+        }
+        $flush();
     }
 
     /**

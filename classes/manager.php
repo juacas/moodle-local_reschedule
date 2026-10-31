@@ -111,8 +111,8 @@ class manager {
         \local_reschedule\extractor\extractor_factory::reset_cache();
 
         $rules = self::get_mapping_rules();
-        $dbman = $DB->get_manager();
         $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
+        $dbman = $DB->get_manager();
         $timeframe = self::get_course_timeframe($course);
         $coursestart = $timeframe['start'];
         $courseend = $timeframe['end'];
@@ -155,40 +155,11 @@ class manager {
             }
 
             $table = $rule['table'];
-            if (!$dbman->table_exists($table)) {
-                continue;
-            }
-
-            $titlecol = $rule['titlecol'];
             $startcol = $rule['startcol'];
             $endcol = $rule['endcol'];
-
-            // Query module instance records.
-            // Check if course column exists in table.
-            $hasdates = $dbman->field_exists($table, $startcol) &&
-                ($endcol === '' || $dbman->field_exists($table, $endcol));
-            $fieldsexist = $dbman->field_exists($table, 'id') &&
-                $dbman->field_exists($table, $titlecol) &&
-                ($hasdates || $table === 'kuet');
-
-            if (!$fieldsexist) {
-                continue;
-            }
-
-            $records = [];
-            if ($hasdates && $dbman->field_exists($table, 'course')) {
-                $endselect = $endcol === '' ? '0' : "t.{$endcol}";
-                $sql = "SELECT t.id, t.{$titlecol} AS title, t.{$startcol} AS datestart, {$endselect} AS dateend
-                          FROM {{$table}} t
-                         WHERE t.course = :courseid
-                      ORDER BY t.{$startcol} ASC, t.id ASC";
-                $records = $DB->get_records_sql($sql, ['courseid' => $courseid]);
-            } else if ($table === 'kuet' && $dbman->field_exists('kuet', 'course')) {
-                // KUET activity timeframe is dynamically bounded by programmed sessions.
-                // The adapter delegates session loading and mode semantics to mod_kuet's public API.
-                $records = \local_reschedule\adapter\kuet_adapter::get_course_activity_ranges($courseid);
-            }
-
+            $itemmetadata = ['table' => $table, 'mappedrule' => true];
+            $adapter = adapter_manager::get_adapter($table, $course, $itemmetadata);
+            $records = $adapter->get_activity_records($rule);
             $parentitems[$table] = $records;
 
             foreach ($records as $rec) {
@@ -197,9 +168,8 @@ class manager {
                 $rawend = $rule['kind'] === 'milestone' ? $rawstart : (int)$rec->dateend;
                 $startenabled = $rawstart > 0;
                 $endenabled = $rawend > 0;
-                $itemmetadata = ['table' => $table];
-                $isderived = adapter_manager::get_adapter($table, $course, $itemmetadata)
-                    ->is_derived_item($itemmetadata);
+                $attributes = $adapter->get_activity_attributes($rec, $rule);
+                $isderived = (bool)($attributes['derived'] ?? false);
 
                 // Disabled endpoints use the course limits only for drawing.
                 $ds = $startenabled ? $rawstart : $coursestart;
@@ -244,12 +214,10 @@ class manager {
                     'childrencount' => 0,
                     'iconurl' => $iconurl,
                     'viewurl' => $viewurl,
-                    'editable' => !$isderived && $rule['editable'],
+                    'editable' => $attributes['editable'] ?? (!$isderived && $rule['editable']),
                     'derived' => $isderived,
-                    'editreason' => $isderived ?
-                        get_string('kuetactivitynoteditable', 'local_reschedule') : '',
-                    'interactreason' => $isderived ?
-                        get_string('kuetactivityderivedhint', 'local_reschedule') : '',
+                    'editreason' => $attributes['editreason'] ?? '',
+                    'interactreason' => $attributes['interactreason'] ?? '',
                     'interactive' => true,
                     'title' => (string)$rec->title,
                     'typelabel' => $rule['label'],
@@ -271,12 +239,12 @@ class manager {
             }
         }
 
-        // Pass 2: Process subtypes / phases.
+        // Pass 2: Process subtypes / phases through their activity adapters.
         $subrulecounts = [];
         foreach ($rules as $candidate) {
             if ($candidate['issubtype']) {
-                $subrulecounts[$candidate['parenttable'] . ':' . $candidate['table']] =
-                    ($subrulecounts[$candidate['parenttable'] . ':' . $candidate['table']] ?? 0) + 1;
+                $key = $candidate['parenttable'] . ':' . $candidate['table'];
+                $subrulecounts[$key] = ($subrulecounts[$key] ?? 0) + 1;
             }
         }
         foreach ($rules as $rule) {
@@ -290,214 +258,79 @@ class manager {
             }
 
             $subtable = $rule['table'];
-            if (!$dbman->table_exists($subtable)) {
-                continue;
-            }
+            $subadapter = adapter_manager::get_adapter($subtable, $course, [
+                'table' => $subtable,
+                'mappedrule' => true,
+                'issubtype' => true,
+            ]);
+            $parentids = array_keys($parentitems[$parenttable]);
+            $children = $subadapter->get_subitems($rule, $parentids);
+            $issametbl = $subtable === $parenttable;
 
-            $titlecol = $rule['titlecol'];
-            $startcol = $rule['startcol'];
-            $endcol = $rule['endcol'];
-            $fkey = $rule['foreignkey'];
-
-            $issametbl = ($subtable === $parenttable);
-
-            if ($issametbl) {
-                // Subtype is a phase stored in the same parent record (e.g. Workshop submission/assessment phases).
-                if (!$dbman->field_exists($subtable, $titlecol) ||
-                        !$dbman->field_exists($subtable, $startcol) ||
-                        ($endcol !== '' && !$dbman->field_exists($subtable, $endcol))) {
+            foreach ($children as $child) {
+                $parentkey = 'main_' . $parenttable . '_' . $child->parentid;
+                if (!isset($items[$parentkey])) {
                     continue;
                 }
 
-                // Query fresh parent records with phase columns.
-                $parentids = array_keys($parentitems[$parenttable]);
-                [$insql, $inparams] = $DB->get_in_or_equal($parentids, SQL_PARAMS_NAMED);
-                $endselect = $endcol === '' ? '0' : $endcol;
-                $sql = "SELECT id, {$titlecol} AS title, {$startcol} AS datestart, {$endselect} AS dateend
-                          FROM {{$subtable}}
-                         WHERE id $insql";
-                $phases = $DB->get_records_sql($sql, $inparams);
-
-                foreach ($phases as $prec) {
-                    $parentkey = 'main_' . $parenttable . '_' . $prec->id;
-                    $itemid = 'sub_' . $subtable . '_' . $prec->id . '_' . $startcol;
-                    $rawstart = (int)$prec->datestart;
-                    $rawend = $rule['kind'] === 'milestone' ? $rawstart : (int)$prec->dateend;
-                    $startenabled = $rawstart > 0;
-                    $endenabled = $rawend > 0;
-                    $parentstart = $items[$parentkey]['datestart'] ?? $coursestart;
-                    $ds = $startenabled ? $rawstart : $parentstart;
-                    $de = $endenabled ? $rawend : ($items[$parentkey]['dateend'] ?? $courseend);
-                    if ($de <= $ds && $rule['kind'] !== 'milestone') {
-                        $de = max($de, $ds + 3600);
-                    }
-
-                    if (isset($items[$parentkey])) {
-                        $items[$parentkey]['haschildren'] = true;
-                        $items[$parentkey]['childrencount']++;
-                    }
-
-                    $parenticon = $items[$parentkey]['iconurl'] ?? '';
-
-                    $parentviewurl = $items[$parentkey]['viewurl'] ?? '';
-
-                    $subitem = [
-                        'id' => $itemid,
-                        'recordid' => (int)$prec->id,
-                        'cmid' => $items[$parentkey]['cmid'] ?? 0,
-                        'table' => $subtable,
-                        'parentkey' => $parentkey,
-                        'parenttitle' => (string)$prec->title,
-                        'issubtype' => true,
-                        'haschildren' => false,
-                        'childrencount' => 0,
-                        'iconurl' => $parenticon,
-                        'viewurl' => $parentviewurl,
-                        'editable' => $rule['editable'],
-                        'derived' => false,
-                        'interactive' => true,
-                        'title' => (string)$prec->title . ' - ' . $rule['label'],
-                        'typelabel' => $rule['label'],
-                        'startcol' => $startcol,
-                        'endcol' => $endcol,
-                        'ismilestone' => $rule['kind'] === 'milestone',
-                        'isopenended' => $rule['kind'] === 'open',
-                        'isdateinterval' => $rule['kind'] === 'range',
-                        'mappedrule' => true,
-                        'optional' => $rule['optional'],
-                        'dateonly' => $rule['dateonly'],
-                        'boundtoparentstart' => $rule['boundtoparentstart'],
-                        'boundtoparentend' => $rule['boundtoparentend'],
-                        'effort' => mapping::estimate($rule['effortestimator'], $ds, $de),
-                        'effortestimator' => $rule['effortestimator'],
-                        'startenabled' => $startenabled,
-                        'endenabled' => $endenabled,
-                        'datestart' => $ds,
-                        'dateend' => $de,
-                    ];
-
-                    $childrenbyparent[$parentkey][] = $subitem;
+                $itemid = 'sub_' . $subtable . '_' . $child->id;
+                if (($subrulecounts[$parenttable . ':' . $subtable] ?? 0) > 1) {
+                    $itemid .= '_' . $rule['startcol'] .
+                        ($rule['endcol'] !== '' && $rule['endcol'] !== $rule['startcol'] ?
+                            '_' . $rule['endcol'] : '');
                 }
-            } else {
-                // Subtype is in a related child table (e.g. quest_submissions with questid).
-                if (
-                    !$dbman->field_exists($subtable, $fkey) ||
-                    !$dbman->field_exists($subtable, $titlecol) ||
-                    !$dbman->field_exists($subtable, $startcol) ||
-                    ($endcol !== '' && !$dbman->field_exists($subtable, $endcol))
-                ) {
-                    continue;
+                $rawstart = (int)$child->datestart;
+                $rawend = $rule['kind'] === 'milestone' ? $rawstart : (int)$child->dateend;
+                $startenabled = $rawstart > 0;
+                $endenabled = $rawend > 0;
+                $parentstart = $items[$parentkey]['datestart'] ?? $coursestart;
+                $ds = $startenabled ? $rawstart : $parentstart;
+                $de = $endenabled ? $rawend : ($items[$parentkey]['dateend'] ?? $courseend);
+                if ($de <= $ds && $rule['kind'] !== 'milestone') {
+                    $de = max($de, $ds + 3600);
                 }
 
-                $parentids = array_keys($parentitems[$parenttable]);
-                [$insql, $inparams] = $DB->get_in_or_equal($parentids, SQL_PARAMS_NAMED);
-
-                // For kuet_sessions, only programmed sessions have meaningful schedule dates.
-                $extracols = '';
-                if ($subtable === 'kuet_sessions' && $dbman->field_exists($subtable, 'sessionmode')) {
-                    $extracols = ', sessionmode';
-                }
-                $sessionfilter = '';
-                if ($subtable === 'kuet_sessions') {
-                    $sessionfilter = " AND sessionmode IN
-                        ('podium_programmed', 'race_programmed', 'inactive_programmed')";
-                }
-
-                if ($subtable === 'quest_submissions') {
-                    $children = \local_reschedule\adapter\quest_adapter::get_challenges($parentids);
-                } else {
-                    $endselect = $endcol === '' ? '0' : $endcol;
-                    $sql = "SELECT id, {$fkey} AS parentid, {$titlecol} AS title, "
-                        . "{$startcol} AS datestart, {$endselect} AS dateend{$extracols}
-                              FROM {{$subtable}}
-                             WHERE {$fkey} $insql{$sessionfilter}
-                          ORDER BY {$startcol} ASC, id ASC";
-                    $children = $DB->get_records_sql($sql, $inparams);
-                }
-
-                foreach ($children as $ch) {
-                    $parentkey = 'main_' . $parenttable . '_' . $ch->parentid;
-                    $itemid = 'sub_' . $subtable . '_' . $ch->id;
-                    if (($subrulecounts[$parenttable . ':' . $subtable] ?? 0) > 1) {
-                        $itemid .= '_' . $startcol . ($endcol !== '' && $endcol !== $startcol ? '_' . $endcol : '');
-                    }
-                    $rawstart = (int)$ch->datestart;
-                    $rawend = $rule['kind'] === 'milestone' ? $rawstart : (int)$ch->dateend;
-                    $startenabled = $rawstart > 0;
-                    $endenabled = $rawend > 0;
-                    $parentstart = $items[$parentkey]['datestart'] ?? $coursestart;
-                    $ds = $startenabled ? $rawstart : $parentstart;
-                    $de = $endenabled ? $rawend : ($items[$parentkey]['dateend'] ?? $courseend);
-                    if ($de <= $ds && $rule['kind'] !== 'milestone') {
-                        $de = max($de, $ds + 3600);
-                    }
-
-                    $parenttitle = $items[$parentkey]['title'] ?? '';
-                    $parenticon = $items[$parentkey]['iconurl'] ?? '';
-
-                    if (isset($items[$parentkey])) {
-                        $items[$parentkey]['haschildren'] = true;
-                        $items[$parentkey]['childrencount']++;
-                    }
-
-                    // Determine if this subitem is editable.
-                    // For kuet_sessions, only programmed modes are editable.
-                    $editable = $rule['editable'];
-                    if ($subtable === 'kuet_sessions') {
-                        $editable = isset($ch->sessionmode) &&
-                            \local_reschedule\adapter\kuet_adapter::is_programmed_session_mode((string)$ch->sessionmode);
-                    }
-
-                    $parentviewurl = $items[$parentkey]['viewurl'] ?? '';
-
-                    $subitem = [
-                        'id' => $itemid,
-                        'recordid' => (int)$ch->id,
-                        'cmid' => $items[$parentkey]['cmid'] ?? 0,
-                        'table' => $subtable,
-                        'parentkey' => $parentkey,
-                        'parentrecordid' => (int)$ch->parentid,
-                        'parenttitle' => $parenttitle,
-                        'issubtype' => true,
-                        'haschildren' => false,
-                        'childrencount' => 0,
-                        'iconurl' => $parenticon,
-                        'viewurl' => $parentviewurl,
-                        'editable' => $editable,
-                        'derived' => false,
-                        'interactive' => $editable,
-                        'title' => (string)$ch->title,
-                        'typelabel' => $rule['label'],
-                        'startcol' => $startcol,
-                        'endcol' => $endcol,
-                        'ismilestone' => $rule['kind'] === 'milestone',
-                        'isopenended' => $rule['kind'] === 'open',
-                        'isdateinterval' => $rule['kind'] === 'range',
-                        'mappedrule' => true,
-                        'optional' => $rule['optional'],
-                        'dateonly' => $rule['dateonly'],
-                        'boundtoparentstart' => $rule['boundtoparentstart'],
-                        'boundtoparentend' => $rule['boundtoparentend'],
-                        'effort' => mapping::estimate($rule['effortestimator'], $ds, $de),
-                        'effortestimator' => $rule['effortestimator'],
-                        'startenabled' => $startenabled,
-                        'endenabled' => $endenabled,
-                        'datestart' => $ds,
-                        'dateend' => $de,
-                    ];
-
-                    if ($subtable === 'quest_submissions') {
-                        $estimatedeffort = \local_reschedule\adapter\quest_adapter::estimate_effort(
-                            isset($ch->predictedduration) ? (int)$ch->predictedduration : null,
-                            isset($ch->perceiveddifficulty) ? (int)$ch->perceiveddifficulty : null
-                        );
-                        $subitem['effort'] = $estimatedeffort ??
-                            \local_reschedule\adapter\quest_adapter::DEFAULT_CHALLENGE_EFFORT;
-                        $subitem['effortsource'] = $estimatedeffort === null ? 'default' : 'adapter';
-                    }
-
-                    $childrenbyparent[$parentkey][] = $subitem;
-                }
+                $items[$parentkey]['haschildren'] = true;
+                $items[$parentkey]['childrencount']++;
+                $attributes = $subadapter->get_subitem_attributes($child, $rule);
+                $editable = (bool)($attributes['editable'] ?? $rule['editable']);
+                $subitem = [
+                    'id' => $itemid,
+                    'recordid' => (int)$child->id,
+                    'cmid' => $items[$parentkey]['cmid'] ?? 0,
+                    'table' => $subtable,
+                    'parentkey' => $parentkey,
+                    'parentrecordid' => (int)$child->parentid,
+                    'parenttitle' => $items[$parentkey]['title'] ?? '',
+                    'issubtype' => true,
+                    'haschildren' => false,
+                    'childrencount' => 0,
+                    'iconurl' => $items[$parentkey]['iconurl'] ?? '',
+                    'viewurl' => $items[$parentkey]['viewurl'] ?? '',
+                    'editable' => $editable,
+                    'derived' => false,
+                    'interactive' => $editable,
+                    'title' => (string)$child->title . ($issametbl ? ' - ' . $rule['label'] : ''),
+                    'typelabel' => $rule['label'],
+                    'startcol' => $rule['startcol'],
+                    'endcol' => $rule['endcol'],
+                    'ismilestone' => $rule['kind'] === 'milestone',
+                    'isopenended' => $rule['kind'] === 'open',
+                    'isdateinterval' => $rule['kind'] === 'range',
+                    'mappedrule' => true,
+                    'optional' => $rule['optional'],
+                    'dateonly' => $rule['dateonly'],
+                    'boundtoparentstart' => $rule['boundtoparentstart'],
+                    'boundtoparentend' => $rule['boundtoparentend'],
+                    'effort' => mapping::estimate($rule['effortestimator'], $ds, $de),
+                    'effortestimator' => $rule['effortestimator'],
+                    'startenabled' => $startenabled,
+                    'endenabled' => $endenabled,
+                    'datestart' => $ds,
+                    'dateend' => $de,
+                ];
+                $subitem = array_merge($subitem, $attributes);
+                $childrenbyparent[$parentkey][] = $subitem;
             }
         }
 
@@ -855,6 +688,13 @@ class manager {
             ], $availability);
         }
 
+        // Let each adapter provide or inherit the absolute limits for its row.
+        foreach ($childrenbyparent as $parentkey => $subitems) {
+            $parent = $items[$parentkey];
+            $adapter = adapter_manager::get_adapter($parent['table'], $course, $parent);
+            $items[$parentkey]['absolutelimits'] = $adapter->get_absolute_limits($parent, $subitems);
+        }
+
         uasort($items, static function(array $left, array $right) use ($itemorders): int {
             $leftorder = $itemorders[$left['id']] ?? PHP_INT_MAX;
             $rightorder = $itemorders[$right['id']] ?? PHP_INT_MAX;
@@ -1172,35 +1012,36 @@ class manager {
             $event->trigger();
         }
 
-        $questtasks = [];
-        foreach ($plan as $task) {
-            if ($task['saveactivity'] && $task['adapter'] instanceof \local_reschedule\adapter\quest_adapter &&
-                    ($task['item']['table'] ?? '') === 'quest_submissions') {
-                $questtasks[] = $task;
-            }
-        }
-
         $transaction = $DB->start_delegated_transaction();
         $updatedcount = 0;
-        $questschedulessaved = false;
+        $pendingadapter = null;
+        $pendingtasks = [];
+        $flushadaptertasks = static function() use (&$pendingadapter, &$pendingtasks): void {
+            if ($pendingadapter && $pendingtasks) {
+                $pendingadapter->save_batch($pendingtasks);
+            }
+            $pendingadapter = null;
+            $pendingtasks = [];
+        };
 
         foreach ($plan as $task) {
             if ($task['saveactivity']) {
-                if ($task['adapter'] instanceof \local_reschedule\adapter\quest_adapter &&
-                        ($task['item']['table'] ?? '') === 'quest_submissions') {
-                    if (!$questschedulessaved) {
-                        $task['adapter']->save_challenge_schedules($questtasks);
-                        $questschedulessaved = true;
-                    }
-                } else {
-                    $task['adapter']->save($task['item'], $task['newstart'], $task['newend']);
+                if ($pendingadapter && $pendingadapter !== $task['adapter']) {
+                    $flushadaptertasks();
                 }
+                $pendingadapter = $task['adapter'];
+                $pendingtasks[] = $task;
+            } else {
+                $flushadaptertasks();
             }
+
             if ($task['saveavailability']) {
+                $flushadaptertasks();
                 $availabilityadapter->save($task['item'], $task['availabilityupdates']);
             }
             $updatedcount++;
         }
+        $flushadaptertasks();
 
         $transaction->allow_commit();
 

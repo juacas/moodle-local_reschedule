@@ -781,6 +781,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
             this.hud = document.getElementById('reschedule-drag-hud');
             this.hudTitle = document.getElementById('hud-title');
             this.hudDates = document.getElementById('hud-dates');
+            this.hudValidationError = document.getElementById('hud-validation-error');
             this.saveBtn = document.getElementById('btn-save');
             this.resetBtn = document.getElementById('btn-reset');
             this.autoSeqBtn = document.getElementById('btn-autosequence');
@@ -1298,6 +1299,7 @@ b3 = [];
                 var bar = self.createBarElement(item, totalSec, cStart);
                 lane.appendChild(bar);
                 self.createAvailabilityOverlays(lane, item, totalSec, cStart);
+                self.createAbsoluteLimitMarkers(lane, item, totalSec, cStart);
                 rightArea.appendChild(lane);
                 gridLanes.push(lane);
                 if (sectionRun) {
@@ -1937,6 +1939,73 @@ b3 = [];
             bar.classList.toggle('is-undated-item', !item.ismilestone &&
                 item.startenabled === false && item.endenabled === false);
             this.updateBarOverflow(bar, item, totalSec, cStart);
+        },
+
+        /**
+         * Return the reason a proposed range crosses an absolute date limit.
+         *
+         * @param {Object} item Schedule item.
+         * @param {number} start Proposed start timestamp.
+         * @param {number} end Proposed end timestamp.
+         * @return {Object|null} The violated limit or null when the range is valid.
+         */
+        getAbsoluteLimitViolation: function(item, start, end) {
+            var limits = item.absolutelimits || [];
+            for (var index = 0; index < limits.length; index++) {
+                var limit = limits[index];
+                var timestamp = Number(limit.date);
+                var violated = limit.type === 'start_max' && Number(start) > timestamp ||
+                    limit.type === 'start_min' && Number(start) < timestamp ||
+                    limit.type === 'end_max' && Number(end) > timestamp ||
+                    limit.type === 'end_min' && Number(end) < timestamp;
+                if (violated) {
+                    return limit;
+                }
+            }
+            if (!limits.length && item.firstanswerdate > 0 && Number(start) > Number(item.firstanswerdate)) {
+                return {
+                    type: 'start_max',
+                    reason: item.answerstartvalidationmessage || ''
+                };
+            }
+            return null;
+        },
+
+        /**
+         * Return the reason a proposed range crosses an absolute date limit.
+         *
+         * @param {Object} item Schedule item.
+         * @param {number} start Proposed start timestamp.
+         * @param {number} end Proposed end timestamp.
+         * @return {string} Limit reason or an empty string.
+         */
+        getAbsoluteLimitError: function(item, start, end) {
+            var violation = this.getAbsoluteLimitViolation(item, start, end);
+            return violation ? violation.reason || '' : '';
+        },
+
+        /**
+         * Render fixed date limits on an activity lane.
+         *
+         * @param {HTMLElement} lane Gantt lane.
+         * @param {Object} item Schedule item.
+         * @param {number} totalSec Visible timeline duration.
+         * @param {number} cStart Visible timeline start.
+         */
+        createAbsoluteLimitMarkers: function(lane, item, totalSec, cStart) {
+            (item.absolutelimits || []).forEach(function(limit) {
+                var timestamp = Number(limit.date);
+                if (!timestamp || timestamp < cStart || timestamp > cStart + totalSec) {
+                    return;
+                }
+                var marker = document.createElement('div');
+                marker.className = 'quest-absolute-limit';
+                marker.style.left = (((timestamp - cStart) / totalSec) * 100) + '%';
+                marker.title = limit.reason || '';
+                marker.setAttribute('aria-label', limit.reason || '');
+                marker.setAttribute('role', 'img');
+                lane.appendChild(marker);
+            });
         },
 
         /**
@@ -3077,6 +3146,20 @@ b3 = [];
 
                 var reference = drag.mode === 'resize-end' ? drag.initialEnd : drag.initialStart;
                 var requestedSteps = snapStepsForDelta(reference, rawDelta, drag.snapUnit);
+                var requestedStart = drag.mode === 'resize-end' ? drag.initialStart :
+                    shiftSnappedDate(drag.initialStart, requestedSteps, drag.snapUnit);
+                var requestedEnd = drag.mode === 'resize-start' ? drag.initialEnd :
+                    shiftSnappedDate(drag.initialEnd, requestedSteps, drag.snapUnit);
+                var answerBoundaryMessage = self.getAbsoluteLimitError(drag.item, requestedStart, requestedEnd);
+                if (!answerBoundaryMessage && drag.children) {
+                    drag.children.some(function(child) {
+                        var proposedChildStart = shiftSnappedDate(child.initialStart, requestedSteps, drag.snapUnit);
+                        var proposedChildEnd = shiftSnappedDate(child.initialEnd, requestedSteps, drag.snapUnit);
+                        answerBoundaryMessage = self.getAbsoluteLimitError(
+                            child.item, proposedChildStart, proposedChildEnd);
+                        return !!answerBoundaryMessage;
+                    });
+                }
 
                 var cStart = self.config.courseStart;
                 var cEnd = self.config.courseEnd;
@@ -3132,6 +3215,9 @@ b3 = [];
                                 (!drag.item.ismilestone && candidateEnd <= candidateStart)) {
                             return false;
                         }
+                        if (self.getAbsoluteLimitError(drag.item, candidateStart, candidateEnd)) {
+                            return false;
+                        }
                         if (drag.parent && !drag.parent.derived && !drag.item.ismilestone &&
                                 (drag.item.boundtoparentstart !== false &&
                                 candidateStart < drag.parent.datestart ||
@@ -3139,8 +3225,10 @@ b3 = [];
                             return false;
                         }
                         return !drag.children || drag.children.every(function(child) {
-                            return shiftSnappedDate(child.initialStart, steps, unit) >= cStart &&
-                                shiftSnappedDate(child.initialEnd, steps, unit) <= cEnd;
+                            var childStart = shiftSnappedDate(child.initialStart, steps, unit);
+                            return childStart >= cStart && shiftSnappedDate(child.initialEnd, steps, unit) <= cEnd &&
+                                !self.getAbsoluteLimitError(child.item, childStart,
+                                    shiftSnappedDate(child.initialEnd, steps, unit));
                         });
                     };
                     var moveSteps = fitSnapSteps(requestedSteps, snapBounds.isValidMove);
@@ -3159,9 +3247,18 @@ b3 = [];
                     }
                     snapBounds.minStart = minStart;
                     snapBounds.maxStart = drag.initialEnd - minDur;
+                    (drag.item.absolutelimits || []).forEach(function(limit) {
+                        if (limit.type === 'start_max' && Number(limit.date) > 0) {
+                            snapBounds.maxStart = Math.min(snapBounds.maxStart, Number(limit.date));
+                        }
+                    });
+                    if (drag.item.firstanswerdate && !(drag.item.absolutelimits || []).length) {
+                        snapBounds.maxStart = Math.min(snapBounds.maxStart, Number(drag.item.firstanswerdate));
+                    }
                     var startSteps = fitSnapSteps(requestedSteps, function(steps) {
                         var candidate = shiftSnappedDate(drag.initialStart, steps, drag.snapUnit);
-                        return candidate >= minStart && candidate <= drag.initialEnd - minDur;
+                        return candidate >= minStart && candidate <= snapBounds.maxStart &&
+                            !self.getAbsoluteLimitError(drag.item, candidate, drag.initialEnd);
                     });
                     newStart = shiftSnappedDate(drag.initialStart, startSteps, drag.snapUnit);
                     newEnd = drag.initialEnd;
@@ -3171,11 +3268,17 @@ b3 = [];
                         maxEnd = Math.min(maxEnd, drag.parent.dateend);
                     }
                     snapBounds.minEnd = drag.initialStart + minDur;
+                    (drag.item.absolutelimits || []).forEach(function(limit) {
+                        if (limit.type === 'end_min' && Number(limit.date) > 0) {
+                            snapBounds.minEnd = Math.max(snapBounds.minEnd, Number(limit.date));
+                        }
+                    });
                     snapBounds.maxEnd = maxEnd;
                     newStart = drag.initialStart;
                     var endSteps = fitSnapSteps(requestedSteps, function(steps) {
                         var candidate = shiftSnappedDate(drag.initialEnd, steps, drag.snapUnit);
-                        return candidate >= drag.initialStart + minDur && candidate <= maxEnd;
+                        return candidate >= snapBounds.minEnd && candidate <= maxEnd &&
+                            !self.getAbsoluteLimitError(drag.item, drag.initialStart, candidate);
                     });
                     newEnd = shiftSnappedDate(drag.initialEnd, endSteps, drag.snapUnit);
                 }
@@ -3183,7 +3286,45 @@ b3 = [];
                 var snapped = self.snapDraggedDates(drag, rawDelta, newStart, newEnd, snapBounds);
                 newStart = snapped.start;
                 newEnd = snapped.end;
+                var snappedBoundaryMessage = self.getAbsoluteLimitError(drag.item, newStart, newEnd);
+                if (!snappedBoundaryMessage && drag.mode === 'move' && drag.children) {
+                    drag.children.some(function(child) {
+                        var childSteps = drag.snapUnit === 'days' ?
+                            localDayDifference(drag.initialStart, newStart) :
+                            Math.round((newStart - drag.initialStart) / 3600);
+                        var childStart = shiftSnappedDate(child.initialStart, childSteps, drag.snapUnit);
+                        var childEnd = shiftSnappedDate(child.initialEnd, childSteps, drag.snapUnit);
+                        snappedBoundaryMessage = self.getAbsoluteLimitError(child.item, childStart, childEnd);
+                        return !!snappedBoundaryMessage;
+                    });
+                }
+                if (snappedBoundaryMessage) {
+                    answerBoundaryMessage = snappedBoundaryMessage;
+                    if (drag.mode === 'move') {
+                        var validSteps = fitSnapSteps(requestedSteps, snapBounds.isValidMove);
+                        newStart = shiftSnappedDate(drag.initialStart, validSteps, drag.snapUnit);
+                        newEnd = drag.item.ismilestone ? newStart :
+                            shiftSnappedDate(drag.initialEnd, validSteps, drag.snapUnit);
+                    } else if (drag.mode === 'resize-start') {
+                        (drag.item.absolutelimits || []).forEach(function(limit) {
+                            if (limit.type === 'start_max' && Number(limit.date) > 0) {
+                                newStart = Math.min(newStart, Number(limit.date));
+                            }
+                        });
+                    } else if (drag.mode === 'resize-end') {
+                        (drag.item.absolutelimits || []).forEach(function(limit) {
+                            if (limit.type === 'end_min' && Number(limit.date) > 0) {
+                                newEnd = Math.max(newEnd, Number(limit.date));
+                            }
+                        });
+                    }
+                }
                 self.showSnapHint(drag.barEl, snapped.edge, snapped.target, drag.totalSec, timelineStart);
+
+                var previousItemRange = {start: drag.item.datestart, end: drag.item.dateend};
+                var previousChildRanges = (drag.children || []).map(function(child) {
+                    return {item: child.item, start: child.item.datestart, end: child.item.dateend, bar: child.barEl};
+                });
 
                 // Shift descendants by calendar days or hours, preserving their own clocks.
                 if (drag.mode === 'move' && drag.children && drag.children.length > 0) {
@@ -3273,9 +3414,33 @@ b3 = [];
                     });
                 }
 
+                var inheritedLimitError = self.getAbsoluteLimitError(drag.item,
+                    drag.item.datestart, drag.item.dateend);
+                if (!inheritedLimitError) {
+                    previousChildRanges.some(function(child) {
+                        inheritedLimitError = self.getAbsoluteLimitError(child.item,
+                            child.item.datestart, child.item.dateend);
+                        return !!inheritedLimitError;
+                    });
+                }
+                if (inheritedLimitError) {
+                    answerBoundaryMessage = inheritedLimitError;
+                    drag.item.datestart = previousItemRange.start;
+                    drag.item.dateend = previousItemRange.end;
+                    previousChildRanges.forEach(function(child) {
+                        child.item.datestart = child.start;
+                        child.item.dateend = child.end;
+                        if (child.bar) {
+                            self.positionBar(child.bar, child.item, drag.totalSec, timelineStart);
+                        }
+                        self.updateTableRow(child.item);
+                    });
+                }
+
                 self.positionBar(drag.barEl, drag.item, drag.totalSec, timelineStart);
 
-                self.updateHUD(e.clientX, e.clientY, drag.item);
+                self.updateHUD(e.clientX, e.clientY, drag.item,
+                    answerBoundaryMessage);
                 self.updateTableRow(drag.item);
                 if (drag.item.derived) {
                     self.refreshDerivedItem(drag.item);
@@ -3387,8 +3552,9 @@ b3 = [];
          * @param {number} x Screen X.
          * @param {number} y Screen Y.
          * @param {Object} item Activity item.
+         * @param {string} [validationerror] Optional validation message for an invalid drag position.
          */
-        updateHUD: function(x, y, item) {
+        updateHUD: function(x, y, item, validationerror) {
             if (!this.hud) {
                 return;
             }
@@ -3402,6 +3568,10 @@ b3 = [];
                     formatDateTime(item.datestart, this.locale);
             }
             this.hudDates.textContent = dates;
+            if (this.hudValidationError) {
+                this.hudValidationError.textContent = validationerror || '';
+                this.hudValidationError.classList.toggle('d-none', !validationerror);
+            }
         },
 
         /**
@@ -4530,18 +4700,28 @@ b3 = [];
                 var visibleEnd = endEnabled ? eTs : self.getTimelineEnd();
                 var badOrder = !modalItem.isopenstart && !missingStart && !missingEnd &&
                     visibleEnd <= visibleStart;
-                dateModalStartInput.classList.toggle('is-invalid', missingStart || (badOrder && !endEnabled));
-                dateModalEndInput.classList.toggle('is-invalid', missingEnd || (badOrder && endEnabled));
+                var boundaryViolation = startEnabled ?
+                    self.getAbsoluteLimitViolation(modalItem, sTs, eTs) : null;
+                var answerBoundaryError = boundaryViolation ? boundaryViolation.reason : '';
+                var startBoundaryError = boundaryViolation && boundaryViolation.type.startsWith('start_');
+                var endBoundaryError = boundaryViolation && boundaryViolation.type.startsWith('end_');
+                dateModalStartInput.classList.toggle('is-invalid', missingStart || (badOrder && !endEnabled) ||
+                    !!startBoundaryError);
+                dateModalStartInput.title = startBoundaryError ? answerBoundaryError : '';
+                dateModalEndInput.classList.toggle('is-invalid', missingEnd || (badOrder && endEnabled) ||
+                    !!endBoundaryError);
+                dateModalEndInput.title = endBoundaryError ? answerBoundaryError : '';
                 if (dateModalDurBadge) {
                     dateModalDurBadge.textContent = startEnabled && endEnabled && !badOrder &&
                         !missingStart && !missingEnd ? formatDuration(eTs - sTs) : '—';
                 }
                 if (dateModalErrorEl) {
-                    dateModalErrorEl.classList.toggle('d-none', !missingStart && !missingEnd && !badOrder);
+                    dateModalErrorEl.classList.toggle('d-none', !missingStart && !missingEnd && !badOrder &&
+                        !answerBoundaryError);
                     var dateModalErrorText = document.getElementById('date-modal-error-text');
                     if (dateModalErrorText) {
-                        dateModalErrorText.textContent = badOrder ? dateModalErrorText.dataset.orderMessage :
-                            dateModalErrorText.dataset.requiredMessage;
+                        dateModalErrorText.textContent = answerBoundaryError || (badOrder ?
+                            dateModalErrorText.dataset.orderMessage : dateModalErrorText.dataset.requiredMessage);
                     }
                 }
             }
@@ -5541,6 +5721,22 @@ b3 = [];
                 return;
             }
 
+            var absoluteLimitViolation = self.getAbsoluteLimitViolation(item, newStart, newEnd);
+            var absoluteLimitError = absoluteLimitViolation ? absoluteLimitViolation.reason : '';
+            if (absoluteLimitError) {
+                var violatingInput = absoluteLimitViolation.type.startsWith('end_') ? endInput : startInput;
+                violatingInput.classList.add('is-invalid');
+                violatingInput.title = absoluteLimitError;
+                if (errorEl) {
+                    errorEl.classList.remove('d-none');
+                }
+                if (errorText) {
+                    errorText.textContent = absoluteLimitError;
+                }
+                return;
+            }
+            startInput.title = '';
+
             var oldStart = item.datestart;
             var oldEnd = item.dateend;
             var oldStartEnabled = item.startenabled !== false;
@@ -5612,6 +5808,32 @@ b3 = [];
                     }
                     self.updateTableRow(c);
                 });
+            }
+
+            var inheritedLimitError = '';
+            children.some(function(child) {
+                inheritedLimitError = self.getAbsoluteLimitError(child, child.datestart, child.dateend);
+                return !!inheritedLimitError;
+            });
+            if (inheritedLimitError) {
+                self.restoreScheduleSnapshot(scheduleSnapshot);
+                self.items.forEach(function(scheduleItem) {
+                    var scheduleBar = self.board.querySelector(
+                        '.quest-calendar-bar[data-itemid="' + scheduleItem.id + '"]');
+                    if (scheduleBar) {
+                        self.positionBar(scheduleBar, scheduleItem, totalSec, cStart);
+                    }
+                    self.updateTableRow(scheduleItem);
+                });
+                startInput.classList.add('is-invalid');
+                startInput.title = inheritedLimitError;
+                if (errorEl) {
+                    errorEl.classList.remove('d-none');
+                }
+                if (errorText) {
+                    errorText.textContent = inheritedLimitError;
+                }
+                return;
             }
 
             // Update bar element for this item

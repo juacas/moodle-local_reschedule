@@ -26,6 +26,92 @@ namespace local_reschedule\adapter;
  */
 class kuet_adapter extends base_adapter {
     /**
+     * Load the date range of KUET activities through the module API.
+     *
+     * @param array $rule Normalised mapping rule.
+     * @return \stdClass[] Activity records keyed by instance ID.
+     */
+    #[\Override]
+    public function get_activity_records(array $rule): array {
+        return self::get_course_activity_ranges((int)$this->course->id);
+    }
+
+    /**
+     * Explain that a KUET range comes from its sessions and cannot be edited.
+     *
+     * @param \stdClass $record Loaded activity record.
+     * @param array $rule Normalised mapping rule.
+     * @return array Adapter-specific item attributes.
+     */
+    #[\Override]
+    public function get_activity_attributes(\stdClass $record, array $rule): array {
+        return [
+            'derived' => true,
+            'editable' => false,
+            'editreason' => get_string('kuetactivitynoteditable', 'local_reschedule'),
+            'interactreason' => get_string('kuetactivityderivedhint', 'local_reschedule'),
+        ];
+    }
+
+    /**
+     * Load programmed sessions through each KUET activity API.
+     *
+     * @param array $rule Normalised subtype mapping rule.
+     * @param int[] $parentids Parent KUET IDs.
+     * @return \stdClass[] Session records keyed by session ID.
+     */
+    #[\Override]
+    public function get_subitems(array $rule, array $parentids): array {
+        if (!class_exists(\mod_kuet\kuet::class)) {
+            return [];
+        }
+
+        $modinfo = get_fast_modinfo($this->course->id);
+        $records = [];
+        foreach ($parentids as $parentid) {
+            $cm = $modinfo->instances['kuet'][(int)$parentid] ?? null;
+            if (!$cm) {
+                continue;
+            }
+            $kuetapi = new \mod_kuet\kuet((int)$cm->id);
+            foreach ($kuetapi->get_sessions() as $session) {
+                if (!$session->is_programmed_mode()) {
+                    continue;
+                }
+                $record = (object)[
+                    'id' => (int)$session->get('id'),
+                    'parentid' => (int)$session->get('kuetid'),
+                    'title' => (string)$session->get('name'),
+                    'datestart' => (int)$session->get('startdate'),
+                    'dateend' => (int)$session->get('enddate'),
+                    'sessionmode' => (string)$session->get('sessionmode'),
+                ];
+                $records[$record->id] = $record;
+            }
+        }
+
+        uasort($records, static fn(\stdClass $left, \stdClass $right): int =>
+            [$left->datestart, $left->id] <=> [$right->datestart, $right->id]);
+        return $records;
+    }
+
+    /**
+     * Determine whether a loaded KUET session may be edited.
+     *
+     * @param \stdClass $record Session record.
+     * @param array $rule Normalised subtype mapping rule.
+     * @return array Adapter-specific item attributes.
+     */
+    #[\Override]
+    public function get_subitem_attributes(\stdClass $record, array $rule): array {
+        $editable = self::is_programmed_session_mode((string)($record->sessionmode ?? ''));
+        return [
+            'editable' => $editable,
+            'absolutelimits' => [],
+        ];
+    }
+
+    /**
      * Find the parent KUET API for an item.
      *
      * Prefer the parent module supplied by the Gantt item. If it is missing,

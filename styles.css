@@ -491,6 +491,19 @@
     background-color: rgba(241, 245, 249, 0.35);
 }
 
+.quest-absolute-limit {
+    background: #dc2626;
+    bottom: 0;
+    cursor: help;
+    left: 0;
+    pointer-events: auto;
+    position: absolute;
+    top: 0;
+    transform: translateX(-1px);
+    width: 2px;
+    z-index: 4;
+}
+
 .quest-calendar-bar {
     align-items: center;
     background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);

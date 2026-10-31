@@ -134,4 +134,120 @@ final class quest_effort_test extends advanced_testcase {
             $event instanceof \mod_quest\event\challenge_updated);
         $this->assertCount(2, $challengeevents);
     }
+
+    public function test_challenge_start_cannot_move_after_first_submitted_answer(): void {
+        global $DB, $USER;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $course = $this->getDataGenerator()->create_course();
+        $start = time() + DAYSECS;
+        $quest = $this->getDataGenerator()->create_module('quest', [
+            'course' => $course->id,
+            'datestart' => $start,
+            'dateend' => $start + (10 * DAYSECS),
+        ]);
+        $answerdate = $start + HOURSECS;
+        $lastanswerdate = $start + (2 * HOURSECS);
+        $submissionid = $DB->insert_record('quest_submissions', (object)[
+            'questid' => $quest->id,
+            'userid' => $USER->id,
+            'title' => 'Answered challenge',
+            'description' => 'Challenge description',
+            'descriptionformat' => FORMAT_HTML,
+            'descriptiontrust' => 0,
+            'datestart' => $start,
+            'dateend' => $start + (2 * DAYSECS),
+        ]);
+        $DB->insert_record('quest_answers', (object)[
+            'questid' => $quest->id,
+            'submissionid' => $submissionid,
+            'userid' => $USER->id,
+            'title' => 'Answer',
+            'description' => 'Submitted answer',
+            'date' => $answerdate,
+            'pointsmax' => 1,
+            'grade' => 0,
+            'phase' => 0,
+            'commentforteacher' => '',
+        ]);
+        $strictersubmissionid = $DB->insert_record('quest_submissions', (object)[
+            'questid' => $quest->id,
+            'userid' => $USER->id,
+            'title' => 'Stricter challenge',
+            'description' => 'Challenge with tighter answer bounds',
+            'descriptionformat' => FORMAT_HTML,
+            'descriptiontrust' => 0,
+            'datestart' => $start,
+            'dateend' => $start + (3 * DAYSECS),
+        ]);
+        foreach ([$start + intdiv(HOURSECS, 2), $start + (4 * HOURSECS)] as $date) {
+            $DB->insert_record('quest_answers', (object)[
+                'questid' => $quest->id,
+                'submissionid' => $strictersubmissionid,
+                'userid' => $USER->id,
+                'title' => 'Answer',
+                'description' => 'Submitted answer',
+                'date' => (int)$date,
+                'pointsmax' => 1,
+                'grade' => 0,
+                'phase' => 0,
+                'commentforteacher' => '',
+            ]);
+        }
+        $DB->insert_record('quest_answers', (object)[
+            'questid' => $quest->id,
+            'submissionid' => $submissionid,
+            'userid' => $USER->id,
+            'title' => 'Later answer',
+            'description' => 'Later submitted answer',
+            'date' => $lastanswerdate,
+            'pointsmax' => 1,
+            'grade' => 0,
+            'phase' => 0,
+            'commentforteacher' => '',
+        ]);
+
+        $loaded = quest_adapter::get_challenges([(int)$quest->id]);
+        $this->assertSame($answerdate, $loaded[$submissionid]->firstanswerdate);
+        $this->assertSame($lastanswerdate, $loaded[$submissionid]->lastanswerdate);
+        $this->assertNotEmpty($loaded[$submissionid]->answerstartvalidationmessage);
+        $this->assertNotEmpty($loaded[$submissionid]->answerendvalidationmessage);
+        $items = array_column(manager::get_course_items((int)$course->id), null, 'id');
+        $challengekey = 'sub_quest_submissions_' . $submissionid;
+        $this->assertCount(2, $items[$challengekey]['absolutelimits']);
+        $this->assertSame(['start_max', 'end_min'], array_column($items[$challengekey]['absolutelimits'], 'type'));
+        $this->assertSame([$answerdate, $lastanswerdate],
+            array_column($items[$challengekey]['absolutelimits'], 'date'));
+        $parentlimits = $items['main_quest_' . $quest->id]['absolutelimits'];
+        $this->assertCount(2, $parentlimits);
+        $this->assertSame(['start_max', 'end_min'], array_column($parentlimits, 'type'));
+        $this->assertSame([$start + intdiv(HOURSECS, 2), $start + (4 * HOURSECS)],
+            array_column($parentlimits, 'date'));
+
+        $result = manager::save_schedule((int)$course->id, [[
+            'id' => 'sub_quest_submissions_' . $submissionid,
+            'datestart' => $answerdate + 1,
+            'dateend' => $start + (3 * DAYSECS),
+            'startenabled' => true,
+            'endenabled' => true,
+        ]]);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString($loaded[$submissionid]->answerstartvalidationmessage, $result['message']);
+        $this->assertSame('sub_quest_submissions_' . $submissionid, $result['itemerrors'][0]['id']);
+
+        $result = manager::save_schedule((int)$course->id, [[
+            'id' => $challengekey,
+            'datestart' => $start,
+            'dateend' => $lastanswerdate - 1,
+            'startenabled' => true,
+            'endenabled' => true,
+        ]]);
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString($loaded[$submissionid]->answerendvalidationmessage, $result['message']);
+
+        $stored = $DB->get_record('quest_submissions', ['id' => $submissionid], '*', MUST_EXIST);
+        $this->assertSame($start, (int)$stored->datestart);
+    }
 }
