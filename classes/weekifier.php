@@ -144,6 +144,19 @@ class weekifier {
         $actions = \core_courseformat\formatactions::cm($course);
         $moved = 0;
         $failed = 0;
+        $affectedmodules = array_map(static fn(array $move): array => [
+            'cmid' => (int)$move['cmid'],
+            'name' => (string)$move['title'],
+        ], $plan['moves']);
+        if ($affectedmodules) {
+            // Emit before Moodle's course format API records each move.
+            $event = \local_reschedule\event\changes_saved::create_for_modules(
+                \context_course::instance((int)$course->id),
+                'weekify',
+                $affectedmodules
+            );
+            $event->trigger();
+        }
         foreach ($plan['moves'] as $move) {
             try {
                 if ($actions->move_end_section($move['cmid'], $move['targetsectionid'])) {

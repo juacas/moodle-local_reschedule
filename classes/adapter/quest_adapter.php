@@ -46,6 +46,33 @@ class quest_adapter extends base_adapter {
         return round(($minutes / 60) * ($multipliers[$difficulty] ?? 1.0), 4);
     }
 
+    /**
+     * Load challenges through mod_quest's tournament service.
+     *
+     * @param int[] $questids Quest tournament ids.
+     * @return \stdClass[] Challenge records keyed by submission id.
+     */
+    public static function get_challenges(array $questids): array {
+        if (!class_exists(\mod_quest\service\tournament_manager::class)) {
+            return [];
+        }
+
+        $challenges = [];
+        foreach (array_unique(array_filter(array_map('intval', $questids))) as $questid) {
+            foreach (\mod_quest\service\tournament_manager::get_challenges($questid) as $challenge) {
+                $item = clone $challenge;
+                $item->parentid = (int)$challenge->questid;
+                $item->datestart = (int)$challenge->datestart;
+                $item->dateend = (int)$challenge->dateend;
+                $challenges[(int)$challenge->id] = $item;
+            }
+        }
+
+        uasort($challenges, static fn(\stdClass $left, \stdClass $right): int =>
+            [$left->datestart, $left->id] <=> [$right->datestart, $right->id]);
+        return $challenges;
+    }
+
     #[\Override]
     public function supports(string $modname, array $item): bool {
         return ($modname === 'quest' || $item['table'] === 'quest' || $item['table'] === 'quest_submissions');
@@ -59,26 +86,11 @@ class quest_adapter extends base_adapter {
         $recordid = (int)$item['recordid'];
 
         if ($table === 'quest_submissions') {
-            // Updating a challenge within a quest.
-            $submission = $DB->get_record('quest_submissions', ['id' => $recordid]);
-            if (!$submission) {
-                return;
-            }
-
-            $submission->datestart = $newstart;
-            $submission->dateend = $newend;
-            $DB->update_record('quest_submissions', $submission);
-
-            $quest = $DB->get_record('quest', ['id' => $submission->questid]);
-            if ($quest) {
-                $cm = $this->get_cm('quest', $quest->id);
-                if ($cm && file_exists($CFG->dirroot . '/mod/quest/locallib.php')) {
-                    require_once($CFG->dirroot . '/mod/quest/locallib.php');
-                    if (function_exists('quest_update_challenge_calendar')) {
-                        quest_update_challenge_calendar($cm, $quest, $submission);
-                    }
-                }
-            }
+            $this->save_challenge_schedules([[
+                'item' => $item,
+                'newstart' => $newstart,
+                'newend' => $newend,
+            ]]);
             return;
         }
 
@@ -103,6 +115,54 @@ class quest_adapter extends base_adapter {
                 quest_update_grades($quest);
             }
             $this->trigger_cm_updated($cm);
+        }
+    }
+
+    /**
+     * Save challenge rows in one service call per Quest tournament.
+     *
+     * @param array $tasks Planned changes with item, newstart and newend keys.
+     */
+    public function save_challenge_schedules(array $tasks): void {
+        global $DB;
+
+        if (!class_exists(\mod_quest\service\tournament_manager::class)) {
+            throw new \coding_exception('The mod_quest tournament manager service is unavailable.');
+        }
+
+        $byquest = [];
+        foreach ($tasks as $task) {
+            $item = $task['item'] ?? [];
+            $questid = (int)($item['parentrecordid'] ?? 0);
+            if ($questid <= 0 && preg_match('/^main_quest_(\d+)$/', (string)($item['parentkey'] ?? ''), $matches)) {
+                $questid = (int)$matches[1];
+            }
+            if ($questid <= 0) {
+                throw new \coding_exception('A Quest challenge is missing its parent tournament id.');
+            }
+            $byquest[$questid][] = [
+                'id' => (int)($item['recordid'] ?? 0),
+                'datestart' => (int)$task['newstart'],
+                'dateend' => (int)$task['newend'],
+            ];
+        }
+
+        foreach ($byquest as $questid => $schedules) {
+            $quest = $DB->get_record('quest', ['id' => $questid], '*', MUST_EXIST);
+            $cm = $this->get_cm('quest', $questid);
+            if (!$cm) {
+                throw new \coding_exception('The course module for Quest tournament ' . $questid . ' was not found.');
+            }
+            $result = \mod_quest\service\tournament_manager::update_challenge_schedules(
+                $quest,
+                $cm,
+                $schedules,
+                false
+            );
+            if (empty($result['success'])) {
+                $message = (string)($result['message'] ?? 'Quest could not update the challenge schedules.');
+                throw new \RuntimeException($message);
+            }
         }
     }
 }

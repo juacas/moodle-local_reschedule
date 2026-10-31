@@ -256,3 +256,5 @@ $string['kuetsessionnoteditable'] = 'Esta sesión manual de KUET no se puede edi
 $string['milestone'] = 'Hito';
 $string['milestonedate'] = 'Fecha del hito';
 $string['enablemilestone'] = 'Activar esta fecha';
+$string['eventrescheduleviewed'] = 'Replanificador visualizado';
+$string['eventchangessaved'] = 'Cambios del replanificador guardados';

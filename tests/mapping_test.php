@@ -100,6 +100,27 @@ final class mapping_test extends advanced_testcase {
         $this->assertTrue($setting->validate($json));
     }
 
+    public function test_mapping_setting_does_not_print_the_default_json(): void {
+        global $CFG, $PAGE;
+
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        require_once($CFG->libdir . '/adminlib.php');
+        $PAGE->set_context(\context_system::instance());
+        $setting = new admin_setting_mapping(
+            'local_reschedule/testmapping',
+            'Mapping',
+            'Mapping description',
+            mapping::DEFAULT_JSON
+        );
+
+        $html = $setting->output_html(mapping::DEFAULT_JSON);
+
+        $this->assertStringNotContainsString('form-defaultinfo', $html);
+        $this->assertStringContainsString('id_s_local_reschedule_testmapping', $html);
+        $this->assertStringContainsString('-editor-config', $html);
+    }
+
     public function test_open_rule_updates_only_its_start_field(): void {
         $this->resetAfterTest(true);
         $this->setAdminUser();

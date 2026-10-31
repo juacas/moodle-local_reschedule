@@ -108,29 +108,29 @@ final class kuet_adapter_test extends advanced_testcase {
 
         // 5. Valid session record.
         if ($DB->get_manager()->table_exists('kuet') && $DB->get_manager()->table_exists('kuet_sessions')) {
-            $kuet = new stdClass();
-            $kuet->course = $course->id;
-            $kuet->name = 'Test Kuet';
-            $kuet->intro = '';
-            $kuet->introformat = FORMAT_HTML;
-            $kuet->timecreated = time();
-            $kuet->timemodified = time();
-            $kuetid = $DB->insert_record('kuet', $kuet);
+            $kuet = $this->getDataGenerator()->create_module('kuet', ['course' => $course->id]);
 
-            $session = new stdClass();
-            $session->name = 'Session 1';
-            $session->kuetid = $kuetid;
-            $session->sessionmode = 'podium_programmed';
-            $session->automaticstart = 0;
-            $session->status = 1;
-            $session->startdate = 0;
-            $session->enddate = 0;
-            $session->timecreated = time();
-            $session->timemodified = time();
-            $sessionid = $DB->insert_record('kuet_sessions', $session);
+            $session = (object)[
+                'name' => 'Session 1',
+                'kuetid' => $kuet->id,
+                'sessionmode' => 'podium_programmed',
+                'automaticstart' => 0,
+                'status' => 1,
+                'startdate' => 0,
+                'enddate' => 0,
+                'sessiontime' => 0,
+                'questiontime' => 10,
+            ];
+            $generator = $this->getDataGenerator()->get_plugin_generator('mod_kuet');
+            $sessionid = $generator->create_session($kuet, $session);
 
             $validerrs = $adapter->validate(
-                ['table' => 'kuet_sessions', 'recordid' => $sessionid, 'title' => 'Session 1'],
+                [
+                    'table' => 'kuet_sessions',
+                    'recordid' => $sessionid,
+                    'parentrecordid' => $kuet->id,
+                    'title' => 'Session 1',
+                ],
                 $now + 1000,
                 $now + 5000
             );
@@ -152,26 +152,21 @@ final class kuet_adapter_test extends advanced_testcase {
         $course = $this->getDataGenerator()->create_course();
         $adapter = new kuet_adapter($course);
 
-        $kuet = new stdClass();
-        $kuet->course = $course->id;
-        $kuet->name = 'Test Kuet Reschedule';
-        $kuet->intro = '';
-        $kuet->introformat = FORMAT_HTML;
-        $kuet->timecreated = time();
-        $kuet->timemodified = time();
-        $kuetid = $DB->insert_record('kuet', $kuet);
+        $kuet = $this->getDataGenerator()->create_module('kuet', ['course' => $course->id]);
 
-        $session = new stdClass();
-        $session->name = 'Scheduled Session Alpha';
-        $session->kuetid = $kuetid;
-        $session->sessionmode = 'podium_programmed';
-        $session->automaticstart = 0;
-        $session->status = 0; // Finished status previously.
-        $session->startdate = 0;
-        $session->enddate = 0;
-        $session->timecreated = time();
-        $session->timemodified = time();
-        $sessionid = $DB->insert_record('kuet_sessions', $session);
+        $session = (object)[
+            'name' => 'Scheduled Session Alpha',
+            'kuetid' => $kuet->id,
+            'sessionmode' => 'podium_programmed',
+            'automaticstart' => 0,
+            'status' => 0, // Finished status previously.
+            'startdate' => 0,
+            'enddate' => 0,
+            'sessiontime' => 0,
+            'questiontime' => 10,
+        ];
+        $generator = $this->getDataGenerator()->get_plugin_generator('mod_kuet');
+        $sessionid = $generator->create_session($kuet, $session);
 
         $newstart = time() + 7200;
         $newend = time() + 10800;
@@ -198,7 +193,7 @@ final class kuet_adapter_test extends advanced_testcase {
     }
 
     /**
-     * Test saving parent kuet activity updates timemodified safely.
+     * Parent KUET schedule is derived and is not persisted on the activity row.
      */
     public function test_save_kuet_parent(): void {
         $this->resetAfterTest(true);
@@ -212,26 +207,23 @@ final class kuet_adapter_test extends advanced_testcase {
         $adapter = new kuet_adapter($course);
 
         $past = time() - 3600;
-        $kuet = new stdClass();
-        $kuet->course = $course->id;
-        $kuet->name = 'Kuet Parent Activity';
-        $kuet->intro = '';
-        $kuet->introformat = FORMAT_HTML;
-        $kuet->timecreated = $past;
-        $kuet->timemodified = $past;
-        $kuetid = $DB->insert_record('kuet', $kuet);
+        $kuet = $this->getDataGenerator()->create_module('kuet', [
+            'course' => $course->id,
+            'timemodified' => $past,
+        ]);
+        $initialtimemodified = (int)$DB->get_field('kuet', 'timemodified', ['id' => $kuet->id]);
 
         $item = [
-            'id' => 'main_kuet_' . $kuetid,
+            'id' => 'main_kuet_' . $kuet->id,
             'table' => 'kuet',
-            'recordid' => $kuetid,
+            'recordid' => $kuet->id,
             'title' => 'Kuet Parent Activity',
         ];
 
         $adapter->save($item, time(), time() + 7200);
 
-        $updated = $DB->get_record('kuet', ['id' => $kuetid]);
-        $this->assertGreaterThanOrEqual($past + 3000, (int)$updated->timemodified);
+        $updated = $DB->get_record('kuet', ['id' => $kuet->id]);
+        $this->assertSame($initialtimemodified, (int)$updated->timemodified);
     }
 
     /**
@@ -280,14 +272,11 @@ final class kuet_adapter_test extends advanced_testcase {
 
         $course = $this->getDataGenerator()->create_course();
         $now = time() + 3600;
-        $kuet = new stdClass();
-        $kuet->course = $course->id;
-        $kuet->name = 'KUET scheduling filter';
-        $kuet->intro = '';
-        $kuet->introformat = FORMAT_HTML;
-        $kuet->timecreated = time();
-        $kuet->timemodified = time();
-        $kuetid = $DB->insert_record('kuet', $kuet);
+        $kuet = $this->getDataGenerator()->create_module('kuet', [
+            'course' => $course->id,
+            'name' => 'KUET scheduling filter',
+        ]);
+        $kuetid = (int)$kuet->id;
 
         foreach (['podium_programmed', 'podium_manual'] as $sessionmode) {
             $session = new stdClass();
@@ -296,8 +285,8 @@ final class kuet_adapter_test extends advanced_testcase {
             $session->sessionmode = $sessionmode;
             $session->automaticstart = 0;
             $session->status = 1;
-            $session->startdate = $now;
-            $session->enddate = $now + 3600;
+            $session->startdate = $sessionmode === 'podium_programmed' ? $now : $now - DAYSECS;
+            $session->enddate = $sessionmode === 'podium_programmed' ? $now + 3600 : $now + DAYSECS;
             $session->timecreated = time();
             $session->timemodified = time();
             $sessionid = $DB->insert_record('kuet_sessions', $session);
@@ -311,13 +300,19 @@ final class kuet_adapter_test extends advanced_testcase {
 
         $items = manager::get_course_items($course->id);
         $sessionids = [];
+        $parentitem = null;
         foreach ($items as $item) {
             if ($item['table'] === 'kuet_sessions') {
                 $sessionids[] = (int)$item['recordid'];
+            } else if ($item['table'] === 'kuet' && (int)$item['recordid'] === $kuetid) {
+                $parentitem = $item;
             }
         }
 
         $this->assertContains($programmedid, $sessionids);
         $this->assertNotContains($manualid, $sessionids);
+        $this->assertNotNull($parentitem);
+        $this->assertSame($now, $parentitem['datestart']);
+        $this->assertSame($now + 3600, $parentitem['dateend']);
     }
 }

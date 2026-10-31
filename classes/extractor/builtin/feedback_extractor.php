@@ -21,7 +21,11 @@ use local_reschedule\extractor\base_builtin_extractor;
 use report_editdates_date_setting;
 
 /**
- * Replicated date extractor for the feedback activity module.
+ * Replicated date extractor for Feedback availability.
+ *
+ * Exposes optional timeopen and timeclose endpoints and validates that closing
+ * does not precede opening. Persistence is provided by the common extractor
+ * implementation.
  *
  * @package    local_reschedule
  * @copyright  2013 The Open University (based on report_editdates)

@@ -256,3 +256,5 @@ $string['kuetsessionnoteditable'] = 'This manual KUET session cannot be edited f
 $string['milestone'] = 'Milestone';
 $string['milestonedate'] = 'Milestone date';
 $string['enablemilestone'] = 'Enable this date';
+$string['eventrescheduleviewed'] = 'Reschedule viewed';
+$string['eventchangessaved'] = 'Reschedule changes saved';

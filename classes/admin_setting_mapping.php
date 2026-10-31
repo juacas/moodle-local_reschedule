@@ -24,6 +24,37 @@ namespace local_reschedule;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class admin_setting_mapping extends \admin_setting_configtextarea {
+    /** @var int|string Number of columns in the raw JSON editor. */
+    private $mappingcols;
+
+    /** @var int|string Number of rows in the raw JSON editor. */
+    private $mappingrows;
+
+    /**
+     * Create the mapping setting without exposing its large default JSON value.
+     *
+     * @param string $name Setting name.
+     * @param string $visiblename Visible name.
+     * @param string $description Setting description.
+     * @param mixed $defaultsetting Default JSON document.
+     * @param mixed $paramtype Parameter type.
+     * @param int|string $cols Raw editor columns.
+     * @param int|string $rows Raw editor rows.
+     */
+    public function __construct(
+        $name,
+        $visiblename,
+        $description,
+        $defaultsetting,
+        $paramtype = PARAM_RAW,
+        $cols = 60,
+        $rows = 8
+    ) {
+        $this->mappingcols = $cols;
+        $this->mappingrows = $rows;
+        parent::__construct($name, $visiblename, $description, $defaultsetting, $paramtype, $cols, $rows);
+    }
+
     /**
      * Reject malformed JSON rather than silently losing all configured rows.
      *
@@ -127,7 +158,21 @@ class admin_setting_mapping extends \admin_setting_configtextarea {
         $PAGE->requires->js_call_amd('local_reschedule/mapping_editor', 'init', [$this->get_id()]);
         $json = json_encode($config, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT |
             JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
-        return parent::output_html($data, $query) .
+        $context = (object)[
+            'cols' => $this->mappingcols,
+            'rows' => $this->mappingrows,
+            'id' => $this->get_id(),
+            'name' => $this->get_full_name(),
+            'value' => $data,
+            'forceltr' => $this->get_force_ltr(),
+            'readonly' => $this->is_readonly(),
+        ];
+        $element = $OUTPUT->render_from_template('core_admin/setting_configtextarea', $context);
+        // Passing null as default info prevents Moodle from printing the full
+        // default JSON below the setting. It remains available in the raw editor.
+        $settinghtml = \format_admin_setting($this, $this->visiblename, $element, $this->description,
+            true, '', null, $query);
+        return $settinghtml .
             '<script type="application/json" id="' . s($this->get_id()) . '-editor-config">' . $json . '</script>';
     }
 }

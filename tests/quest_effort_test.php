@@ -80,4 +80,58 @@ final class quest_effort_test extends advanced_testcase {
         $this->assertTrue(manager::cm_has_subactivities($course->id, $quest->cmid));
         $this->assertFalse(manager::cm_has_subactivities($course->id, $page->cmid));
     }
+
+    public function test_challenge_dates_are_saved_through_tournament_manager(): void {
+        global $DB, $USER;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $course = $this->getDataGenerator()->create_course();
+        $start = time() + DAYSECS;
+        $quest = $this->getDataGenerator()->create_module('quest', [
+            'course' => $course->id,
+            'datestart' => $start,
+            'dateend' => $start + (10 * DAYSECS),
+        ]);
+        $updates = [];
+        $submissionids = [];
+        for ($index = 1; $index <= 2; $index++) {
+            $submissionid = $DB->insert_record('quest_submissions', (object)[
+                'questid' => $quest->id,
+                'userid' => $USER->id,
+                'title' => 'Challenge ' . $index,
+                'description' => 'Challenge description',
+                'descriptionformat' => FORMAT_HTML,
+                'descriptiontrust' => 0,
+                'datestart' => $start + ($index * DAYSECS),
+                'dateend' => $start + (($index + 1) * DAYSECS),
+            ]);
+            $submissionids[] = $submissionid;
+            $updates[] = [
+                'id' => 'sub_quest_submissions_' . $submissionid,
+                'datestart' => $start + ($index * DAYSECS) + HOURSECS,
+                'dateend' => $start + (($index + 1) * DAYSECS) + HOURSECS,
+                'startenabled' => true,
+                'endenabled' => true,
+            ];
+        }
+
+        $loaded = quest_adapter::get_challenges([(int)$quest->id]);
+        $this->assertArrayHasKey($submissionids[0], $loaded);
+        $this->assertSame((int)$quest->id, $loaded[$submissionids[0]]->parentid);
+
+        $sink = $this->redirectEvents();
+        $result = manager::save_schedule((int)$course->id, $updates);
+
+        $this->assertTrue($result['success'], $result['message']);
+        $this->assertSame(2, $result['updated']);
+        foreach ($updates as $index => $update) {
+            $stored = $DB->get_record('quest_submissions', ['id' => $submissionids[$index]], '*', MUST_EXIST);
+            $this->assertSame($update['datestart'], (int)$stored->datestart);
+            $this->assertSame($update['dateend'], (int)$stored->dateend);
+        }
+        $challengeevents = array_filter($sink->get_events(), static fn($event): bool =>
+            $event instanceof \mod_quest\event\challenge_updated);
+        $this->assertCount(2, $challengeevents);
+    }
 }

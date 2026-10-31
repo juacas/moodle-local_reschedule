@@ -21,7 +21,12 @@ use local_reschedule\extractor\base_builtin_extractor;
 use report_editdates_date_setting;
 
 /**
- * Replicated date extractor for the forum activity module.
+ * Replicated date extractor for Forum dates and rating periods.
+ *
+ * Treats duedate as a point milestone and cutoffdate as the end of an interval
+ * with no explicit start. When ratings are enabled it also exposes and validates
+ * the assessment interval, including the requirement for both endpoints. It
+ * enforces cutoff after due and refreshes forum grades after saving.
  *
  * @package    local_reschedule
  * @copyright  2012 The Open University (based on report_editdates)

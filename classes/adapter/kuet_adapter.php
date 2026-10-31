@@ -26,6 +26,113 @@ namespace local_reschedule\adapter;
  */
 class kuet_adapter extends base_adapter {
     /**
+     * Find the parent KUET API for an item.
+     *
+     * Prefer the parent module supplied by the Gantt item. If it is missing,
+     * inspect course KUET instances and find the one containing the session.
+     *
+     * @param array $item Reschedule item metadata.
+     * @return object|null KUET API, or null when the parent no longer exists.
+     */
+    private function get_kuet_api(array $item): ?object {
+        if (!class_exists(\mod_kuet\kuet::class)) {
+            return null;
+        }
+
+        $kuetid = (int)($item['parentrecordid'] ?? 0);
+        if ($kuetid <= 0 && preg_match('/^main_kuet_(\d+)$/', (string)($item['parentkey'] ?? ''), $matches)) {
+            $kuetid = (int)$matches[1];
+        }
+
+        $modinfo = get_fast_modinfo($this->course->id);
+        $instances = $modinfo->instances['kuet'] ?? [];
+        if ($kuetid > 0) {
+            $cm = $instances[$kuetid] ?? null;
+            $instances = $cm ? [$kuetid => $cm] : [];
+        }
+
+        foreach ($instances as $cm) {
+            $kuetapi = new \mod_kuet\kuet((int)$cm->id);
+            if ($kuetid > 0 || $this->get_session($kuetapi, (int)($item['recordid'] ?? 0))) {
+                return $kuetapi;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Find a session through the mod_kuet API.
+     *
+     * @param object $kuetapi KUET module API.
+     * @param int $sessionid Session ID.
+     * @return object|null KUET session, or null when it no longer exists.
+     */
+    private function get_session(object $kuetapi, int $sessionid): ?object {
+        foreach ($kuetapi->get_sessions() as $session) {
+            if ((int)$session->get('id') === $sessionid) {
+                return $session;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Build the derived date range of each KUET activity in a course.
+     *
+     * KUET stores dates on its sessions rather than on the activity record.
+     * Use the module's public service facade so KUET remains responsible for
+     * loading sessions and deciding which modes are programmed.
+     *
+     * @param int $courseid Course ID.
+     * @return \stdClass[] Activity records keyed by KUET instance ID.
+     */
+    public static function get_course_activity_ranges(int $courseid): array {
+        if (!class_exists(\mod_kuet\kuet::class)) {
+            return [];
+        }
+
+        $modinfo = get_fast_modinfo($courseid);
+        $ranges = [];
+        foreach ($modinfo->instances['kuet'] ?? [] as $cm) {
+            $kuetapi = new \mod_kuet\kuet((int)$cm->id);
+            $activity = $kuetapi->get_kuet();
+            $range = null;
+            foreach ($kuetapi->get_sessions() as $session) {
+                if (!$session->is_programmed_mode()) {
+                    continue;
+                }
+                if ($range === null) {
+                    $range = (object)[
+                        'id' => (int)$activity->id,
+                        'title' => (string)$activity->name,
+                        'datestart' => 0,
+                        'dateend' => 0,
+                    ];
+                }
+
+                $startdate = (int)$session->get('startdate');
+                $enddate = (int)$session->get('enddate');
+                if ($startdate <= 0 || $enddate <= 0) {
+                    continue;
+                }
+                if ($range->datestart === 0 || $startdate < $range->datestart) {
+                    $range->datestart = $startdate;
+                }
+                $range->dateend = max($range->dateend, $enddate);
+            }
+            if ($range !== null) {
+                $ranges[$range->id] = $range;
+            }
+        }
+
+        uasort($ranges, static fn(\stdClass $left, \stdClass $right): int =>
+            [$left->datestart, $left->id] <=> [$right->datestart, $right->id]);
+        return $ranges;
+    }
+
+    /**
      * Check whether a KUET session uses a scheduled/programmed mode.
      *
      * @param string $sessionmode Session mode value.
@@ -51,8 +158,6 @@ class kuet_adapter extends base_adapter {
 
     #[\Override]
     public function validate(array $item, int $newstart, int $newend): array {
-        global $DB;
-
         $errors = parent::validate($item, $newstart, $newend);
         $title = $item['title'] ?? 'Kuet';
 
@@ -65,10 +170,11 @@ class kuet_adapter extends base_adapter {
         $recordid = (int)($item['recordid'] ?? 0);
 
         if ($table === 'kuet_sessions') {
-            $session = $DB->get_record('kuet_sessions', ['id' => $recordid]);
+            $kuetapi = $this->get_kuet_api($item);
+            $session = $kuetapi ? $this->get_session($kuetapi, $recordid) : null;
             if (!$session) {
                 $errors[] = "{$title}: " . get_string('invalidrecord', 'error');
-            } else if (!self::is_programmed_session_mode((string)$session->sessionmode)) {
+            } else if (!$session->is_programmed_mode()) {
                 $errors[] = "{$title}: " . get_string('kuetsessionnoteditable', 'local_reschedule');
             }
         }
@@ -78,48 +184,27 @@ class kuet_adapter extends base_adapter {
 
     #[\Override]
     public function save(array $item, int $newstart, int $newend): void {
-        global $DB;
-
         $table = $item['table'] ?? '';
         $recordid = (int)($item['recordid'] ?? 0);
 
         if ($table === 'kuet_sessions') {
-            $session = $DB->get_record('kuet_sessions', ['id' => $recordid]);
-            if (!$session || !self::is_programmed_session_mode((string)$session->sessionmode)) {
+            $kuetapi = $this->get_kuet_api($item);
+            $session = $kuetapi ? $this->get_session($kuetapi, $recordid) : null;
+            if (!$kuetapi || !$session || !$session->is_programmed_mode()) {
                 return;
             }
 
-            $session->startdate = $newstart;
-            $session->enddate = $newend;
-            $session->timemodified = time();
-
-            // A session with an open boundary cannot run automatically.
-            $session->automaticstart = $newstart > 0 && $newend > 0 ? 1 : 0;
-
-            // If session was marked finished (0) but is being rescheduled for future, reactivate it (1 = SESSION_ACTIVE).
-            if ((int)$session->status === 0 && $newstart > time()) {
-                $session->status = 1;
-            }
-
-            $DB->update_record('kuet_sessions', $session);
+            $kuetapi->update_session_schedule((int)$session->get('id'), $newstart, $newend);
 
             // Trigger core cm update so caches and completion reflect the change.
-            $cm = $this->get_cm('kuet', (int)$session->kuetid);
+            $cm = $this->get_cm('kuet', (int)$session->get('kuetid'));
             if ($cm) {
                 $this->trigger_cm_updated($cm);
             }
             return;
         }
 
-        // Updating parent kuet activity container.
-        $kuet = $DB->get_record('kuet', ['id' => $recordid]);
-        if (!$kuet) {
-            return;
-        }
-
-        $kuet->timemodified = time();
-        $DB->update_record('kuet', $kuet);
-
+        // The parent date range is derived from sessions and is not stored on the activity.
         $cm = $this->get_cm('kuet', $recordid);
         if ($cm) {
             $this->trigger_cm_updated($cm);

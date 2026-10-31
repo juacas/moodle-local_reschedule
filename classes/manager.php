@@ -185,20 +185,8 @@ class manager {
                 $records = $DB->get_records_sql($sql, ['courseid' => $courseid]);
             } else if ($table === 'kuet' && $dbman->field_exists('kuet', 'course')) {
                 // KUET activity timeframe is dynamically bounded by programmed sessions.
-                // Manual sessions have no scheduling meaning and must not enter this range.
-                $sql = "SELECT k.id, k.{$titlecol} AS title,
-                               COALESCE(MIN(CASE WHEN s.startdate > 0 AND s.enddate > 0
-                                   THEN s.startdate ELSE NULL END), 0) AS datestart,
-                               COALESCE(MAX(CASE WHEN s.startdate > 0 AND s.enddate > 0
-                                   THEN s.enddate ELSE NULL END), 0) AS dateend
-                          FROM {kuet} k
-                          JOIN {kuet_sessions} s ON s.kuetid = k.id
-                           AND s.sessionmode IN
-                               ('podium_programmed', 'race_programmed', 'inactive_programmed')
-                         WHERE k.course = :courseid
-                      GROUP BY k.id, k.{$titlecol}
-                      ORDER BY datestart ASC, k.id ASC";
-                $records = $DB->get_records_sql($sql, ['courseid' => $courseid]);
+                // The adapter delegates session loading and mode semantics to mod_kuet's public API.
+                $records = \local_reschedule\adapter\kuet_adapter::get_course_activity_ranges($courseid);
             }
 
             $parentitems[$table] = $records;
@@ -409,25 +397,23 @@ class manager {
                 if ($subtable === 'kuet_sessions' && $dbman->field_exists($subtable, 'sessionmode')) {
                     $extracols = ', sessionmode';
                 }
-                if ($subtable === 'quest_submissions' &&
-                        $dbman->field_exists($subtable, 'predictedduration') &&
-                        $dbman->field_exists($subtable, 'perceiveddifficulty')) {
-                    $extracols .= ', predictedduration, perceiveddifficulty';
-                }
-
                 $sessionfilter = '';
                 if ($subtable === 'kuet_sessions') {
                     $sessionfilter = " AND sessionmode IN
                         ('podium_programmed', 'race_programmed', 'inactive_programmed')";
                 }
 
-                $endselect = $endcol === '' ? '0' : $endcol;
-                $sql = "SELECT id, {$fkey} AS parentid, {$titlecol} AS title, "
-                    . "{$startcol} AS datestart, {$endselect} AS dateend{$extracols}
-                          FROM {{$subtable}}
-                         WHERE {$fkey} $insql{$sessionfilter}
-                      ORDER BY {$startcol} ASC, id ASC";
-                $children = $DB->get_records_sql($sql, $inparams);
+                if ($subtable === 'quest_submissions') {
+                    $children = \local_reschedule\adapter\quest_adapter::get_challenges($parentids);
+                } else {
+                    $endselect = $endcol === '' ? '0' : $endcol;
+                    $sql = "SELECT id, {$fkey} AS parentid, {$titlecol} AS title, "
+                        . "{$startcol} AS datestart, {$endselect} AS dateend{$extracols}
+                              FROM {{$subtable}}
+                             WHERE {$fkey} $insql{$sessionfilter}
+                          ORDER BY {$startcol} ASC, id ASC";
+                    $children = $DB->get_records_sql($sql, $inparams);
+                }
 
                 foreach ($children as $ch) {
                     $parentkey = 'main_' . $parenttable . '_' . $ch->parentid;
@@ -470,6 +456,7 @@ class manager {
                         'cmid' => $items[$parentkey]['cmid'] ?? 0,
                         'table' => $subtable,
                         'parentkey' => $parentkey,
+                        'parentrecordid' => (int)$ch->parentid,
                         'parenttitle' => $parenttitle,
                         'issubtype' => true,
                         'haschildren' => false,
@@ -1150,12 +1137,64 @@ class manager {
         usort($plan, static function(array $left, array $right): int {
             return (int)!empty($left['item']['ismilestone']) <=> (int)!empty($right['item']['ismilestone']);
         });
+
+        // Log the modification intent before adapters emit their own module
+        // events, preserving the chronological order of the complete action.
+        $modinfo = get_fast_modinfo($course);
+        $affectedmodules = [];
+        $affectedsubactivities = [];
+        foreach ($plan as $task) {
+            $item = $task['item'];
+            $cmid = (int)($item['cmid'] ?? 0);
+            if ($cmid > 0 && !isset($affectedmodules[$cmid])) {
+                $cm = $modinfo->get_cm($cmid);
+                $affectedmodules[$cmid] = ['cmid' => $cmid, 'name' => (string)$cm->name];
+            }
+            if (!empty($item['issubtype'])) {
+                $affectedsubactivities[(string)$item['id']] = [
+                    'id' => (string)$item['id'],
+                    'name' => (string)($item['title'] ?? $item['id']),
+                    'cmid' => $cmid,
+                    'table' => (string)($item['table'] ?? ''),
+                    'recordid' => (int)($item['recordid'] ?? 0),
+                    'parentid' => (string)($item['parentkey'] ?? ''),
+                    'milestone' => !empty($item['ismilestone']),
+                ];
+            }
+        }
+        if ($affectedmodules) {
+            $event = \local_reschedule\event\changes_saved::create_for_modules(
+                \context_course::instance($courseid),
+                'schedule',
+                $affectedmodules,
+                $affectedsubactivities
+            );
+            $event->trigger();
+        }
+
+        $questtasks = [];
+        foreach ($plan as $task) {
+            if ($task['saveactivity'] && $task['adapter'] instanceof \local_reschedule\adapter\quest_adapter &&
+                    ($task['item']['table'] ?? '') === 'quest_submissions') {
+                $questtasks[] = $task;
+            }
+        }
+
         $transaction = $DB->start_delegated_transaction();
         $updatedcount = 0;
+        $questschedulessaved = false;
 
         foreach ($plan as $task) {
             if ($task['saveactivity']) {
-                $task['adapter']->save($task['item'], $task['newstart'], $task['newend']);
+                if ($task['adapter'] instanceof \local_reschedule\adapter\quest_adapter &&
+                        ($task['item']['table'] ?? '') === 'quest_submissions') {
+                    if (!$questschedulessaved) {
+                        $task['adapter']->save_challenge_schedules($questtasks);
+                        $questschedulessaved = true;
+                    }
+                } else {
+                    $task['adapter']->save($task['item'], $task['newstart'], $task['newend']);
+                }
             }
             if ($task['saveavailability']) {
                 $availabilityadapter->save($task['item'], $task['availabilityupdates']);

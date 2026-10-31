@@ -26,10 +26,18 @@
 namespace local_reschedule\extractor;
 
 /**
- * Compatibility shim providing report_editdates base classes if report_editdates is not installed.
+ * Compatibility shim for the report_editdates extractor contract.
  *
- * This allows mod_{$modname}_report_editdates_integration classes across Moodle plugins
- * to load and execute cleanly without requiring the report_editdates plugin.
+ * Reschedule uses the report_editdates shape because it describes the complete
+ * lifecycle needed by the Gantt: enumerate labelled date fields, validate all
+ * related dates together, and persist them with module-specific side effects.
+ * This class loads the original base classes when report_editdates is installed
+ * and otherwise aliases Reschedule's local shims to the same class names.
+ *
+ * The aliases let module-provided mod_{$modname}_report_editdates_integration
+ * classes and Reschedule's replicated extractors run without making
+ * report_editdates a required dependency. The extractor factory still gives a
+ * module-provided integration priority over every replicated implementation.
  *
  * @package    local_reschedule
  * @copyright  2011 The Open University (based on report_editdates)

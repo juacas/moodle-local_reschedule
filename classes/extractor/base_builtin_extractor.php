@@ -22,7 +22,18 @@ defined('MOODLE_INTERNAL') || die();
 compat::init();
 
 /**
- * Base class for all replicated built-in extractors in local_reschedule.
+ * Base class for extractors replicated from report_editdates.
+ *
+ * These implementations make common activity dates available when neither the
+ * activity module nor an installed report_editdates supplies an integration.
+ * They retain the report_editdates get_settings(), validate_dates(), and
+ * save_dates() contract so the same bridge can discover ranges, milestones,
+ * optional endpoints, and relationships between fields before saving them.
+ *
+ * This base loads the course records used by those extractors and resolves
+ * validation strings with or without report_editdates. Replicated extractors
+ * are compatibility fallbacks: extractor_factory always prefers an integration
+ * shipped by the activity module.
  *
  * @package    local_reschedule
  * @copyright  2011 The Open University (based on report_editdates)

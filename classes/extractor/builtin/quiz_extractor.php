@@ -21,7 +21,11 @@ use local_reschedule\extractor\base_builtin_extractor;
 use report_editdates_date_setting;
 
 /**
- * Replicated date extractor for the quiz activity module.
+ * Replicated date extractor for Quiz availability.
+ *
+ * Exposes optional timeopen and timeclose endpoints and rejects an inverted
+ * interval. After common persistence it refreshes Quiz calendar events and its
+ * gradebook item through the module hooks.
  *
  * @package    local_reschedule
  * @copyright  2012 The Open University (based on report_editdates)
@@ -65,7 +69,7 @@ class quiz_extractor extends base_builtin_extractor {
     #[\Override]
     public function validate_dates(cm_info $cm, array $dates) {
         $errors = [];
-        if (!empty($dates['timeopen']) && !empty($dates['timeclose']) && $dates['timeclose'] < $dates['timeopen']) {
+        if (!empty($dates['timeopen']) && !empty($dates['timeclose']) && $dates['timeclose'] <= $dates['timeopen']) {
             $errors['timeclose'] = $this->get_error_string('timeclose');
         }
         return $errors;

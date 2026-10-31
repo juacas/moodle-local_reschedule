@@ -110,6 +110,11 @@ define([], function() {
             const issues = getCompatibilityIssues(rule, index);
             const summary = card.querySelector('.local-reschedule-mapping-summary');
             const body = card.querySelector('.local-reschedule-mapping-rule-body');
+            const signature = JSON.stringify(issues);
+            if (card.dataset.compatibilitySignature === signature) {
+                return;
+            }
+            card.dataset.compatibilitySignature = signature;
             const previous = body.querySelector('.local-reschedule-mapping-incompatibility');
             if (previous) {
                 previous.remove();
@@ -179,6 +184,7 @@ define([], function() {
                     wrap.appendChild(datalist);
                 }
             }
+            input.dataset.mappingField = key;
             input.addEventListener(type === 'check' || choices ? 'change' : 'input', () => {
                 if (type === 'number' && input.value === '') {
                     delete rule[key];
@@ -190,6 +196,14 @@ define([], function() {
                         value = Number(input.value);
                     }
                     rule[key] = value;
+                }
+                if (key === 'label') {
+                    const card = input.closest('.local-reschedule-mapping-rule');
+                    const title = card && card.querySelector('.local-reschedule-mapping-summary strong');
+                    if (title) {
+                        title.textContent = (rules.indexOf(rule) + 1) + '. ' +
+                            (rule.label || rule.module || s.add);
+                    }
                 }
                 if (key === 'kind') {
                     if (input.value !== 'range') {
@@ -232,6 +246,29 @@ define([], function() {
             return input;
         };
         const render = () => {
+            const active = list.contains(document.activeElement) ? document.activeElement : null;
+            const activeCard = active && active.closest('.local-reschedule-mapping-rule');
+            const activeIndex = activeCard ? Array.prototype.indexOf.call(list.children, activeCard) : -1;
+            const focusState = active && active.dataset.mappingField ? {
+                rule: rules[activeIndex],
+                field: active.dataset.mappingField,
+                start: typeof active.selectionStart === 'number' ? active.selectionStart : null,
+                end: typeof active.selectionEnd === 'number' ? active.selectionEnd : null,
+            } : null;
+            const scrollState = {
+                left: window.scrollX,
+                top: window.scrollY,
+                containers: [],
+            };
+            for (let container = panel.parentElement; container; container = container.parentElement) {
+                if (container.scrollHeight > container.clientHeight || container.scrollWidth > container.clientWidth) {
+                    scrollState.containers.push({
+                        node: container,
+                        left: container.scrollLeft,
+                        top: container.scrollTop,
+                    });
+                }
+            }
             list.replaceChildren();
             rules.forEach((rule, index) => {
                 const card = create('details', 'local-reschedule-mapping-rule border rounded my-2');
@@ -304,6 +341,7 @@ define([], function() {
                 const effortwrap = create('div', 'col');
                 const modellabel = create('div', 'd-flex flex-column small mb-2');
                 const modelselect = create('select', 'form-select form-select-sm');
+                modelselect.dataset.mappingField = 'effortmodel';
                 [['', s.effortdefault], ['fixed', s.effortfixed], ['perday', s.effortperday]].forEach(choice => {
                     const option = create('option', '', choice[1]);
                     option.value = choice[0];
@@ -370,6 +408,26 @@ define([], function() {
                 list.appendChild(card);
                 markCompatibility(card, rule, index);
             });
+            if (focusState && rules.includes(focusState.rule)) {
+                const index = rules.indexOf(focusState.rule);
+                const card = list.children[index];
+                const control = card && card.querySelector('[data-mapping-field="' + focusState.field + '"]');
+                if (control) {
+                    control.focus({preventScroll: true});
+                    if (focusState.start !== null && typeof control.setSelectionRange === 'function') {
+                        control.setSelectionRange(focusState.start, focusState.end);
+                    }
+                }
+            }
+            const restoreScroll = () => {
+                scrollState.containers.forEach(position => {
+                    position.node.scrollLeft = position.left;
+                    position.node.scrollTop = position.top;
+                });
+                window.scrollTo(scrollState.left, scrollState.top);
+            };
+            restoreScroll();
+            window.requestAnimationFrame(restoreScroll);
         };
         add.addEventListener('click', () => {
             const rule = {module: '', title: 'name', label: '', kind: 'range', start: '', end: '',

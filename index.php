@@ -108,6 +108,16 @@ if (!empty($instances)) {
     }));
 }
 
+$viewevent = \local_reschedule\event\reschedule_viewed::create([
+    'context' => $context,
+    'other' => [
+        'editing' => (int)$editing,
+        'itemcount' => count($items),
+        'selectioncount' => count($cmids) + count($instances),
+    ],
+]);
+$viewevent->trigger();
+
 $timelinestart = $requestedstart > 0 ? $requestedstart : $coursestart;
 $timelineend = $requestedend > 0 ? $requestedend : $courseend;
 if ($timelineend <= $timelinestart) {

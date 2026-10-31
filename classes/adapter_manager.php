@@ -18,7 +18,6 @@ namespace local_reschedule;
 
 use local_reschedule\adapter\adapter_interface;
 use local_reschedule\adapter\assign_adapter;
-use local_reschedule\adapter\quiz_adapter;
 use local_reschedule\adapter\workshop_adapter;
 use local_reschedule\adapter\quest_adapter;
 use local_reschedule\adapter\kuet_adapter;
@@ -115,7 +114,6 @@ class adapter_manager {
             quest_adapter::class,
             workshop_adapter::class,
             assign_adapter::class,
-            quiz_adapter::class,
         ];
 
         foreach ($specificclasses as $cls) {

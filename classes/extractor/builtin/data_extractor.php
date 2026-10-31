@@ -21,7 +21,12 @@ use local_reschedule\extractor\base_builtin_extractor;
 use report_editdates_date_setting;
 
 /**
- * Replicated date extractor for the database (data) activity module.
+ * Replicated date extractor for Database activity periods.
+ *
+ * Exposes availability and view-only intervals and, when ratings are enabled,
+ * their assessment interval. It validates the order of each pair independently
+ * so Reschedule can present them as related ranges. Saving uses the common
+ * extractor persistence for the declared fields.
  *
  * @package    local_reschedule
  * @copyright  2012 The Open University (based on report_editdates)

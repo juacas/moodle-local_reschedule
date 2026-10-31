@@ -21,7 +21,11 @@ use local_reschedule\extractor\base_builtin_extractor;
 use report_editdates_date_setting;
 
 /**
- * Replicated date extractor for the questionnaire activity module.
+ * Replicated date extractor for Questionnaire availability.
+ *
+ * Exposes optional opendate and closedate endpoints, validates their order,
+ * and maintains the module's matching enable flags. Saving delegates to
+ * questionnaire_update_instance() when the plugin provides it.
  *
  * @package    local_reschedule
  * @copyright  2012 The Open University (based on report_editdates)

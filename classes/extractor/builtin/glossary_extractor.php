@@ -21,7 +21,11 @@ use local_reschedule\extractor\base_builtin_extractor;
 use report_editdates_date_setting;
 
 /**
- * Replicated date extractor for the glossary activity module.
+ * Replicated date extractor for Glossary rating periods.
+ *
+ * Exposes assesstimestart and assesstimefinish only when ratings are enabled
+ * and at least one boundary is configured. It validates their chronological
+ * order and uses the common extractor persistence for the date fields.
  *
  * @package    local_reschedule
  * @copyright  2012 The Open University (based on report_editdates)

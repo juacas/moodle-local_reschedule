@@ -21,7 +21,11 @@ use local_reschedule\extractor\base_builtin_extractor;
 use report_editdates_date_setting;
 
 /**
- * Replicated date extractor for the lesson activity module.
+ * Replicated date extractor for Lesson availability.
+ *
+ * Exposes the optional available and deadline endpoints and validates their
+ * order. After saving, it invokes lesson_process_post_save() or the calendar
+ * event fallback so Lesson keeps its derived state synchronized.
  *
  * @package    local_reschedule
  * @copyright  2012 The Open University (based on report_editdates)

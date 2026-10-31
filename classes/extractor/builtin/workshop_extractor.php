@@ -21,7 +21,12 @@ use local_reschedule\extractor\base_builtin_extractor;
 use report_editdates_date_setting;
 
 /**
- * Replicated date extractor for the workshop activity module.
+ * Replicated date extractor for Workshop phases.
+ *
+ * Exposes submission and assessment start/end pairs. It validates each phase
+ * internally and ensures assessment does not start before submissions close,
+ * allowing Reschedule to display the two dependent intervals. Saving refreshes
+ * Workshop calendar events after updating the fields.
  *
  * @package    local_reschedule
  * @copyright  2013 The Open University (based on report_editdates)

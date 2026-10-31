@@ -21,7 +21,11 @@ use local_reschedule\extractor\base_builtin_extractor;
 use report_editdates_date_setting;
 
 /**
- * Replicated date extractor for the zoom activity module.
+ * Replicated date extractor for Zoom meeting time.
+ *
+ * Exposes starttime for non-recurring meetings and rejects a changed start in
+ * the past. It translates that field to Zoom's start_time property and delegates
+ * saving to zoom_update_instance(), with common persistence as a fallback.
  *
  * @package    local_reschedule
  * @copyright  2014 The Open University (based on report_editdates)

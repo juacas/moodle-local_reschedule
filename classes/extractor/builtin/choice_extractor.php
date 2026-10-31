@@ -21,7 +21,11 @@ use local_reschedule\extractor\base_builtin_extractor;
 use report_editdates_date_setting;
 
 /**
- * Replicated date extractor for the choice activity module.
+ * Replicated date extractor for Choice availability.
+ *
+ * Exposes timeopen and timeclose as a required interval and rejects a closing
+ * date before its opening date. The inherited save operation updates only the
+ * declared date fields and timemodified.
  *
  * @package    local_reschedule
  * @copyright  2012 The Open University (based on report_editdates)
