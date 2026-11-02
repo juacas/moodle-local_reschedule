@@ -27,6 +27,10 @@
     data-courseid="{{courseid}}"
     data-editing="{{#editing}}1{{/editing}}{{^editing}}0{{/editing}}"
     data-force-editmode="{{#forceeditmode}}1{{/forceeditmode}}{{^forceeditmode}}0{{/forceeditmode}}"
+    data-scopecmid="{{scopecmid}}"
+    data-focus-cmid="{{focuscmid}}"
+    data-scoped-editmode="{{#scopededitmode}}1{{/scopededitmode}}{{^scopededitmode}}0{{/scopededitmode}}"
+    data-return-url="{{returnurl}}"
     data-effort-model="{{effortmodel}}"
     data-course-start="{{coursestart}}"
     data-course-end="{{courseend}}"
@@ -61,12 +65,14 @@
     data-effort-settings="{{#str}}effortsettings, local_reschedule{{/str}}"
     data-effort-label="{{#str}}effortlabel, local_reschedule{{/str}}"
     data-effort-hours="{{#str}}efforthours, local_reschedule{{/str}}"
+    data-effort-hours-abbr="{{#str}}efforthoursabbr, local_reschedule{{/str}}"
     data-effort-table-title="{{#str}}efforttabletitle, local_reschedule{{/str}}"
     data-effort-table-hours="{{#str}}efforttablehours, local_reschedule{{/str}}"
     data-effort-table-adapter="{{#str}}efforttableadapter, local_reschedule{{/str}}"
     data-effort-table-children="{{#str}}efforttablechildren, local_reschedule{{/str}}"
     data-effort-table-default="{{#str}}efforttabledefault, local_reschedule{{/str}}"
     data-effort-table-manual="{{#str}}efforttablemanual, local_reschedule{{/str}}"
+    data-effort-table-mapping="{{#str}}efforttablemapping, local_reschedule{{/str}}"
     data-effort-table-milestone="{{#str}}efforttablemilestone, local_reschedule{{/str}}"
     data-effort-table-invalid="{{#str}}efforttableinvalid, local_reschedule{{/str}}"
     data-weekify-save-first="{{#str}}weekifysavefirst, local_reschedule{{/str}}"
@@ -80,6 +86,8 @@
     data-snap-to="{{#str}}snapto, local_reschedule{{/str}}"
     data-snap-hours="{{#str}}snaphours, local_reschedule{{/str}}"
     data-snap-days="{{#str}}snapdays, local_reschedule{{/str}}"
+    data-parent-child-lock-open="{{#str}}parentchildlockopen, local_reschedule{{/str}}"
+    data-parent-child-lock-closed="{{#str}}parentchildlockclosed, local_reschedule{{/str}}"
     data-selection-activities="{{#str}}activities, local_reschedule{{/str}}"
     data-selection-drag-hint="{{#str}}selectiondraghint, local_reschedule{{/str}}"
     data-selection-selected="{{#str}}selectionselected, local_reschedule{{/str}}"
@@ -107,24 +115,29 @@
                     <p class="text-muted mb-0 small">
                         {{#str}}rescheduledesc, local_reschedule{{/str}}
                     </p>
+                    {{#scopededitmode}}
+                    <div class="alert alert-info py-2 mt-2 mb-0" role="status">
+                        {{#str}}scopededitnotice, local_reschedule, scopeactivityname{{/str}}
+                    </div>
+                    {{/scopededitmode}}
                 </div>
                 <div class="d-flex flex-wrap align-items-center gap-2">
-                    <a href="{{courseurl}}" class="btn btn-outline-secondary btn-sm">
-                        <i class="fa fa-arrow-left me-1" aria-hidden="true"></i>{{#str}}back, moodle{{/str}}
-                    </a>
-                    <button type="button" class="btn btn-outline-primary btn-sm" id="btn-autosequence"{{^editing}} disabled{{/editing}}>
-                        <i class="fa fa-magic me-1" aria-hidden="true"></i>{{#str}}autosequence, local_reschedule{{/str}}
-                    </button>
                     {{#showweekify}}
-                    <button type="button" class="btn btn-outline-primary btn-sm" id="btn-weekify"{{^editing}} disabled{{/editing}}>
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="btn-weekify"{{^editing}} disabled{{/editing}}{{#scopededitmode}} disabled{{/scopededitmode}}>
                         <i class="fa fa-calendar me-1" aria-hidden="true"></i>{{#str}}weekify, local_reschedule{{/str}}
                     </button>
                     {{/showweekify}}
-                    <button type="button" class="btn btn-outline-danger btn-sm" id="btn-reset"{{^editing}} disabled{{/editing}}>
+                    <button type="button" class="btn btn-outline-danger btn-sm" id="btn-reset"{{^editing}} disabled{{/editing}}{{#scopededitmode}} disabled{{/scopededitmode}}>
                         <i class="fa fa-undo me-1" aria-hidden="true"></i>{{#str}}resetschedule, local_reschedule{{/str}}
                     </button>
+                    <a href="{{backurl}}" class="btn btn-outline-secondary btn-sm">
+                        <i class="fa fa-arrow-left me-1" aria-hidden="true"></i>
+                        {{#str}}back, moodle{{/str}}
+                    </a>
                     <button type="button" class="btn btn-primary btn-sm px-3" id="btn-save" disabled>
-                        <i class="fa fa-floppy-o me-1" aria-hidden="true"></i>{{#str}}savechanges, moodle{{/str}}
+                        <i class="fa fa-floppy-o me-1" aria-hidden="true"></i>
+                        {{#hasreturnurl}}{{#str}}saveandreturn, local_reschedule{{/str}}{{/hasreturnurl}}
+                        {{^hasreturnurl}}{{#str}}savechanges, moodle{{/str}}{{/hasreturnurl}}
                     </button>
                 </div>
             </div>
@@ -175,7 +188,7 @@
                         title="{{#str}}efforttabletitle, local_reschedule{{/str}}"><i class="fa fa-table" aria-hidden="true"></i></button>
                     <button type="button" class="quest-effort-settings btn btn-sm"
                         aria-label="{{#str}}effortsettings, local_reschedule{{/str}}"
-                        title="{{#str}}effortsettings, local_reschedule{{/str}}"><i class="fa fa-cog" aria-hidden="true"></i></button>
+                        title="{{#str}}effortsettings, local_reschedule{{/str}}"{{#scopededitmode}} disabled{{/scopededitmode}}><i class="fa fa-cog" aria-hidden="true"></i></button>
                 </span>
             </div>
             <div class="quest-left-header-summary">
@@ -184,15 +197,23 @@
                         <i class="fa fa-tasks me-1 text-primary" aria-hidden="true"></i>
                         <span class="quest-left-count-value"></span> {{#str}}activities, local_reschedule{{/str}}
                     </div>
-                    <div class="quest-left-summary-controls">
-                        <button type="button" class="quest-drag-snap-toggle btn btn-sm btn-outline-secondary" aria-pressed="false">
-                            {{#str}}snapto, local_reschedule{{/str}} <span class="quest-drag-snap-value"></span>
-                        </button>
-                        <button type="button" class="quest-selection-toggle btn btn-sm btn-outline-secondary" aria-pressed="false"
-                            aria-label="{{#str}}selectionmode, local_reschedule{{/str}}">
-                            <i class="fa fa-check-square-o" aria-hidden="true"></i>
-                        </button>
-                    </div>
+                </div>
+                <div class="quest-left-summary-controls">
+                    <button type="button" class="quest-drag-snap-toggle btn btn-sm btn-outline-secondary" aria-pressed="false">
+                        {{#str}}snapto, local_reschedule{{/str}} <span class="quest-drag-snap-value"></span>
+                    </button>
+                    <button type="button" class="quest-parent-child-lock-toggle btn btn-sm btn-outline-secondary"
+                        aria-pressed="false" aria-label="{{#str}}parentchildlockopen, local_reschedule{{/str}}">
+                        <i class="fa fa-unlock" aria-hidden="true"></i>
+                    </button>
+                    <button type="button" class="quest-selection-toggle btn btn-sm btn-outline-secondary" aria-pressed="false"
+                        aria-label="{{#str}}selectionmode, local_reschedule{{/str}}">
+                        <i class="fa fa-check-square-o" aria-hidden="true"></i>
+                    </button>
+                    <button type="button" class="quest-autosequence-button btn btn-sm btn-outline-primary"
+                        id="btn-autosequence"{{^editing}} disabled{{/editing}}{{#scopededitmode}} disabled{{/scopededitmode}}>
+                        <i class="fa fa-magic me-1" aria-hidden="true"></i>{{#str}}autosequence, local_reschedule{{/str}}
+                    </button>
                 </div>
                 <div class="smaller text-muted quest-selection-summary" aria-live="polite"></div>
             </div>
@@ -218,8 +239,8 @@
                 <span class="quest-pending-description visually-hidden d-none">{{#str}}pendingchanges, local_reschedule{{/str}}</span>
                 <div class="quest-row-subtitle">
                     <span class="quest-row-typename text-truncate me-1"></span>
-                    <span class="badge bg-light text-primary border quest-lbl-effort flex-shrink-0 d-none"></span>
-                    <span class="badge bg-light text-secondary border quest-lbl-dur flex-shrink-0"></span>
+                    <span class="badge quest-lbl-effort flex-shrink-0 d-none"></span>
+                    <span class="badge quest-lbl-dur flex-shrink-0"></span>
                 </div>
             </div>
         </div>
@@ -263,7 +284,7 @@
                     </thead>
                     <tbody class="small">
                         {{#items}}
-                        <tr id="reschedule-row-{{id}}" data-itemid="{{id}}" {{#issubtype}}data-parentkey="{{parentkey}}"{{/issubtype}} class="{{#issubtype}}table-light text-muted subtask-row d-none{{/issubtype}}{{^interactive}} reschedule-item-disabled{{/interactive}}">
+                        <tr id="reschedule-row-{{id}}" data-itemid="{{id}}" {{#issubtype}}data-parentkey="{{parentkey}}"{{/issubtype}} class="{{#issubtype}}subtask-row d-none{{/issubtype}}{{^interactive}} reschedule-item-disabled{{/interactive}}{{#scopededitmode}}{{#scopedreadwrite}} is-scoped-read-write{{/scopedreadwrite}}{{^scopedreadwrite}} is-scoped-read-only{{/scopedreadwrite}}{{/scopededitmode}}">
                             <td class="{{#issubtype}}ps-4{{/issubtype}} text-nowrap">
                                 {{#haschildren}}
                                 <button type="button" class="btn btn-xs btn-outline-secondary py-0 px-1 me-2 toggle-subtasks" data-parentkey="{{id}}" aria-expanded="false" title="{{#str}}togglesubtasks, local_reschedule{{/str}}">
@@ -282,8 +303,8 @@
                                 <img src="{{iconurl}}" class="activityicon me-2" style="width: 18px; height: 18px; vertical-align: middle; object-fit: contain;" alt="">
                                 {{/iconurl}}
                                 <span class="quest-pending-description visually-hidden d-none">{{#str}}pendingchanges, local_reschedule{{/str}}</span>
-                                {{#viewurl}}<a href="{{viewurl}}" class="{{^issubtype}}text-dark{{/issubtype}} reschedule-activity-link">{{title}}</a>{{/viewurl}}
-                                {{^viewurl}}<strong class="{{^issubtype}}text-dark{{/issubtype}}">{{title}}</strong>{{/viewurl}}
+                                {{#viewurl}}<a href="{{viewurl}}" class="text-dark fw-bold reschedule-activity-link">{{title}}</a>{{/viewurl}}
+                                {{^viewurl}}<strong class="text-dark">{{title}}</strong>{{/viewurl}}
                             </td>
                             <td>
                                 <span class="badge {{#issubtype}}bg-light text-secondary border{{/issubtype}}{{^issubtype}}bg-primary text-white{{/issubtype}}">
@@ -296,14 +317,14 @@
                             <td class="col-effort text-nowrap">
                                 {{#ismilestone}}—{{/ismilestone}}
                                 {{^ismilestone}}
-                                <div class="input-group input-group-sm flex-nowrap">
-                                    <input type="number" min="0" step="any" class="form-control reschedule-effort-input" style="min-width: 5rem;" value="{{effortformatted}}" data-itemid="{{id}}" aria-label="{{#str}}efforttablehours, local_reschedule{{/str}}: {{title}}"{{^efforteditable}} disabled{{/efforteditable}}>
+                                <div class="input-group input-group-sm flex-nowrap"{{^efforteditable}} title="{{effortdescription}}"{{/efforteditable}}>
+                                    <input type="number" min="0" step="any" class="form-control reschedule-effort-input" style="min-width: 5rem;" value="{{effortformatted}}" data-itemid="{{id}}" aria-label="{{#str}}efforttablehours, local_reschedule{{/str}}: {{title}}"{{^efforteditable}} title="{{effortdescription}}" disabled{{/efforteditable}}>
                                     <span class="input-group-text">{{#str}}efforthoursabbr, local_reschedule{{/str}}</span>
                                 </div>
                                 {{/ismilestone}}
                             </td>
                             <td class="col-duration text-center text-nowrap">
-                                <span class="badge bg-light text-secondary border">{{durationformatted}}</span>
+                                <span class="badge quest-duration-badge">{{durationformatted}}</span>
                             </td>
                         </tr>
                         {{/items}}
@@ -403,7 +424,7 @@
                 </div>
                 <div class="modal-footer bg-light border-top">
                     <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal" data-effort-dismiss>{{#str}}cancel, moodle{{/str}}</button>
-                    <button type="button" class="btn btn-primary btn-sm" id="btn-effort-model-apply">{{#str}}apply, local_reschedule{{/str}}</button>
+                    <button type="button" class="btn btn-primary btn-sm" id="btn-effort-model-apply"{{#scopededitmode}} disabled{{/scopededitmode}}>{{#str}}apply, local_reschedule{{/str}}</button>
                 </div>
             </div>
         </div>

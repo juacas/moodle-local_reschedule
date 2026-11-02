@@ -217,6 +217,70 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
     }
 
     /**
+     * Format an effort without discarding its stored decimal precision.
+     *
+     * @param {*} value Effort in hours.
+     * @param {*} locale User locale.
+     * @return {string} Localised complete value.
+     */
+    function formatFullEffort(value, locale) {
+        try {
+            return new Intl.NumberFormat(locale || undefined, {
+                maximumFractionDigits: 20
+            }).format(Number(value));
+        } catch (e) {
+            return String(Number(value));
+        }
+    }
+
+    /**
+     * Return the localised origin of an effort estimate.
+     *
+     * @param {string} source Effort source identifier.
+     * @param {string} pluginName Activity plugin name.
+     * @param {Object} strings Localised strings.
+     * @return {string} Localised source.
+     */
+    function getEffortSourceLabel(source, pluginName, strings) {
+        var labels = {
+            adapter: strings.efforttableadapter + (pluginName ? ' ' + pluginName : ''),
+            children: strings.efforttablechildren,
+            manual: strings.efforttablemanual,
+            mapping: strings.efforttablemapping,
+            'default': strings.efforttabledefault
+        };
+        return labels[source] || strings.efforttabledefault;
+    }
+
+    /**
+     * Format the short value rendered inside an effort badge.
+     *
+     * @param {*} value Effort in hours.
+     * @param {*} locale User locale.
+     * @param {string} unit Localised abbreviated unit.
+     * @return {string} Short badge text.
+     */
+    function formatEffortBadge(value, locale, unit) {
+        return formatEffort(value, locale) + ' ' + (unit || 'h');
+    }
+
+    /**
+     * Format the complete effort description used by tooltips and dialogs.
+     *
+     * @param {*} value Effort in hours.
+     * @param {string} source Effort source identifier.
+     * @param {string} pluginName Activity plugin name.
+     * @param {*} locale User locale.
+     * @param {string} unit Localised abbreviated unit.
+     * @param {Object} strings Localised strings.
+     * @return {string} Complete effort description.
+     */
+    function formatEffortDescription(value, source, pluginName, locale, unit, strings) {
+        return getEffortSourceLabel(source, pluginName, strings) + ': ' +
+            formatFullEffort(value, locale) + ' ' + (unit || 'h');
+    }
+
+    /**
      * Convert Unix timestamp in seconds to datetime-local input string format (YYYY-MM-DDTHH:mm).
      *
      * @param {number} sec Unix timestamp in seconds.
@@ -596,6 +660,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
         items: [],
         initialItems: [],
         isDirty: false,
+        suppressUnloadWarning: false,
         activeDrag: null,
         snapHint: null,
         trackWidthPx: 1200,
@@ -611,9 +676,11 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
         effortModel: 'real',
         hoveredEffortItemId: null,
         effortUpdatePending: false,
+        absoluteLimitTooltipCounter: 0,
         locale: undefined,
         selectionMode: false,
         dragSnapUnit: 'hours',
+        parentChildrenLocked: false,
         selectedItemIds: null,
         sectionRuns: null,
 
@@ -641,6 +708,10 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
                 cfg.lang = getRootData('data-lang', cfg.lang || '');
                 cfg.editing = getRootData('data-editing', cfg.editing ? '1' : '0') === '1';
                 cfg.forceEditMode = getRootData('data-force-editmode', cfg.forceEditMode ? '1' : '0') === '1';
+                cfg.scopeCmid = Number(getRootData('data-scopecmid', 0));
+                cfg.focusCmid = Number(getRootData('data-focus-cmid', 0));
+                cfg.scopedEditMode = getRootData('data-scoped-editmode', '0') === '1';
+                cfg.returnUrl = getRootData('data-return-url', cfg.returnUrl || '');
                 cfg.effortModel = getRootData('data-effort-model', cfg.effortModel || '');
                 cfg.dateTimeFormat = getRootData('data-datetime-format', cfg.dateTimeFormat || '');
                 cfg.dateOnlyFormat = getRootData('data-dateonly-format', cfg.dateOnlyFormat || '');
@@ -673,12 +744,14 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
                     ['data-effort-settings', 'effortsettings'],
                     ['data-effort-label', 'effortlabel'],
                     ['data-effort-hours', 'efforthours'],
+                    ['data-effort-hours-abbr', 'efforthoursabbr'],
                     ['data-effort-table-title', 'efforttabletitle'],
                     ['data-effort-table-hours', 'efforttablehours'],
                     ['data-effort-table-adapter', 'efforttableadapter'],
                     ['data-effort-table-children', 'efforttablechildren'],
                     ['data-effort-table-default', 'efforttabledefault'],
                     ['data-effort-table-manual', 'efforttablemanual'],
+                    ['data-effort-table-mapping', 'efforttablemapping'],
                     ['data-effort-table-milestone', 'efforttablemilestone'],
                     ['data-effort-table-invalid', 'efforttableinvalid'],
                     ['data-weekify-save-first', 'weekifysavefirst'],
@@ -692,6 +765,8 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
                     ['data-snap-to', 'snapto'],
                     ['data-snap-hours', 'snaphours'],
                     ['data-snap-days', 'snapdays'],
+                    ['data-parent-child-lock-open', 'parentchildlockopen'],
+                    ['data-parent-child-lock-closed', 'parentchildlockclosed'],
                     ['data-selection-activities', 'selectionactivities'],
                     ['data-selection-drag-hint', 'selectiondraghint'],
                     ['data-selection-selected', 'selectionselected'],
@@ -784,13 +859,21 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
             this.hudValidationError = document.getElementById('hud-validation-error');
             this.saveBtn = document.getElementById('btn-save');
             this.resetBtn = document.getElementById('btn-reset');
-            this.autoSeqBtn = document.getElementById('btn-autosequence');
             this.weekifyBtn = document.getElementById('btn-weekify');
             this.unsavedAlert = document.getElementById('reschedule-unsaved-alert');
             this.expandedParents = {};
+            if (cfg.focusCmid > 0) {
+                this.items.forEach(function(item) {
+                    if (!item.issubtype && item.haschildren && Number(item.cmid) === cfg.focusCmid) {
+                        this.expandedParents[String(item.id)] = true;
+                    }
+                }, this);
+            }
             this.selectionMode = false;
             this.dragSnapUnit = 'hours';
+            this.parentChildrenLocked = false;
             this.selectedItemIds = new Set();
+            this.suppressUnloadWarning = false;
             this.effortSaveChain = Promise.resolve();
             this.effortUpdateVersions = Object.create(null);
             this.effortBadgeSaveTimers = Object.create(null);
@@ -809,6 +892,10 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
                 canEdit: function() {
  return calendar.canEditSchedule();
 },
+                isReadWrite: function(item) {
+ return !calendar.config.scopedEditMode || item.scopedreadwrite === true;
+},
+                locale: this.locale,
                 strings: this.strings,
                 onApply: function(updates) {
  return calendar.saveEffortUpdates(updates);
@@ -1070,12 +1157,14 @@ b3 = [];
             leftHeader.querySelector('.quest-left-count-value').textContent = self.items.length;
             var effortTableButton = leftHeader.querySelector('.quest-effort-table-button');
             var snapToggle = leftHeader.querySelector('.quest-drag-snap-toggle');
+            var parentChildLockToggle = leftHeader.querySelector('.quest-parent-child-lock-toggle');
             var selectionToggle = leftHeader.querySelector('.quest-selection-toggle');
             var snapValue = self.dragSnapUnit === 'days' ? self.strings.snapdays : self.strings.snaphours;
             snapToggle.querySelector('.quest-drag-snap-value').textContent = snapValue;
             snapToggle.classList.toggle('btn-outline-primary', self.dragSnapUnit === 'days');
             snapToggle.classList.toggle('btn-outline-secondary', self.dragSnapUnit !== 'days');
             snapToggle.setAttribute('aria-pressed', self.dragSnapUnit === 'days' ? 'true' : 'false');
+            self.updateParentChildLockButton(parentChildLockToggle);
             selectionToggle.classList.toggle('btn-primary', self.selectionMode);
             selectionToggle.classList.toggle('btn-outline-secondary', !self.selectionMode);
             selectionToggle.setAttribute('aria-pressed', self.selectionMode ? 'true' : 'false');
@@ -1083,17 +1172,17 @@ b3 = [];
                 snapToggle.title = self.strings.snapto + ' ' + snapValue;
                 selectionToggle.title = self.strings.selectionmode;
             } else {
-                [effortTableButton, snapToggle, selectionToggle].forEach(function(button) {
+                [effortTableButton, snapToggle, parentChildLockToggle, selectionToggle].forEach(function(button) {
                     button.disabled = true;
                     button.setAttribute('aria-disabled', 'true');
                     button.title = self.strings.editmoderequired;
                 });
             }
-            var selectionSummary = self.strings.readonlynotice;
+            var selectionSummary = '';
             if (self.selectionMode) {
                 selectionSummary = self.selectedItemIds.size + ' ' + self.strings.selectionselected;
-            } else if (self.canEditSchedule()) {
-                selectionSummary = self.strings.selectiondraghint;
+            } else if (!self.canEditSchedule()) {
+                selectionSummary = self.strings.readonlynotice;
             }
             leftHeader.querySelector('.quest-selection-summary').textContent = selectionSummary;
 
@@ -1116,6 +1205,8 @@ b3 = [];
                     .firstElementChild.cloneNode(true);
                 var isSub = !!item.issubtype;
                 rowLabel.classList.toggle('is-subtype', isSub);
+                rowLabel.classList.toggle('is-scoped-read-write', self.config.scopedEditMode && item.scopedreadwrite === true);
+                rowLabel.classList.toggle('is-scoped-read-only', self.config.scopedEditMode && item.scopedreadwrite !== true);
                 rowLabel.classList.toggle('ps-3', isSub);
                 rowLabel.classList.toggle('is-selected',
                     self.selectedItemIds.has(String(item.id)) && self.selectionMode);
@@ -1137,12 +1228,17 @@ b3 = [];
                 var effortBadge = rowLabel.querySelector('.quest-lbl-effort');
                 if (!item.ismilestone && isFinite(effort) && effort >= 0) {
                     effortBadge.classList.remove('d-none');
-                    effortBadge.textContent = self.strings.effortlabel + ': ' +
-                        formatEffort(effort, self.locale) + ' ' + self.strings.efforthours;
+                    effortBadge.textContent = formatEffortBadge(
+                        effort, self.locale, self.strings.efforthoursabbr);
+                    effortBadge.title = formatEffortDescription(
+                        effort, item.effortsource, item.effortpluginname, self.locale,
+                        self.strings.efforthoursabbr, self.strings);
                     effortBadge.setAttribute('data-itemid', String(item.id));
                     effortBadge.setAttribute('data-effort-value', String(effort));
                     effortBadge.setAttribute('aria-valuenow', String(effort));
-                    var effortEditable = self.canEditSchedule() && item.effortsource !== 'adapter' &&
+                    var effortEditable = self.canEditSchedule() &&
+                        (!self.config.scopedEditMode || item.scopedreadwrite === true) &&
+                        item.effortsource !== 'adapter' &&
                         item.effortsource !== 'children';
                     effortBadge.classList.toggle('is-editable', effortEditable);
                     if (effortEditable) {
@@ -1180,7 +1276,7 @@ b3 = [];
                     iconContainer.querySelector('.fa-cube').classList.remove('d-none');
                 }
                 var title = rowLabel.querySelector('.quest-row-title');
-                title.classList.add(isSub ? 'text-secondary' : 'text-dark');
+                title.classList.add('text-dark');
                 title.title = item.title;
                 title.textContent = item.title;
                 var type = rowLabel.querySelector('.quest-row-typename');
@@ -1278,6 +1374,8 @@ b3 = [];
                 var lane = document.createElement('div');
                 lane.className = 'quest-timeline-lane position-relative border-bottom' +
                     (item.issubtype ? ' is-subtype' : '') +
+                    (self.config.scopedEditMode ? (item.scopedreadwrite === true ?
+                        ' is-scoped-read-write' : ' is-scoped-read-only') : '') +
                     (self.selectionMode && self.selectedItemIds.has(String(item.id)) ? ' is-selected' : '');
                 lane.setAttribute('data-itemid', item.id);
                 if (item.issubtype) {
@@ -1373,7 +1471,17 @@ b3 = [];
             self.renderVisibleGrid();
             syncHeaderScroll();
             self.updatePageStickyHeader();
+            self.syncExpandedTableRows();
             self.refreshPendingRows();
+        },
+
+        /** Keep detail-table child visibility aligned with the Gantt expansion state. */
+        syncExpandedTableRows: function() {
+            var self = this;
+            document.querySelectorAll('#reschedule-table tr[data-parentkey]').forEach(function(row) {
+                var parentKey = row.getAttribute('data-parentkey');
+                row.classList.toggle('d-none', !self.expandedParents[String(parentKey)]);
+            });
         },
 
         /** Find each section's earliest and latest real activity dates. */
@@ -1755,8 +1863,15 @@ b3 = [];
                     }
                     var badge = row.querySelector('.quest-lbl-effort');
                     if (badge) {
-                        badge.textContent = (self.strings.effortlabel) + ': ' +
-                            formatEffort(changed[id], self.locale) + ' ' + (self.strings.efforthours);
+                        var changedItem = self.items.find(function(item) {
+                            return String(item.id) === id;
+                        });
+                        badge.textContent = formatEffortBadge(
+                            changed[id], self.locale, self.strings.efforthoursabbr);
+                        badge.title = formatEffortDescription(
+                            changed[id], changedItem ? changedItem.effortsource : 'default',
+                            changedItem ? changedItem.effortpluginname : '', self.locale,
+                            self.strings.efforthoursabbr, self.strings);
                     }
                 });
             }
@@ -1869,6 +1984,7 @@ b3 = [];
         createBarElement: function(item, totalSec, cStart) {
             var bar = document.createElement('div');
             bar.className = 'quest-calendar-bar' + (item.issubtype ? ' is-subtype' : '') +
+                (item.derived ? ' is-derived' : '') +
                 (item.ismilestone ? ' is-milestone' : '') +
                 (this.isItemInteractive(item) ? '' : ' is-disabled') +
                 (this.canEditSchedule() ? '' : ' is-readonly');
@@ -1893,6 +2009,17 @@ b3 = [];
                 markerLabel.textContent = item.title;
                 bar.appendChild(markerLabel);
                 return bar;
+            }
+
+            if (item.derived) {
+                var derivedStart = document.createElement('span');
+                derivedStart.className = 'quest-derived-cap quest-derived-cap-start';
+                derivedStart.setAttribute('aria-hidden', 'true');
+                bar.appendChild(derivedStart);
+                var derivedEnd = document.createElement('span');
+                derivedEnd.className = 'quest-derived-cap quest-derived-cap-end';
+                derivedEnd.setAttribute('aria-hidden', 'true');
+                bar.appendChild(derivedEnd);
             }
 
             if (!item.isopenstart) {
@@ -1993,6 +2120,7 @@ b3 = [];
          * @param {number} cStart Visible timeline start.
          */
         createAbsoluteLimitMarkers: function(lane, item, totalSec, cStart) {
+            var self = this;
             (item.absolutelimits || []).forEach(function(limit) {
                 var timestamp = Number(limit.date);
                 if (!timestamp || timestamp < cStart || timestamp > cStart + totalSec) {
@@ -2001,9 +2129,44 @@ b3 = [];
                 var marker = document.createElement('div');
                 marker.className = 'quest-absolute-limit';
                 marker.style.left = (((timestamp - cStart) / totalSec) * 100) + '%';
-                marker.title = limit.reason || '';
-                marker.setAttribute('aria-label', limit.reason || '');
+                var reason = limit.reason || '';
+                marker.setAttribute('aria-label', reason);
                 marker.setAttribute('role', 'img');
+                if (reason) {
+                    var tooltip = document.createElement('span');
+                    var tooltipId = 'quest-absolute-limit-tooltip-' + (++self.absoluteLimitTooltipCounter);
+                    tooltip.className = 'quest-absolute-limit-tooltip';
+                    tooltip.id = tooltipId;
+                    tooltip.setAttribute('role', 'tooltip');
+                    tooltip.textContent = reason;
+                    marker.tabIndex = 0;
+                    marker.setAttribute('aria-describedby', tooltipId);
+                    marker.appendChild(tooltip);
+
+                    marker.addEventListener('pointerdown', function(event) {
+                        event.stopPropagation();
+                        if (event.pointerType !== 'touch' && event.pointerType !== 'pen') {
+                            return;
+                        }
+                        event.preventDefault();
+                        var wasVisible = marker.classList.contains('is-tooltip-visible');
+                        self.board.querySelectorAll('.quest-absolute-limit.is-tooltip-visible').forEach(function(other) {
+                            other.classList.remove('is-tooltip-visible');
+                        });
+                        marker.classList.toggle('is-tooltip-visible', !wasVisible);
+                        if (wasVisible) {
+                            marker.blur();
+                        } else {
+                            marker.focus({preventScroll: true});
+                        }
+                    });
+                    marker.addEventListener('keydown', function(event) {
+                        if (event.key === 'Escape') {
+                            marker.classList.remove('is-tooltip-visible');
+                            marker.blur();
+                        }
+                    });
+                }
                 lane.appendChild(marker);
             });
         },
@@ -2703,7 +2866,6 @@ b3 = [];
                 focalRatio: Math.max(0, Math.min(1, contentX / Math.max(1, this.trackWidthPx)))
             };
             this.backgroundPan = null;
-            this.clickCandidate = null;
             this.board.classList.add('is-panning');
         },
 
@@ -2771,6 +2933,17 @@ b3 = [];
          */
         bindGlobalEvents: function() {
             var self = this;
+
+            document.addEventListener('pointerdown', function(e) {
+                if (!e.target.closest('.quest-absolute-limit')) {
+                    self.board.querySelectorAll('.quest-absolute-limit.is-tooltip-visible').forEach(function(marker) {
+                        marker.classList.remove('is-tooltip-visible');
+                        if (document.activeElement === marker) {
+                            marker.blur();
+                        }
+                    });
+                }
+            });
 
             self.board.addEventListener('click', function(e) {
                 var suppressed = self.suppressEffortBadgeClick;
@@ -2970,15 +3143,9 @@ b3 = [];
                 if (!self.isItemInActionScope(item)) {
                     return;
                 }
-                // Disabled items remain clickable for navigation, but cannot be dragged.
+                // Disabled items cannot be dragged. Navigation remains available
+                // from the activity name and the details table.
                 if (!self.canEditSchedule() || !self.isItemInteractive(item)) {
-                    self.clickCandidate = {
-                        itemId: itemId,
-                        startX: e.clientX,
-                        startY: e.clientY,
-                        hasMoved: false,
-                        startTime: Date.now()
-                    };
                     return;
                 }
 
@@ -2993,13 +3160,6 @@ b3 = [];
                 var mode = getBarDragMode(item, barW, clickX, isStartHandle, isEndHandle);
 
                 if (mode === 'none') {
-                    self.clickCandidate = {
-                        itemId: itemId,
-                        startX: e.clientX,
-                        startY: e.clientY,
-                        hasMoved: false,
-                        startTime: Date.now()
-                    };
                     return;
                 }
 
@@ -3007,18 +3167,11 @@ b3 = [];
                 // Its handles are still active so dragging one enables that endpoint.
                 if (mode === 'move' &&
                         (item.startenabled === false || item.endenabled === false)) {
-                    self.clickCandidate = {
-                        itemId: itemId,
-                        startX: e.clientX,
-                        startY: e.clientY,
-                        hasMoved: false,
-                        startTime: Date.now()
-                    };
                     return;
                 }
 
                 // Capture subactivities if this item is a parent activity.
-                var childItems = self.getAdjustableChildren(item);
+                var childItems = self.shouldAdjustParentChildren(item) ? self.getAdjustableChildren(item) : [];
                 var childSnapshots = childItems.map(function(child) {
                     var childBar = self.board.querySelector('.quest-calendar-bar[data-itemid="' + child.id + '"]');
                     return {
@@ -3068,21 +3221,14 @@ b3 = [];
                         if (selectedParent && selectedParent.derived) {
                             movingIds.add(String(selectedParent.id));
                         }
-                        self.getAdjustableChildren(root).forEach(function(child) {
-                            movingIds.add(String(child.id));
-                        });
+                        if (self.shouldAdjustParentChildren(root)) {
+                            self.getAdjustableChildren(root).forEach(function(child) {
+                                movingIds.add(String(child.id));
+                            });
+                        }
                     });
                 }
                 self.activeDrag.snapTargets = self.collectSnapTargets(movingIds, null);
-
-                // Track potential simple click on the bar
-                self.clickCandidate = {
-                    itemId: itemId,
-                    startX: e.clientX,
-                    startY: e.clientY,
-                    hasMoved: false,
-                    startTime: Date.now()
-                };
 
                 bar.classList.add('is-dragging');
                 if (bar.setPointerCapture) {
@@ -3125,13 +3271,6 @@ b3 = [];
                     return;
                 }
 
-                if (self.clickCandidate && !self.clickCandidate.hasMoved) {
-                    var moveDist = Math.hypot(e.clientX - self.clickCandidate.startX, e.clientY - self.clickCandidate.startY);
-                    if (moveDist > 4) {
-                        self.clickCandidate.hasMoved = true;
-                    }
-                }
-
                 if (!self.activeDrag) {
                     return;
                 }
@@ -3146,20 +3285,15 @@ b3 = [];
 
                 var reference = drag.mode === 'resize-end' ? drag.initialEnd : drag.initialStart;
                 var requestedSteps = snapStepsForDelta(reference, rawDelta, drag.snapUnit);
+                drag.requestedSteps = requestedSteps;
                 var requestedStart = drag.mode === 'resize-end' ? drag.initialStart :
                     shiftSnappedDate(drag.initialStart, requestedSteps, drag.snapUnit);
                 var requestedEnd = drag.mode === 'resize-start' ? drag.initialEnd :
                     shiftSnappedDate(drag.initialEnd, requestedSteps, drag.snapUnit);
-                var answerBoundaryMessage = self.getAbsoluteLimitError(drag.item, requestedStart, requestedEnd);
-                if (!answerBoundaryMessage && drag.children) {
-                    drag.children.some(function(child) {
-                        var proposedChildStart = shiftSnappedDate(child.initialStart, requestedSteps, drag.snapUnit);
-                        var proposedChildEnd = shiftSnappedDate(child.initialEnd, requestedSteps, drag.snapUnit);
-                        answerBoundaryMessage = self.getAbsoluteLimitError(
-                            child.item, proposedChildStart, proposedChildEnd);
-                        return !!answerBoundaryMessage;
-                    });
-                }
+                // A derived parent inherits child markers for display, but its
+                // aggregate limits must not block the whole group operation.
+                var answerBoundaryMessage = drag.item.derived ? '' :
+                    self.getAbsoluteLimitError(drag.item, requestedStart, requestedEnd);
 
                 var cStart = self.config.courseStart;
                 var cEnd = self.config.courseEnd;
@@ -3169,6 +3303,7 @@ b3 = [];
                 var newStart = drag.item.datestart;
                 var newEnd = drag.item.dateend;
                 var snapBounds = {};
+                var primaryRequestedMoveValid = true;
 
                 if (drag.mode === 'resize-start') {
                     drag.item.startenabled = true;
@@ -3186,12 +3321,6 @@ b3 = [];
                         if (drag.item.boundtoparentend !== false) {
                             maxShift = Math.min(maxShift, drag.parent.dateend - drag.initialEnd);
                         }
-                    }
-                    if (drag.children && drag.children.length > 0) {
-                        drag.children.forEach(function(c) {
-                            minShift = Math.max(minShift, cStart - c.initialStart);
-                            maxShift = Math.min(maxShift, cEnd - c.initialEnd);
-                        });
                     }
                     if (minShift > maxShift) {
                         if (drag.parent && !drag.parent.derived && !drag.item.ismilestone) {
@@ -3211,6 +3340,9 @@ b3 = [];
                         var candidateStart = shiftSnappedDate(drag.initialStart, steps, unit);
                         var candidateEnd = drag.item.ismilestone ? candidateStart :
                             shiftSnappedDate(drag.initialEnd, steps, unit);
+                        if (drag.item.derived) {
+                            return true;
+                        }
                         if (candidateStart < cStart || candidateEnd > cEnd ||
                                 (!drag.item.ismilestone && candidateEnd <= candidateStart)) {
                             return false;
@@ -3224,13 +3356,9 @@ b3 = [];
                                 drag.item.boundtoparentend !== false && candidateEnd > drag.parent.dateend)) {
                             return false;
                         }
-                        return !drag.children || drag.children.every(function(child) {
-                            var childStart = shiftSnappedDate(child.initialStart, steps, unit);
-                            return childStart >= cStart && shiftSnappedDate(child.initialEnd, steps, unit) <= cEnd &&
-                                !self.getAbsoluteLimitError(child.item, childStart,
-                                    shiftSnappedDate(child.initialEnd, steps, unit));
-                        });
+                        return true;
                     };
+                    primaryRequestedMoveValid = snapBounds.isValidMove(requestedSteps, drag.snapUnit);
                     var moveSteps = fitSnapSteps(requestedSteps, snapBounds.isValidMove);
                     newStart = shiftSnappedDate(drag.initialStart, moveSteps, drag.snapUnit);
                     newEnd = drag.item.ismilestone ? newStart :
@@ -3286,18 +3414,8 @@ b3 = [];
                 var snapped = self.snapDraggedDates(drag, rawDelta, newStart, newEnd, snapBounds);
                 newStart = snapped.start;
                 newEnd = snapped.end;
-                var snappedBoundaryMessage = self.getAbsoluteLimitError(drag.item, newStart, newEnd);
-                if (!snappedBoundaryMessage && drag.mode === 'move' && drag.children) {
-                    drag.children.some(function(child) {
-                        var childSteps = drag.snapUnit === 'days' ?
-                            localDayDifference(drag.initialStart, newStart) :
-                            Math.round((newStart - drag.initialStart) / 3600);
-                        var childStart = shiftSnappedDate(child.initialStart, childSteps, drag.snapUnit);
-                        var childEnd = shiftSnappedDate(child.initialEnd, childSteps, drag.snapUnit);
-                        snappedBoundaryMessage = self.getAbsoluteLimitError(child.item, childStart, childEnd);
-                        return !!snappedBoundaryMessage;
-                    });
-                }
+                var snappedBoundaryMessage = drag.item.derived ? '' :
+                    self.getAbsoluteLimitError(drag.item, newStart, newEnd);
                 if (snappedBoundaryMessage) {
                     answerBoundaryMessage = snappedBoundaryMessage;
                     if (drag.mode === 'move') {
@@ -3321,22 +3439,42 @@ b3 = [];
                 }
                 self.showSnapHint(drag.barEl, snapped.edge, snapped.target, drag.totalSec, timelineStart);
 
-                var previousItemRange = {start: drag.item.datestart, end: drag.item.dateend};
-                var previousChildRanges = (drag.children || []).map(function(child) {
-                    return {item: child.item, start: child.item.datestart, end: child.item.dateend, bar: child.barEl};
-                });
-
                 // Shift descendants by calendar days or hours, preserving their own clocks.
                 if (drag.mode === 'move' && drag.children && drag.children.length > 0) {
-                    var effectiveSteps = drag.snapUnit === 'days' ?
+                    var effectiveSteps = primaryRequestedMoveValid ? (drag.snapUnit === 'days' ?
                         localDayDifference(drag.initialStart, newStart) :
-                        Math.round((newStart - drag.initialStart) / 3600);
+                        Math.round((newStart - drag.initialStart) / 3600)) : requestedSteps;
                     drag.children.forEach(function(c) {
-                        c.item.datestart = shiftSnappedDate(c.initialStart, effectiveSteps, drag.snapUnit);
-                        c.item.dateend = shiftSnappedDate(c.initialEnd, effectiveSteps, drag.snapUnit);
-                        if (c.item.ismilestone && c.item.dateonly) {
-                            c.item.datestart = startOfLocalDay(c.item.datestart);
-                            c.item.dateend = c.item.datestart;
+                        var childRangeAtStep = function(steps) {
+                            var start = shiftSnappedDate(c.initialStart, steps, drag.snapUnit);
+                            var end = shiftSnappedDate(c.initialEnd, steps, drag.snapUnit);
+                            if (c.item.ismilestone && c.item.dateonly) {
+                                start = startOfLocalDay(start);
+                                end = start;
+                            }
+                            return {start: start, end: end};
+                        };
+                        var childIsValidAtStep = function(steps) {
+                            var range = childRangeAtStep(steps);
+                            var valid = range.start >= cStart && range.end <= cEnd &&
+                                (c.item.ismilestone || range.end > range.start) &&
+                                !self.getAbsoluteLimitError(c.item, range.start, range.end);
+                            if (!drag.item.derived) {
+                                valid = valid &&
+                                    (c.item.boundtoparentstart === false || range.start >= newStart) &&
+                                    (c.item.boundtoparentend === false || range.end <= newEnd);
+                            }
+                            return valid;
+                        };
+                        var requestedChildRange = childRangeAtStep(effectiveSteps);
+                        var childLimitError = self.getAbsoluteLimitError(
+                            c.item, requestedChildRange.start, requestedChildRange.end);
+                        var childSteps = fitSnapSteps(effectiveSteps, childIsValidAtStep);
+                        var childRange = childRangeAtStep(childSteps);
+                        c.item.datestart = childRange.start;
+                        c.item.dateend = childRange.end;
+                        if (childSteps !== effectiveSteps) {
+                            answerBoundaryMessage = answerBoundaryMessage || childLimitError;
                         }
                         if (c.barEl) {
                             self.positionBar(c.barEl, c.item, drag.totalSec, timelineStart);
@@ -3372,8 +3510,17 @@ b3 = [];
                         }
 
                         if (c.item.ismilestone) {
-                            c.item.datestart = c.item.dateonly ? startOfLocalDay(newCStart) : newCStart;
-                            c.item.dateend = c.item.datestart;
+                            newCStart = c.item.dateonly ? startOfLocalDay(newCStart) : newCStart;
+                            newCEnd = newCStart;
+                            var milestoneLimitError = self.getAbsoluteLimitError(c.item, newCStart, newCEnd);
+                            if (newCStart >= cStart && newCStart <= cEnd && !milestoneLimitError) {
+                                c.item.datestart = newCStart;
+                                c.item.dateend = newCEnd;
+                            } else {
+                                c.item.datestart = c.initialStart;
+                                c.item.dateend = c.initialEnd;
+                                answerBoundaryMessage = answerBoundaryMessage || milestoneLimitError;
+                            }
                             if (c.barEl) {
                                 self.positionBar(c.barEl, c.item, drag.totalSec, timelineStart);
                             }
@@ -3404,8 +3551,15 @@ b3 = [];
                             }
                         }
 
-                        c.item.datestart = newCStart;
-                        c.item.dateend = newCEnd;
+                        var childLimitError = self.getAbsoluteLimitError(c.item, newCStart, newCEnd);
+                        if (newCStart >= cStart && newCEnd <= cEnd && newCEnd > newCStart && !childLimitError) {
+                            c.item.datestart = newCStart;
+                            c.item.dateend = newCEnd;
+                        } else {
+                            c.item.datestart = c.initialStart;
+                            c.item.dateend = c.initialEnd;
+                            answerBoundaryMessage = answerBoundaryMessage || childLimitError;
+                        }
 
                         if (c.barEl) {
                             self.positionBar(c.barEl, c.item, drag.totalSec, timelineStart);
@@ -3414,46 +3568,24 @@ b3 = [];
                     });
                 }
 
-                var inheritedLimitError = self.getAbsoluteLimitError(drag.item,
-                    drag.item.datestart, drag.item.dateend);
-                if (!inheritedLimitError) {
-                    previousChildRanges.some(function(child) {
-                        inheritedLimitError = self.getAbsoluteLimitError(child.item,
-                            child.item.datestart, child.item.dateend);
-                        return !!inheritedLimitError;
-                    });
-                }
-                if (inheritedLimitError) {
-                    answerBoundaryMessage = inheritedLimitError;
-                    drag.item.datestart = previousItemRange.start;
-                    drag.item.dateend = previousItemRange.end;
-                    previousChildRanges.forEach(function(child) {
-                        child.item.datestart = child.start;
-                        child.item.dateend = child.end;
-                        if (child.bar) {
-                            self.positionBar(child.bar, child.item, drag.totalSec, timelineStart);
-                        }
-                        self.updateTableRow(child.item);
-                    });
-                }
-
                 self.positionBar(drag.barEl, drag.item, drag.totalSec, timelineStart);
 
                 self.updateHUD(e.clientX, e.clientY, drag.item,
                     answerBoundaryMessage);
                 self.updateTableRow(drag.item);
-                if (drag.item.derived) {
-                    self.refreshDerivedItem(drag.item);
-                } else {
-                    self.refreshDerivedParent(drag.item);
-                }
+                self.refreshAffectedDerivedRange(drag.item);
                 self.applySelectedDragCompanions(drag);
                 self.syncAvailabilityFromSnapshot(drag.scheduleSnapshot, drag);
-                self.applySelectedAvailabilityCompanions(drag.scheduleSnapshot, drag.item.id, drag.mode,
-                    drag.mode === 'resize-end' ? drag.item.dateend - drag.initialEnd :
-                        drag.item.datestart - drag.initialStart, false, drag.snapUnit,
-                    drag.mode === 'resize-end' ? localDayDifference(drag.initialEnd, drag.item.dateend) :
+                var availabilityDelta = drag.mode === 'move' && Number.isFinite(drag.requestedSteps) ?
+                    shiftSnappedDate(drag.initialStart, drag.requestedSteps, drag.snapUnit) - drag.initialStart :
+                    (drag.mode === 'resize-end' ? drag.item.dateend - drag.initialEnd :
+                        drag.item.datestart - drag.initialStart);
+                var availabilityDaySteps = drag.mode === 'move' && Number.isFinite(drag.requestedSteps) ?
+                    drag.requestedSteps : (drag.mode === 'resize-end' ?
+                        localDayDifference(drag.initialEnd, drag.item.dateend) :
                         localDayDifference(drag.initialStart, drag.item.datestart));
+                self.applySelectedAvailabilityCompanions(drag.scheduleSnapshot, drag.item.id, drag.mode,
+                    availabilityDelta, false, drag.snapUnit, availabilityDaySteps);
                 self.markDirty();
             });
 
@@ -3490,13 +3622,6 @@ b3 = [];
                     return;
                 }
 
-                // If it was a simple click without drag movement, jump to the table row
-                if (self.clickCandidate && !self.clickCandidate.hasMoved && (Date.now() - self.clickCandidate.startTime < 500)) {
-                    var clickedItemId = self.clickCandidate.itemId;
-                    self.scrollToTableRow(clickedItemId);
-                }
-                self.clickCandidate = null;
-
                 if (!self.activeDrag) {
                     return;
                 }
@@ -3511,7 +3636,6 @@ b3 = [];
                 self.pinchState = null;
                 self.backgroundPan = null;
                 self.board.classList.remove('is-panning');
-                self.clickCandidate = null;
                 if (self.activeAvailabilityDrag && self.activeAvailabilityDrag.pointerId === e.pointerId) {
                     self.cancelAvailabilityDragFrame();
                     self.activeAvailabilityDrag.overlay.classList.remove(
@@ -3713,6 +3837,18 @@ b3 = [];
         },
 
         /**
+         * Return whether a manual parent edit should transform its children.
+         * Derived parents always act through their children; parents with their
+         * own dates follow the explicit lock toggle.
+         *
+         * @param {Object} parent Parent activity.
+         * @return {boolean} Whether children participate in this edit.
+         */
+        shouldAdjustParentChildren: function(parent) {
+            return !!parent && (!!parent.derived || this.parentChildrenLocked);
+        },
+
+        /**
          * Return whether an item has the real dates needed for sequencing.
          * Disabled endpoints only use course limits for drawing the Gantt.
          * A milestone needs its single date rather than a date range.
@@ -3786,6 +3922,47 @@ b3 = [];
         },
 
         /**
+         * Enter selection mode with a parent activity and all its children selected.
+         *
+         * @param {string} itemId Double-clicked activity or subactivity ID.
+         */
+        selectItemFamily: function(itemId) {
+            if (!this.canEditSchedule()) {
+                return;
+            }
+            var self = this;
+            var item = self.items.find(function(candidate) {
+                return String(candidate.id) === String(itemId);
+            });
+            if (!item) {
+                return;
+            }
+            var parent = self.getParentItem(item) || item;
+            var family = self.items.filter(function(candidate) {
+                return String(candidate.id) === String(parent.id) ||
+                    String(candidate.parentkey) === String(parent.id);
+            });
+            if (!family.some(function(candidate) {
+                return self.isItemInteractive(candidate) &&
+                    (!self.config.scopedEditMode || candidate.scopedreadwrite === true);
+            })) {
+                return;
+            }
+
+            var scrollLeft = self.getScrollContainer().scrollLeft;
+            self.selectionMode = true;
+            self.selectedItemIds.clear();
+            family.forEach(function(candidate) {
+                self.selectedItemIds.add(String(candidate.id));
+            });
+            if (family.length > 1) {
+                self.expandedParents[String(parent.id)] = true;
+            }
+            self.renderTimeline();
+            self.getScrollContainer().scrollLeft = self.clampScrollLeft(scrollLeft);
+        },
+
+        /**
          * Change drag precision without rebuilding the timeline or losing selection.
          * @param {*} button
          */
@@ -3801,6 +3978,38 @@ b3 = [];
                 (this.strings.snaphours);
             button.querySelector('.quest-drag-snap-value').textContent = value;
             button.title = (this.strings.snapto) + ' ' + value;
+        },
+
+        /**
+         * Update the parent-child propagation toggle without rebuilding the Gantt.
+         * @param {HTMLElement} button Toggle button.
+         */
+        updateParentChildLockButton: function(button) {
+            if (!button) {
+                return;
+            }
+            var locked = this.parentChildrenLocked;
+            var label = locked ? this.strings.parentchildlockclosed : this.strings.parentchildlockopen;
+            button.setAttribute('aria-pressed', locked ? 'true' : 'false');
+            button.setAttribute('aria-label', label);
+            button.title = label;
+            button.classList.toggle('btn-outline-primary', locked);
+            button.classList.toggle('btn-outline-secondary', !locked);
+            var icon = button.querySelector('i');
+            icon.classList.toggle('fa-lock', locked);
+            icon.classList.toggle('fa-unlock', !locked);
+        },
+
+        /**
+         * Toggle whether own-range parents transform their children.
+         * @param {HTMLElement} button Toggle button.
+         */
+        toggleParentChildLock: function(button) {
+            if (!this.canEditSchedule()) {
+                return;
+            }
+            this.parentChildrenLocked = !this.parentChildrenLocked;
+            this.updateParentChildLockButton(button);
         },
 
         /**
@@ -4058,12 +4267,14 @@ b3 = [];
             });
         },
 
-        /** Selected roots own their children so a nested selection is never transformed twice. */
+        /** Selected roots absorb children only while parent-child propagation is active. */
         getSelectedDragRoots: function() {
             var self = this;
             return self.getActionItems().filter(function(item) {
+                var parent = self.getParentItem(item);
                 return !item.isopenstart && self.isItemInteractive(item) && self.hasDefinedSchedule(item) &&
-                    (!item.parentkey || !self.selectedItemIds.has(String(item.parentkey)));
+                    (!parent || !self.selectedItemIds.has(String(parent.id)) ||
+                        !self.shouldAdjustParentChildren(parent));
             });
         },
 
@@ -4081,8 +4292,9 @@ b3 = [];
                 drag.item.datestart - drag.initialStart);
             var primaryOld = mode === 'resize-end' ? drag.initialEnd : drag.initialStart;
             var primaryNew = mode === 'resize-end' ? drag.item.dateend : drag.item.datestart;
-            var requestedSteps = drag.snapUnit === 'days' ? localDayDifference(primaryOld, primaryNew) :
-                Math.round(delta / 3600);
+            var requestedSteps = mode === 'move' && Number.isFinite(drag.requestedSteps) ?
+                drag.requestedSteps : (drag.snapUnit === 'days' ? localDayDifference(primaryOld, primaryNew) :
+                    Math.round(delta / 3600));
             var cStart = Number(self.config.courseStart);
             var cEnd = Number(self.config.courseEnd);
             var timelineStart = self.getTimelineStart();
@@ -4091,7 +4303,8 @@ b3 = [];
             drag.selectedRoots.forEach(function(item) {
                 if (String(item.id) === String(drag.item.id) ||
                         item.isopenstart ||
-                        (item.parentkey && String(item.parentkey) === String(drag.item.id)) ||
+                        (item.parentkey && String(item.parentkey) === String(drag.item.id) &&
+                            self.shouldAdjustParentChildren(drag.item)) ||
                         (mode !== 'move' && item.ismilestone)) {
                     return;
                 }
@@ -4117,8 +4330,10 @@ b3 = [];
                 var appliedSteps = 0;
                 if (mode === 'move') {
                     appliedSteps = fitSnapSteps(requestedSteps, function(steps) {
-                        return shiftSnappedDate(oldStart, steps, drag.snapUnit) >= minStart &&
-                            shiftSnappedDate(oldEnd, steps, drag.snapUnit) <= maxEnd;
+                        var candidateStart = shiftSnappedDate(oldStart, steps, drag.snapUnit);
+                        var candidateEnd = shiftSnappedDate(oldEnd, steps, drag.snapUnit);
+                        return item.derived || candidateStart >= minStart && candidateEnd <= maxEnd &&
+                            !self.getAbsoluteLimitError(item, candidateStart, candidateEnd);
                     });
                     newStart = shiftSnappedDate(oldStart, appliedSteps, drag.snapUnit);
                     newEnd = shiftSnappedDate(oldEnd, appliedSteps, drag.snapUnit);
@@ -4128,7 +4343,8 @@ b3 = [];
                     }
                     appliedSteps = fitSnapSteps(requestedSteps, function(steps) {
                         var candidate = shiftSnappedDate(oldStart, steps, drag.snapUnit);
-                        return candidate >= minStart && candidate <= oldEnd - 3600;
+                        return candidate >= minStart && candidate <= oldEnd - 3600 &&
+                            !self.getAbsoluteLimitError(item, candidate, oldEnd);
                     });
                     newStart = shiftSnappedDate(oldStart, appliedSteps, drag.snapUnit);
                     item.startenabled = true;
@@ -4138,7 +4354,8 @@ b3 = [];
                     }
                     appliedSteps = fitSnapSteps(requestedSteps, function(steps) {
                         var candidate = shiftSnappedDate(oldEnd, steps, drag.snapUnit);
-                        return candidate >= oldStart + 3600 && candidate <= maxEnd;
+                        return candidate >= oldStart + 3600 && candidate <= maxEnd &&
+                            !self.getAbsoluteLimitError(item, oldStart, candidate);
                     });
                     newEnd = shiftSnappedDate(oldEnd, appliedSteps, drag.snapUnit);
                     item.endenabled = true;
@@ -4150,7 +4367,7 @@ b3 = [];
                 item.datestart = newStart;
                 item.dateend = newEnd;
 
-                if (!item.isopenended) {
+                if (!item.isopenended && self.shouldAdjustParentChildren(item)) {
                     var children = self.getAdjustableChildren(item);
                     children.forEach(function(child) {
                         var source = drag.scheduleSnapshot[String(child.id)];
@@ -4159,28 +4376,52 @@ b3 = [];
                         }
                         var oldDuration = Math.max(1, oldEnd - oldStart);
                         var newDuration = newEnd - newStart;
+                        var sourceStart = Number(source.datestart);
+                        var sourceEnd = Number(source.dateend);
+                        var childSteps = appliedSteps;
+                        if (mode === 'move') {
+                            childSteps = fitSnapSteps(requestedSteps, function(steps) {
+                                var candidateStart = shiftSnappedDate(sourceStart, steps, drag.snapUnit);
+                                var candidateEnd = shiftSnappedDate(sourceEnd, steps, drag.snapUnit);
+                                var valid = candidateStart >= cStart && candidateEnd <= cEnd &&
+                                    (child.ismilestone || candidateEnd > candidateStart) &&
+                                    !self.getAbsoluteLimitError(child, candidateStart, candidateEnd);
+                                if (!item.derived) {
+                                    valid = valid &&
+                                        (child.boundtoparentstart === false || candidateStart >= newStart) &&
+                                        (child.boundtoparentend === false || candidateEnd <= newEnd);
+                                }
+                                return valid;
+                            });
+                        }
                         var mappedStart = mode === 'move' ?
-                            shiftSnappedDate(Number(source.datestart), appliedSteps, drag.snapUnit) :
-                            Math.round(newStart + (Number(source.datestart) - oldStart) * newDuration / oldDuration);
+                            shiftSnappedDate(sourceStart, childSteps, drag.snapUnit) :
+                            Math.round(newStart + (sourceStart - oldStart) * newDuration / oldDuration);
                         var mappedEnd = mode === 'move' ?
-                            shiftSnappedDate(Number(source.dateend), appliedSteps, drag.snapUnit) :
-                            Math.round(newStart + (Number(source.dateend) - oldStart) * newDuration / oldDuration);
+                            shiftSnappedDate(sourceEnd, childSteps, drag.snapUnit) :
+                            Math.round(newStart + (sourceEnd - oldStart) * newDuration / oldDuration);
                         if (mode !== 'move' && drag.snapUnit === 'days') {
-                            mappedStart = dateWithOriginalClock(mappedStart, Number(source.datestart));
-                            mappedEnd = dateWithOriginalClock(mappedEnd, Number(source.dateend));
+                            mappedStart = dateWithOriginalClock(mappedStart, sourceStart);
+                            mappedEnd = dateWithOriginalClock(mappedEnd, sourceEnd);
                         } else if (mode !== 'move') {
-                            mappedStart = Number(source.datestart) +
-                                Math.round((mappedStart - Number(source.datestart)) / 3600) * 3600;
-                            mappedEnd = Number(source.dateend) +
-                                Math.round((mappedEnd - Number(source.dateend)) / 3600) * 3600;
+                            mappedStart = sourceStart + Math.round((mappedStart - sourceStart) / 3600) * 3600;
+                            mappedEnd = sourceEnd + Math.round((mappedEnd - sourceEnd) / 3600) * 3600;
                         }
                         if (child.ismilestone) {
                             mappedEnd = mappedStart = child.dateonly ? startOfLocalDay(mappedStart) : mappedStart;
                         } else if (mappedEnd <= mappedStart) {
                             mappedEnd = mappedStart + 1;
                         }
-                        child.datestart = mappedStart;
-                        child.dateend = mappedEnd;
+                        var childLimitError = self.getAbsoluteLimitError(child, mappedStart, mappedEnd);
+                        var childIsValid = mappedStart >= cStart && mappedEnd <= cEnd &&
+                            (child.ismilestone || mappedEnd > mappedStart) && !childLimitError;
+                        if (!item.derived) {
+                            childIsValid = childIsValid &&
+                                (child.boundtoparentstart === false || mappedStart >= newStart) &&
+                                (child.boundtoparentend === false || mappedEnd <= newEnd);
+                        }
+                        child.datestart = childIsValid ? mappedStart : sourceStart;
+                        child.dateend = childIsValid ? mappedEnd : sourceEnd;
                         var childBar = self.board.querySelector('.quest-calendar-bar[data-itemid="' + child.id + '"]');
                         if (childBar) {
                             self.positionBar(childBar, child, drag.totalSec, timelineStart);
@@ -4193,7 +4434,7 @@ b3 = [];
                     self.positionBar(bar, item, drag.totalSec, timelineStart);
                 }
                 self.updateTableRow(item);
-                self.refreshDerivedParent(item);
+                self.refreshAffectedDerivedRange(item);
             });
         },
 
@@ -4299,6 +4540,25 @@ b3 = [];
         },
 
         /**
+         * Refresh only ranges that are explicitly derived from child dates.
+         *
+         * A parent with its own configured start/end keeps the range produced
+         * by its own move or resize, even when one of its children cannot move.
+         *
+         * @param {Object} item Changed item.
+         */
+        refreshAffectedDerivedRange: function(item) {
+            if (!item) {
+                return;
+            }
+            if (item.derived) {
+                this.refreshDerivedItem(item);
+                return;
+            }
+            this.refreshDerivedParent(item);
+        },
+
+        /**
          * Recalculate a parent whose dates are derived from its children.
          *
          * @param {Object} child Changed child item.
@@ -4313,6 +4573,8 @@ b3 = [];
 
         /**
          * Recalculate a derived item's dates from its child items.
+         *
+         * This method deliberately ignores parents that own their date range.
          *
          * @param {Object} parent Derived parent item.
          */
@@ -4458,12 +4720,6 @@ b3 = [];
                 });
             }
 
-            if (self.autoSeqBtn) {
-                self.autoSeqBtn.addEventListener('click', function() {
-                    self.openAutoSequenceModal();
-                });
-            }
-
             if (self.weekifyBtn) {
                 self.weekifyBtn.addEventListener('click', function() {
                     self.openWeekifyModal();
@@ -4587,10 +4843,24 @@ b3 = [];
 
             // Click listener for Gantt left column toggle buttons and row jump
             self.board.addEventListener('click', function(e) {
+                var autoSequenceButton = e.target.closest('.quest-autosequence-button');
+                if (autoSequenceButton) {
+                    e.preventDefault();
+                    if (self.canEditSchedule() && !self.config.scopedEditMode) {
+                        self.openAutoSequenceModal();
+                    }
+                    return;
+                }
                 var snapToggle = e.target.closest('.quest-drag-snap-toggle');
                 if (snapToggle) {
                     e.preventDefault();
                     self.toggleDragSnapUnit(snapToggle);
+                    return;
+                }
+                var parentChildLockToggle = e.target.closest('.quest-parent-child-lock-toggle');
+                if (parentChildLockToggle) {
+                    e.preventDefault();
+                    self.toggleParentChildLock(parentChildLockToggle);
                     return;
                 }
                 if (e.target.closest('.quest-selection-toggle')) {
@@ -4615,9 +4885,24 @@ b3 = [];
                 if (leftRow) {
                     var lItemId = leftRow.getAttribute('data-itemid');
                     if (lItemId) {
-                        self.scrollToTableRow(lItemId);
+                        window.clearTimeout(self.leftRowClickTimer);
+                        self.leftRowClickTimer = window.setTimeout(function() {
+                            self.scrollToTableRow(lItemId);
+                        }, 250);
                     }
                 }
+            });
+
+            self.board.addEventListener('dblclick', function(e) {
+                var excluded = e.target.closest('button, input, .quest-lbl-effort, .quest-bar-handle, ' +
+                    '.quest-absolute-limit, .quest-availability-range');
+                var target = e.target.closest('.quest-left-row[data-itemid], .quest-calendar-bar[data-itemid]');
+                if (excluded || !target) {
+                    return;
+                }
+                e.preventDefault();
+                window.clearTimeout(self.leftRowClickTimer);
+                self.selectItemFamily(target.getAttribute('data-itemid'));
             });
 
             self.board.addEventListener('change', function(e) {
@@ -4749,7 +5034,7 @@ b3 = [];
             }
 
             window.addEventListener('beforeunload', function(e) {
-                if (self.isDirty) {
+                if (self.isDirty && !self.suppressUnloadWarning) {
                     e.preventDefault();
                     e.returnValue = '';
                 }
@@ -4822,6 +5107,19 @@ b3 = [];
          */
         saveEffortUpdates: function(updates) {
             var self = this;
+            if (self.config.scopedEditMode) {
+                var writableIds = new Set(self.items.filter(function(item) {
+                    return item.scopedreadwrite === true;
+                }).map(function(item) {
+                    return String(item.id);
+                }));
+                updates = updates.filter(function(update) {
+                    return writableIds.has(String(update.id));
+                });
+            }
+            if (!updates.length) {
+                return Promise.resolve({success: true, saved: 0});
+            }
             var versions = Object.create(null);
             updates.forEach(function(update) {
                 var id = String(update.id);
@@ -4834,6 +5132,7 @@ b3 = [];
                     args: {
                         courseid: self.config.courseid,
                         forceeditmode: self.config.forceEditMode,
+                        scopecmid: self.config.scopeCmid,
                         items: updates
                     }
                 }])[0];
@@ -4882,7 +5181,8 @@ b3 = [];
                         courseid: self.config.courseid,
                         forceeditmode: self.config.forceEditMode,
                         items: [],
-                        model: model
+                        model: model,
+                        scopecmid: self.config.scopeCmid
                     }
                 }])[0];
             };
@@ -4952,6 +5252,16 @@ b3 = [];
                 if (Object.prototype.hasOwnProperty.call(efforts, id)) {
                     input.value = Number(efforts[id] || 0).toFixed(1);
                     input.setAttribute('data-saved-value', input.value);
+                    var inputItem = self.items.find(function(item) {
+                        return String(item.id) === id;
+                    });
+                    if (input.disabled && inputItem) {
+                        var description = formatEffortDescription(
+                            efforts[id], inputItem.effortsource, inputItem.effortpluginname, self.locale,
+                            self.strings.efforthoursabbr, self.strings);
+                        input.title = description;
+                        input.parentElement.title = description;
+                    }
                 }
             });
             this.board.querySelectorAll('.quest-left-row[data-itemid]').forEach(function(row) {
@@ -4961,8 +5271,15 @@ b3 = [];
                 }
                 var badge = row.querySelector('.quest-lbl-effort');
                 if (badge) {
-                    badge.textContent = (self.strings.effortlabel) + ': ' +
-                        formatEffort(efforts[id], self.locale) + ' ' + (self.strings.efforthours);
+                    var effortItem = self.items.find(function(item) {
+                        return String(item.id) === id;
+                    });
+                    badge.textContent = formatEffortBadge(
+                        efforts[id], self.locale, self.strings.efforthoursabbr);
+                    badge.title = formatEffortDescription(
+                        efforts[id], effortItem ? effortItem.effortsource : 'default',
+                        effortItem ? effortItem.effortpluginname : '', self.locale,
+                        self.strings.efforthoursabbr, self.strings);
                     badge.setAttribute('data-effort-value', String(efforts[id] || 0));
                     badge.setAttribute('aria-valuenow', String(efforts[id] || 0));
                 }
@@ -5751,7 +6068,8 @@ b3 = [];
             var totalSec = Math.max(3600, self.getTimelineEnd() - cStart);
 
             // If item is a parent activity, proportionally scale its subactivities
-            var children = item.isopenended ? [] : self.getAdjustableChildren(item);
+            var children = item.isopenended || !self.shouldAdjustParentChildren(item) ? [] :
+                self.getAdjustableChildren(item);
 
             if (children.length > 0 && oldStartEnabled && oldEndEnabled && startEnabled && endEnabled) {
                 var pInitDur = Math.max(1, oldEnd - oldStart);
@@ -5843,11 +6161,7 @@ b3 = [];
             }
 
             self.updateTableRow(item);
-            if (item.derived) {
-                self.refreshDerivedItem(item);
-            } else {
-                self.refreshDerivedParent(item);
-            }
+            self.refreshAffectedDerivedRange(item);
             self.syncAvailabilityFromSnapshot(scheduleSnapshot);
             self.markDirty();
             self.closeDateModal();
@@ -6440,8 +6754,10 @@ b3 = [];
                 return true;
             }
             sequencedOrphans.forEach(function(group) {
- self.refreshDerivedItem(group.parent);
-});
+                if (group.parent.derived) {
+                    self.refreshDerivedItem(group.parent);
+                }
+            });
             self.renderTimeline();
             self.items.forEach(function(it) {
                 self.updateTableRow(it);
@@ -6631,8 +6947,10 @@ b3 = [];
             }
 
             sequencedOrphans.forEach(function(group) {
- self.refreshDerivedItem(group.parent);
-});
+                if (group.parent.derived) {
+                    self.refreshDerivedItem(group.parent);
+                }
+            });
             self.renderTimeline();
             self.items.forEach(function(item) {
                 self.updateTableRow(item);
@@ -6672,6 +6990,7 @@ b3 = [];
             var payload = {
                 courseid: self.config.courseid,
                 forceeditmode: self.config.forceEditMode,
+                scopecmid: self.config.scopeCmid,
                 items: changedItems.map(function(it) {
                     var initial = self.initialItems.find(function(original) {
                         return String(original.id) === String(it.id);
@@ -6716,6 +7035,11 @@ b3 = [];
                     self.updatePendingState();
                     var successMsg = data.message || self.strings.schedulesaved;
                     var hasWarnings = !!(data.warnings && data.warnings.length);
+                    if (self.config.returnUrl) {
+                        self.suppressUnloadWarning = true;
+                        window.location.assign(self.config.returnUrl);
+                        return data;
+                    }
                     var notice = self.escapeHtml(successMsg).replace(/\n/g, '<br>');
                     if (hasWarnings) {
                         notice += self.renderSaveErrorLinks({itemerrors: data.itemwarnings}, changedItems);

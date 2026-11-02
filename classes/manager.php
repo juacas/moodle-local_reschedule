@@ -48,6 +48,28 @@ class manager {
     }
 
     /**
+     * Whether a course module is represented as a parent activity in Reschedule.
+     *
+     * The schedule item list includes native adapters, configured mappings and
+     * generic extractors, and is the source of truth for supported activities.
+     *
+     * @param int $courseid Course ID.
+     * @param int $cmid Course module ID.
+     * @return bool True when the module has a supported parent row.
+     */
+    public static function cm_is_supported(int $courseid, int $cmid): bool {
+        if ($courseid <= 0 || $cmid <= 0) {
+            return false;
+        }
+        foreach (self::get_course_items($courseid) as $item) {
+            if ((int)($item['cmid'] ?? 0) === $cmid && empty($item['issubtype'])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Parse mapping rules configured in settings.
      *
      * @return array Array of parsed rules.
@@ -773,10 +795,13 @@ class manager {
      * @param array $updates Array of items with 'id', 'datestart', 'dateend'.
      * @return array Result summary.
      */
-    public static function save_schedule(int $courseid, array $updates): array {
+    public static function save_schedule(int $courseid, array $updates, int $scopecmid = 0): array {
         global $DB;
 
         $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
+        if ($scopecmid > 0 && !self::cm_is_supported($courseid, $scopecmid)) {
+            throw new \invalid_parameter_exception('The scoped course module is not supported in this course.');
+        }
         $existingitems = self::get_course_items($courseid);
         $itemmap = [];
         foreach ($existingitems as $item) {
@@ -822,10 +847,21 @@ class manager {
         foreach ($updates as $up) {
             $key = $up['id'] ?? '';
             if (!isset($itemmap[$key])) {
+                if ($scopecmid > 0) {
+                    $message = get_string('scopeditemrejected', 'local_reschedule', $key);
+                    $validationerrors[] = $message;
+                    $validationitemerrors[] = ['id' => (string)$key, 'message' => $message];
+                }
                 continue;
             }
 
             $item = $itemmap[$key];
+            if ($scopecmid > 0 && (int)($item['cmid'] ?? 0) !== $scopecmid) {
+                $message = get_string('scopeditemrejected', 'local_reschedule', $item['title'] ?? $key);
+                $validationerrors[] = $message;
+                $validationitemerrors[] = ['id' => (string)$key, 'message' => $message];
+                continue;
+            }
             $currentstart = ($item['startenabled'] ?? true) ? (int)$item['datestart'] : 0;
             $currentend = ($item['endenabled'] ?? true) ? (int)$item['dateend'] : 0;
             $newstart = array_key_exists('datestart', $up) ? (int)$up['datestart'] : $currentstart;

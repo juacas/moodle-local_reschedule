@@ -46,7 +46,7 @@ function local_reschedule_extend_navigation_course(\navigation_node $parentnode,
 }
 
 /**
- * Add a scoped Reschedule link to a module's administration menu when it has child rows.
+ * Add a scoped Reschedule link to supported course modules.
  *
  * @param settings_navigation $settings Module settings navigation.
  * @param context $context Current page context.
@@ -69,23 +69,25 @@ function local_reschedule_extend_settings_navigation(\settings_navigation $setti
     }
 
     $modulesettings = $settings->get('modulesettings');
-    if (!$modulesettings || !\local_reschedule\manager::cm_has_subactivities((int)$cm->course, (int)$cm->id)) {
+    if (!$modulesettings || !\local_reschedule\manager::cm_is_supported((int)$cm->course, (int)$cm->id)) {
         return;
     }
 
     $url = new \moodle_url('/local/reschedule/index.php', [
         'id' => (int)$cm->course,
         'cmid' => (int)$cm->id,
-        'editmode' => 1,
+        'editmode' => 2,
+        'returnurl' => $PAGE->url->out(false),
     ]);
     $modulesettings->add(
-        get_string('reschedulemodule', 'local_reschedule'),
+        get_string('reschedulemodule', 'local_reschedule', get_string('modulename', $cm->modname)),
         $url,
         \navigation_node::TYPE_SETTING,
         null,
         'local_reschedule_cmid',
         new \pix_icon('i/calendar', '')
     );
+    $PAGE->requires->js_call_amd('local_reschedule/return_navigation', 'init', [get_string('configuration')]);
 }
 
 /**
@@ -95,7 +97,7 @@ function local_reschedule_extend_settings_navigation(\settings_navigation $setti
  * course-wide editing preference. Callers must set the page context and
  * editing capability before using this check.
  *
- * @param bool $forceeditmode Whether editmode=1 was requested.
+ * @param bool $forceeditmode Whether a Reschedule edit mode was requested.
  * @return bool
  */
 function local_reschedule_user_is_editing(bool $forceeditmode): bool {

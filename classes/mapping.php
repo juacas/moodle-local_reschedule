@@ -26,7 +26,7 @@ namespace local_reschedule;
 final class mapping {
     /** Modules whose rows belong to code adapters. */
     public const OWNED_MODULES = ['assign', 'quiz', 'workshop', 'quest', 'quest_submissions',
-        'kuet', 'kuet_sessions'];
+        'kuet', 'kuet_sessions', 'attendance', 'attendance_sessions'];
 
     /** Default rules that an administrator may edit. */
     public const DEFAULT_JSON = <<<'JSON'
@@ -63,7 +63,11 @@ JSON;
    "start":"datestart","end":"dateend","parent":"quest","fk":"questid"},
   {"module":"kuet","title":"name","label":"Kuet","kind":"range","start":"startdate","end":"enddate"},
   {"module":"kuet_sessions","title":"name","label":"Kuet Session","kind":"range",
-   "start":"startdate","end":"enddate","parent":"kuet","fk":"kuetid"}
+   "start":"startdate","end":"enddate","parent":"kuet","fk":"kuetid"},
+  {"module":"attendance","title":"name","label":"Attendance","kind":"range",
+   "start":"sessdate","end":"sessionend"},
+  {"module":"attendance_sessions","title":"name","label":"Attendance Session","kind":"range",
+   "start":"sessdate","end":"sessionend","parent":"attendance","fk":"attendanceid"}
 ]
 JSON;
 

@@ -135,6 +135,48 @@ final class quest_effort_test extends advanced_testcase {
         $this->assertCount(2, $challengeevents);
     }
 
+    public function test_scoped_schedule_save_rejects_rows_from_other_modules(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $course = $this->getDataGenerator()->create_course();
+        $start = time() + DAYSECS;
+        $quest = $this->getDataGenerator()->create_module('quest', [
+            'course' => $course->id,
+            'datestart' => $start,
+            'dateend' => $start + 7 * DAYSECS,
+        ]);
+        $otherquest = $this->getDataGenerator()->create_module('quest', [
+            'course' => $course->id,
+            'datestart' => $start,
+            'dateend' => $start + 7 * DAYSECS,
+        ]);
+        $challengeid = $DB->insert_record('quest_submissions', (object)[
+            'questid' => $quest->id,
+            'userid' => 2,
+            'title' => 'Scoped edit challenge',
+            'description' => 'Challenge description',
+            'descriptionformat' => FORMAT_HTML,
+            'descriptiontrust' => 0,
+            'datestart' => $start + DAYSECS,
+            'dateend' => $start + 2 * DAYSECS,
+        ]);
+        $updatedstart = $start + DAYSECS + HOURSECS;
+
+        $result = manager::save_schedule((int)$course->id, [[
+            'id' => 'sub_quest_submissions_' . $challengeid,
+            'datestart' => $updatedstart,
+            'dateend' => $start + 2 * DAYSECS,
+            'startenabled' => true,
+            'endenabled' => true,
+        ]], (int)$otherquest->cmid);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('outside the selected activity edit scope', $result['message']);
+        $stored = $DB->get_record('quest_submissions', ['id' => $challengeid], '*', MUST_EXIST);
+        $this->assertSame($start + DAYSECS, (int)$stored->datestart);
+    }
+
     public function test_challenge_start_cannot_move_after_first_submitted_answer(): void {
         global $DB, $USER;
 

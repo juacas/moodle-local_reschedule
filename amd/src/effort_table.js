@@ -24,6 +24,45 @@ define([], function() {
     'use strict';
 
     /**
+     * Format a value without hiding stored decimal precision.
+     *
+     * @param {*} value Effort in hours.
+     * @param {*} locale User locale.
+     * @return {string} Localised complete value.
+     */
+    function formatFullEffort(value, locale) {
+        try {
+            return new Intl.NumberFormat(locale || undefined, {
+                maximumFractionDigits: 20
+            }).format(Number(value));
+        } catch (e) {
+            return String(Number(value));
+        }
+    }
+
+    /**
+     * Describe an effort's source and complete value.
+     *
+     * @param {Object} item Gantt item.
+     * @param {Object} strings Localised strings.
+     * @param {*} locale User locale.
+     * @return {string} Effort description.
+     */
+    function describeEffort(item, strings, locale) {
+        var sourceLabels = {
+            children: strings.efforttablechildren || 'Sum of subactivities',
+            adapter: (strings.efforttableadapter || 'Defined in') +
+                (item.effortpluginname ? ' ' + item.effortpluginname : ''),
+            manual: strings.efforttablemanual || 'Saved estimate',
+            mapping: strings.efforttablemapping || 'Configured estimator',
+            'default': strings.efforttabledefault || 'Editable estimate'
+        };
+        var source = sourceLabels[item.effortsource] || sourceLabels.default;
+        return source + ': ' + formatFullEffort(item.effort || 0, locale) + ' ' +
+            (strings.efforthoursabbr || 'h');
+    }
+
+    /**
      * Build one independent editor bound to the current calendar instance.
      *
      * @param {Object} options Editor callbacks and translated strings.
@@ -80,7 +119,7 @@ define([], function() {
                 input.className = 'form-control form-control-sm quest-effort-hours-input';
                 var originalEffort = Number(item.effort === null ||
                     typeof item.effort === 'undefined' ? 0 : item.effort);
-                input.value = originalEffort.toFixed(1);
+                input.value = String(originalEffort);
                 input.setAttribute('data-original-effort', String(originalEffort));
                 input.addEventListener('input', function() {
                     input.setAttribute('data-effort-edited', 'true');
@@ -88,13 +127,21 @@ define([], function() {
                 input.setAttribute('data-itemid', String(item.id));
                 input.setAttribute('aria-label', (strings.efforttablehours || 'Estimated hours') + ': ' +
                     (item.title || ''));
+                var readwrite = !self.options.isReadWrite || self.options.isReadWrite(item);
                 input.disabled = item.effortsource === 'adapter' || item.effortsource === 'children' ||
-                    !self.options.canEdit();
+                    !self.options.canEdit() || !readwrite;
+                if (input.disabled) {
+                    var description = describeEffort(item, strings, self.options.locale);
+                    input.title = description;
+                    valueCell.title = description;
+                }
                 valueCell.appendChild(input);
                 var sourceLabels = {
                     children: strings.efforttablechildren || 'Sum of subactivities',
-                    adapter: strings.efforttableadapter || 'Activity adapter',
+                    adapter: (strings.efforttableadapter || 'Defined in') +
+                        (item.effortpluginname ? ' ' + item.effortpluginname : ''),
                     manual: strings.efforttablemanual || 'Saved estimate',
+                    mapping: strings.efforttablemapping || 'Configured estimator',
                     'default': strings.efforttabledefault || 'Editable estimate'
                 };
                 sourceCell.textContent = sourceLabels[item.effortsource] || sourceLabels.default;
@@ -153,7 +200,9 @@ define([], function() {
             var item = items.find(function(candidate) {
                 return String(candidate.id) === input.getAttribute('data-itemid');
             });
-            if (!item || item.ismilestone || item.effortsource === 'adapter' ||
+            if (!item || item.ismilestone ||
+                    (self.options.isReadWrite && !self.options.isReadWrite(item)) ||
+                    item.effortsource === 'adapter' ||
                     item.effortsource === 'children') {
                 return;
             }

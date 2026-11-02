@@ -48,10 +48,19 @@ class save_schedule extends external_api {
                 'endenabled' => new external_value(PARAM_BOOL, 'Whether the end is enabled.'),
                 'availabilityconditions' => new external_multiple_structure(new external_single_structure([
                     'id' => new external_value(PARAM_TEXT, 'Availability condition ID.'),
-                    'direction' => new external_value(PARAM_TEXT, 'Availability direction.'),
+                    // PARAM_TEXT rejects the valid "<" availability operator as HTML.
+                    // The availability adapter validates the exact operator against
+                    // the current core availability tree before saving it.
+                    'direction' => new external_value(PARAM_RAW_TRIMMED, 'Availability direction.'),
                     'time' => new external_value(PARAM_INT, 'Availability timestamp.'),
                 ]), 'Changed availability conditions.', VALUE_OPTIONAL),
             ]), 'Changed Gantt rows.'),
+            'scopecmid' => new external_value(
+                PARAM_INT,
+                'Only allow updates for this module and its subactivities.',
+                VALUE_DEFAULT,
+                0
+            ),
         ]);
     }
 
@@ -61,15 +70,17 @@ class save_schedule extends external_api {
      * @param int $courseid Course ID.
      * @param bool $forceeditmode Use Reschedule edit mode.
      * @param array $items Changed Gantt rows.
+     * @param int $scopecmid Optional module edit scope.
      * @return array Save result.
      */
-    public static function execute(int $courseid, bool $forceeditmode, array $items): array {
+    public static function execute(int $courseid, bool $forceeditmode, array $items, int $scopecmid = 0): array {
         global $DB, $PAGE;
 
         $params = self::validate_parameters(self::execute_parameters(), [
             'courseid' => $courseid,
             'forceeditmode' => $forceeditmode,
             'items' => $items,
+            'scopecmid' => $scopecmid,
         ]);
         $course = $DB->get_record('course', ['id' => $params['courseid']], '*', MUST_EXIST);
         require_login($course);
@@ -82,7 +93,10 @@ class save_schedule extends external_api {
             throw new \moodle_exception('editmoderequired', 'local_reschedule');
         }
 
-        $result = manager::save_schedule((int)$course->id, $params['items']);
+        if ($params['scopecmid'] > 0 && !manager::cm_is_supported((int)$course->id, (int)$params['scopecmid'])) {
+            throw new \invalid_parameter_exception('The scoped course module is not supported in this course.');
+        }
+        $result = manager::save_schedule((int)$course->id, $params['items'], (int)$params['scopecmid']);
         return array_merge([
             'success' => false,
             'updated' => 0,

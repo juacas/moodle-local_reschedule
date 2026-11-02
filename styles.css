@@ -7,6 +7,11 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+#reschedule-page-root {
+    --quest-subactivity-bar-end-color: #0f766e;
+    --quest-subactivity-bar-start-color: #0d9488;
+}
+
 .quest-timeline-wrapper {
     background-color: #f8fafc;
     border: 1px solid #e2e8f0;
@@ -14,6 +19,20 @@
     position: relative;
     touch-action: pan-y;
     user-select: none;
+}
+
+.local-reschedule-modform-link {
+    align-items: center;
+    display: inline-flex;
+    justify-content: center;
+    margin-left: 0.4rem;
+    padding: 0.2rem;
+    vertical-align: middle;
+}
+
+.local-reschedule-modform-link img {
+    height: 1.25rem;
+    width: 1.25rem;
 }
 
 .quest-timeline-shell {
@@ -194,6 +213,8 @@
     align-items: center;
     display: flex;
     justify-content: space-between;
+    min-width: 0;
+    width: 100%;
 }
 
 .quest-left-summary-count {
@@ -204,7 +225,26 @@
     align-items: center;
     display: flex;
     flex: 0 0 auto;
+    flex-flow: row wrap;
     gap: 0.25rem;
+    margin-top: 0.2rem;
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+}
+
+.quest-left-summary-controls > .btn {
+    flex: 0 0 auto;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.quest-autosequence-button {
+    font-size: 0.72rem;
+    min-height: 1.75rem;
+    padding: 0.2rem 0.45rem;
+    white-space: nowrap;
 }
 
 .quest-drag-snap-toggle {
@@ -215,6 +255,14 @@
 }
 
 .quest-selection-toggle {
+    align-items: center;
+    display: inline-flex;
+    justify-content: center;
+    min-height: 2rem;
+    min-width: 2rem;
+}
+
+.quest-parent-child-lock-toggle {
     align-items: center;
     display: inline-flex;
     justify-content: center;
@@ -235,6 +283,16 @@
 
 .quest-timeline-lane.is-selected {
     background-color: #eff6ff;
+}
+
+.quest-timeline-lane.is-scoped-read-write,
+.quest-timeline-lane.is-scoped-read-write.is-selected {
+    background-color: rgba(34, 197, 94, 0.10);
+}
+
+.quest-timeline-lane.is-scoped-read-only,
+.quest-timeline-lane.is-scoped-read-only.is-selected {
+    background-color: rgba(108, 117, 125, 0.10);
 }
 
 .quest-timeline-shell.is-selection-mode .quest-timeline-lane:not(.is-selected) .quest-calendar-bar,
@@ -270,13 +328,29 @@
 }
 
 .quest-left-row.is-subtype {
-    background-color: #fafafa;
+    background-color: #fff;
 }
 
 .quest-left-row.has-pending-changes,
 .quest-left-row.is-subtype.has-pending-changes,
 .quest-left-row.has-pending-changes:hover {
     background-color: rgba(185, 28, 28, 0.13);
+}
+
+.quest-left-row.is-scoped-read-write,
+.quest-left-row.is-scoped-read-write:hover {
+    background-color: #dcfce7;
+}
+
+.quest-left-row.is-scoped-read-only,
+.quest-left-row.is-scoped-read-only:hover {
+    background-color: #f1f3f5;
+    color: #6c757d;
+}
+
+.quest-left-row.is-scoped-read-only .quest-row-title,
+.quest-left-row.is-scoped-read-only .quest-row-typename {
+    color: #6c757d;
 }
 
 #reschedule-table tr.has-pending-changes > td {
@@ -397,7 +471,7 @@
 }
 
 .quest-timeline-lane.is-subtype {
-    background-color: #fcfdfe;
+    background-color: #fff;
 }
 
 .quest-timeline-lane.has-pending-changes::before {
@@ -407,6 +481,14 @@
     pointer-events: none;
     position: absolute;
     z-index: 1;
+}
+
+.quest-timeline-lane.is-scoped-read-write {
+    background-color: rgba(34, 197, 94, 0.10);
+}
+
+.quest-timeline-lane.is-scoped-read-only {
+    background-color: rgba(108, 117, 125, 0.10);
 }
 
 .quest-section-heading-left,
@@ -492,27 +574,84 @@
 }
 
 .quest-absolute-limit {
-    background: #dc2626;
+    background: transparent;
     bottom: 0;
     cursor: help;
     left: 0;
     pointer-events: auto;
     position: absolute;
     top: 0;
+    transform: translateX(-9px);
+    width: 18px;
+    z-index: 6;
+}
+
+.quest-absolute-limit::before {
+    background: #dc2626;
+    bottom: 0;
+    content: '';
+    left: 50%;
+    position: absolute;
+    top: 0;
     transform: translateX(-1px);
     width: 2px;
-    z-index: 4;
+}
+
+.quest-absolute-limit:hover,
+.quest-absolute-limit:focus,
+.quest-absolute-limit.is-tooltip-visible {
+    z-index: 20;
+}
+
+.quest-absolute-limit:focus-visible::before {
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.24);
+    outline: 2px solid #fff;
+    outline-offset: 1px;
+}
+
+.quest-absolute-limit-tooltip {
+    background: #212529;
+    border-radius: 0.3rem;
+    color: #fff;
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 400;
+    left: 50%;
+    line-height: 1.35;
+    max-width: 320px;
+    opacity: 0;
+    padding: 0.35rem 0.5rem;
+    pointer-events: none;
+    position: absolute;
+    text-align: start;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    transition: opacity 0.12s ease;
+    visibility: hidden;
+    white-space: normal;
+    width: max-content;
+    z-index: 21;
+}
+
+.quest-absolute-limit:hover > .quest-absolute-limit-tooltip,
+.quest-absolute-limit:focus > .quest-absolute-limit-tooltip,
+.quest-absolute-limit.is-tooltip-visible > .quest-absolute-limit-tooltip {
+    opacity: 1;
+    visibility: visible;
 }
 
 .quest-calendar-bar {
+    --quest-bar-end-color: #1d4ed8;
+    --quest-bar-height: 38px;
+    --quest-bar-start-color: #3b82f6;
     align-items: center;
-    background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+    background: linear-gradient(135deg, var(--quest-bar-start-color) 0%, var(--quest-bar-end-color) 100%);
     border-radius: 6px;
     box-sizing: border-box;
     color: #fff;
     cursor: grab;
     display: flex;
-    height: 38px;
+    height: var(--quest-bar-height);
     min-width: 14px;
     position: absolute;
     top: 9px;
@@ -698,12 +837,47 @@
 }
 
 .quest-calendar-bar.is-subtype {
-    background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+    --quest-bar-end-color: var(--quest-subactivity-bar-end-color);
+    --quest-bar-start-color: var(--quest-subactivity-bar-start-color);
 }
 
 .quest-calendar-bar.is-undated-item {
+    --quest-bar-end-color: #9ca3af;
+    --quest-bar-start-color: #9ca3af;
     background: #9ca3af;
     color: #f8fafc;
+}
+
+.quest-calendar-bar.is-derived:not(.is-milestone) {
+    border-radius: 3px 3px 0 0;
+    height: calc(var(--quest-bar-height) / 2);
+    top: 9px;
+}
+
+.quest-calendar-bar.is-derived:not(.is-milestone) .quest-bar-content {
+    font-size: 0.68rem;
+    line-height: 1.2;
+}
+
+.quest-derived-cap {
+    height: var(--quest-bar-height);
+    pointer-events: none;
+    position: absolute;
+    top: 0;
+    width: 10px;
+    z-index: 4;
+}
+
+.quest-derived-cap-start {
+    background: var(--quest-bar-start-color);
+    clip-path: polygon(0 0, 100% 0, 0 100%);
+    left: 0;
+}
+
+.quest-derived-cap-end {
+    background: var(--quest-bar-end-color);
+    clip-path: polygon(0 0, 100% 0, 100% 100%);
+    right: 0;
 }
 
 /* A date without duration is a draggable point, not a tiny interval bar. */
@@ -942,6 +1116,19 @@
     white-space: nowrap;
 }
 
+.badge.quest-lbl-effort,
+.badge.quest-lbl-dur,
+.badge.quest-duration-badge {
+    --bs-bg-opacity: 1;
+    --bs-badge-color: #0c4a6e;
+    background: #e0f2fe;
+    background-color: #e0f2fe;
+    border: 1px solid #0369a1;
+    color: #0c4a6e;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
 .quest-lbl-effort {
     font-size: 0.65rem;
     padding: 0.2em 0.35em;
@@ -956,9 +1143,8 @@
 .quest-lbl-effort.is-editable:hover,
 .quest-lbl-effort.is-editable:focus-visible,
 .quest-lbl-effort.is-adjusting {
-    background-color: #e0f2fe;
-    border-color: #0d6efd;
-    box-shadow: 0 0 0 0.12rem rgba(13, 110, 253, 0.2);
+    border-color: #475569;
+    box-shadow: 0 0 0 0.12rem rgba(71, 85, 105, 0.22);
 }
 
 .local-reschedule-mapping-summary {
@@ -1117,6 +1303,22 @@
 
 #reschedule-table tr.reschedule-item-disabled {
     background-color: #f8f9fa;
+}
+
+#reschedule-table tr.is-scoped-read-write > td {
+    --bs-table-bg: #dcfce7;
+    background-color: #dcfce7;
+}
+
+#reschedule-table tr.is-scoped-read-only > td {
+    --bs-table-bg: #f1f3f5;
+    background-color: #f1f3f5;
+    color: #6c757d;
+}
+
+#reschedule-table tr.is-scoped-read-only a,
+#reschedule-table tr.is-scoped-read-only strong {
+    color: #6c757d;
 }
 
 .local-reschedule-container.is-readonly #reschedule-table tr.reschedule-item-disabled,

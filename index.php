@@ -29,17 +29,54 @@ require_once(__DIR__ . '/lib.php');
 $courseid = required_param('id', PARAM_INT);
 $cmidsparam = optional_param('cmids', '', PARAM_SEQUENCE);
 $singlecmid = optional_param('cmid', 0, PARAM_INT);
+$returnurl = optional_param('returnurl', '', PARAM_LOCALURL);
+$navigationparam = optional_param('navigation', '', PARAM_RAW);
+$callernavigation = [];
+if ($returnurl !== '' && $navigationparam !== '') {
+    $decodednavigation = json_decode($navigationparam, true);
+    if (is_array($decodednavigation)) {
+        foreach (array_slice($decodednavigation, 0, 12) as $node) {
+            if (!is_array($node) || empty($node['label'])) {
+                continue;
+            }
+            $label = clean_param((string)$node['label'], PARAM_TEXT);
+            if ($label === '') {
+                continue;
+            }
+            $nodeurl = clean_param((string)($node['url'] ?? ''), PARAM_LOCALURL);
+            $callernavigation[] = [
+                'label' => $label,
+                'url' => $nodeurl,
+            ];
+        }
+    }
+}
 $instancesparam = optional_param('instances', '', PARAM_RAW);
 $requestedstart = optional_param('datestart', 0, PARAM_INT);
 $requestedend = optional_param('dateend', 0, PARAM_INT);
-$forceeditmode = (bool)optional_param('editmode', 0, PARAM_BOOL);
+$editmode = optional_param('editmode', 0, PARAM_INT);
+$forceeditmode = in_array($editmode, [1, 2], true);
 $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 
 require_login($course);
 $context = \context_course::instance($courseid);
 require_capability('moodle/course:manageactivities', $context);
+$scopededitmode = $editmode === 2;
+$scopecmid = 0;
+if ($scopededitmode) {
+    if ($singlecmid <= 0 || !\local_reschedule\manager::cm_is_supported($courseid, $singlecmid)) {
+        throw new \invalid_parameter_exception('Scoped edit mode requires a supported course module.');
+    }
+    $scopecmid = $singlecmid;
+}
 
 $urlparams = ['id' => $courseid];
+if ($returnurl !== '') {
+    $urlparams['returnurl'] = $returnurl;
+    if (!empty($callernavigation)) {
+        $urlparams['navigation'] = json_encode($callernavigation, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+}
 if ($cmidsparam !== '') {
     $urlparams['cmids'] = $cmidsparam;
 }
@@ -55,8 +92,8 @@ if ($requestedstart > 0) {
 if ($requestedend > 0) {
     $urlparams['dateend'] = $requestedend;
 }
-if ($forceeditmode) {
-    $urlparams['editmode'] = 1;
+if ($editmode > 0) {
+    $urlparams['editmode'] = $editmode;
 }
 $PAGE->set_url(new \moodle_url('/local/reschedule/index.php', $urlparams));
 $PAGE->set_context($context);
@@ -64,6 +101,16 @@ $PAGE->set_other_editing_capability('moodle/course:manageactivities');
 $PAGE->set_pagelayout('incourse');
 $PAGE->set_title(get_string('rescheduletitle', 'local_reschedule'));
 $PAGE->set_heading($course->fullname);
+if ($returnurl !== '' && !empty($callernavigation)) {
+    // Replace this page's course-context path with the path supplied by the
+    // caller, then let Moodle render all breadcrumb nodes through its navbar API.
+    $PAGE->navbar->ignore_active();
+    foreach ($callernavigation as $navigationnode) {
+        $nodeurl = $navigationnode['url'] !== '' ? new \moodle_url($navigationnode['url']) : null;
+        $PAGE->navbar->add($navigationnode['label'], $nodeurl, \navigation_node::TYPE_CUSTOM);
+    }
+}
+$PAGE->navbar->add(get_string('rescheduletitle', 'local_reschedule'));
 $editing = local_reschedule_user_is_editing($forceeditmode);
 
 $items = \local_reschedule\manager::get_course_items($courseid);
@@ -88,13 +135,13 @@ foreach (preg_split('/,/', $instancesparam, -1, PREG_SPLIT_NO_EMPTY) as $instanc
     }
 }
 $instances = array_values(array_unique($instances));
-if (!empty($cmids)) {
+if (!$scopededitmode && !empty($cmids)) {
     $cmidlookup = array_fill_keys($cmids, true);
     $items = array_values(array_filter($items, function(array $item) use ($cmidlookup): bool {
         return isset($cmidlookup[(int)($item['cmid'] ?? 0)]);
     }));
 }
-if (!empty($instances)) {
+if (!$scopededitmode && !empty($instances)) {
     $instancelookup = array_fill_keys($instances, true);
     $parentlookup = [];
     foreach ($instances as $instance) {
@@ -146,7 +193,7 @@ unset($item);
 
 // Recalculate derived parents after bounded child estimates have changed.
 $parentsums = [];
-foreach ($items as $item) {
+foreach ($items as &$item) {
     if (!empty($item['issubtype']) && empty($item['ismilestone']) && !empty($item['parentkey'])) {
         $parentsums[(string)$item['parentkey']] = ($parentsums[(string)$item['parentkey']] ?? 0) +
             (float)($item['effort'] ?? 0);
@@ -167,8 +214,29 @@ if ($localecldr === 'localecldr') {
     $localecldr = str_replace('_', '-', current_language());
 }
 $itemsforview = [];
+$modulepluginnames = [];
+foreach (get_fast_modinfo($courseid)->get_cms() as $coursemodule) {
+    $modulepluginnames[(int)$coursemodule->id] = get_string('pluginname', 'mod_' . $coursemodule->modname);
+}
+$effortsourcelabels = [
+    'adapter' => get_string('efforttableadapter', 'local_reschedule'),
+    'children' => get_string('efforttablechildren', 'local_reschedule'),
+    'manual' => get_string('efforttablemanual', 'local_reschedule'),
+    'mapping' => get_string('efforttablemapping', 'local_reschedule'),
+    'default' => get_string('efforttabledefault', 'local_reschedule'),
+];
 
-foreach ($items as $item) {
+foreach ($items as &$item) {
+    $inscope = !$scopededitmode || (int)($item['cmid'] ?? 0) === $scopecmid;
+    if ($scopededitmode) {
+        $item['scopedreadwrite'] = $inscope;
+    }
+    if (!$inscope) {
+        $item['interactive'] = false;
+        $item['editable'] = false;
+        $item['availabilityeditable'] = false;
+        $item['efforteditable'] = false;
+    }
     if (!$editing) {
         $item['interactive'] = false;
         $item['editable'] = false;
@@ -201,22 +269,36 @@ foreach ($items as $item) {
         $durstr = '—';
     }
 
+    $effortsource = (string)($item['effortsource'] ?? 'default');
+    $effortvalue = (float)($item['effort'] ?? 0);
+    $item['effortpluginname'] = $modulepluginnames[(int)($item['cmid'] ?? 0)] ?? '';
+    $effortsourcelabel = $effortsourcelabels[$effortsource] ?? $effortsourcelabels['default'];
+    if ($effortsource === 'adapter' && $item['effortpluginname'] !== '') {
+        $effortsourcelabel .= ' ' . $item['effortpluginname'];
+    }
+    $effortdescription = $effortsourcelabel . ': ' .
+        format_float($effortvalue, 10, true, true) . ' ' . get_string('efforthoursabbr', 'local_reschedule');
     $itemsforview[] = array_merge($item, [
         'startformatted' => !empty($item['startenabled']) ? userdate($item['datestart'], $dateformat) : '',
         'endformatted' => !empty($item['endenabled']) ? userdate($item['dateend'], $dateformat) : '',
         'durationformatted' => $durstr,
-        'efforteditable' => $editing && empty($item['ismilestone']) &&
+        'efforteditable' => $editing && $inscope && empty($item['ismilestone']) &&
             !in_array($item['effortsource'] ?? '', ['adapter', 'children'], true),
-        'effortformatted' => number_format((float)($item['effort'] ?? 0), 1, '.', ''),
+        'effortformatted' => number_format($effortvalue, 1, '.', ''),
+        'effortdescription' => $effortdescription,
     ]);
 }
+unset($item);
 
 $courseurl = new \moodle_url('/course/view.php', ['id' => $courseid]);
+$backurl = $returnurl !== '' ? $returnurl : $courseurl->out(false);
 
 $templatecontext = [
     'courseid' => $courseid,
     'coursename' => $course->fullname,
     'courseurl' => $courseurl->out(),
+    'backurl' => $backurl,
+    'hasreturnurl' => $returnurl !== '',
     'coursestart' => $coursestart,
     'courseend' => $courseend,
     'coursestartstr' => userdate($coursestart, $dateformat),
@@ -231,6 +313,11 @@ $templatecontext = [
     'editing' => $editing,
     'readonly' => !$editing,
     'forceeditmode' => $forceeditmode,
+    'scopededitmode' => $scopededitmode,
+    'scopecmid' => $scopecmid,
+    'focuscmid' => $singlecmid,
+    'scopeactivityname' => $scopededitmode ? format_string(get_fast_modinfo($courseid)->get_cm($scopecmid)->name) : '',
+    'returnurl' => $returnurl,
     'effortmodel' => \local_reschedule\effort_store::get_model($courseid),
     'language' => $localecldr,
     'datetimeformat' => $dateformat,

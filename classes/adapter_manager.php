@@ -25,6 +25,7 @@ use local_reschedule\adapter\editdates_bridge;
 use local_reschedule\adapter\generic_adapter;
 use local_reschedule\adapter\availability_date_adapter;
 use local_reschedule\adapter\milestone_adapter;
+use local_reschedule\adapter\attendance_adapter;
 
 /**
  * Adapter Manager for resolving the appropriate date adapter.
@@ -56,6 +57,7 @@ class adapter_manager {
         'assign' => 10,
         'workshop' => 10,
         'quest' => 1,
+        'attendance' => 0,
     ];
 
     /** @var array Cache of instantiated adapters by course id and adapter class. */
@@ -114,6 +116,7 @@ class adapter_manager {
             quest_adapter::class,
             workshop_adapter::class,
             assign_adapter::class,
+            attendance_adapter::class,
         ];
 
         foreach ($specificclasses as $cls) {

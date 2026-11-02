@@ -46,6 +46,7 @@ class save_efforts extends external_api {
                 'hours' => new external_value(PARAM_FLOAT, 'Estimated work hours.'),
             ]), 'Effort updates.', VALUE_DEFAULT, []),
             'model' => new external_value(PARAM_ALPHA, 'Effort distribution model.', VALUE_DEFAULT, ''),
+            'scopecmid' => new external_value(PARAM_INT, 'Only allow effort updates for this module and its subactivities.', VALUE_DEFAULT, 0),
         ]);
     }
 
@@ -56,12 +57,19 @@ class save_efforts extends external_api {
      * @param bool $forceeditmode Forced edit mode.
      * @param array $items Values.
      * @param string $model Effort distribution model.
+     * @param int $scopecmid Optional module edit scope.
      * @return array
      */
-    public static function execute(int $courseid, bool $forceeditmode, array $items = [], string $model = ''): array {
+    public static function execute(
+        int $courseid,
+        bool $forceeditmode,
+        array $items = [],
+        string $model = '',
+        int $scopecmid = 0
+    ): array {
         global $DB, $PAGE;
         $params = self::validate_parameters(self::execute_parameters(),
-            compact('courseid', 'forceeditmode', 'items', 'model'));
+            compact('courseid', 'forceeditmode', 'items', 'model', 'scopecmid'));
         $course = $DB->get_record('course', ['id' => $params['courseid']], '*', MUST_EXIST);
         require_login($course);
         $context = \context_course::instance((int)$course->id);
@@ -80,9 +88,27 @@ class save_efforts extends external_api {
         if ($params['model'] !== '' && !in_array($params['model'], ['real', 'ideal'], true)) {
             throw new \invalid_parameter_exception('Unknown effort distribution model.');
         }
+        if ($params['scopecmid'] > 0 && !manager::cm_is_supported((int)$course->id, (int)$params['scopecmid'])) {
+            throw new \invalid_parameter_exception('The scoped course module is not supported in this course.');
+        }
+        if ($params['scopecmid'] > 0 && $params['model'] !== '') {
+            throw new \invalid_parameter_exception('Effort distribution settings cannot be changed in scoped edit mode.');
+        }
         $saved = count(effort_store::read((int)$course->id)['entries']);
         if ($params['items']) {
             $current = manager::get_course_items((int)$course->id);
+            if ($params['scopecmid'] > 0) {
+                $itemmap = [];
+                foreach ($current as $currentitem) {
+                    $itemmap[(string)$currentitem['id']] = $currentitem;
+                }
+                foreach ($params['items'] as $effortitem) {
+                    $target = $itemmap[(string)$effortitem['id']] ?? null;
+                    if (!$target || (int)($target['cmid'] ?? 0) !== (int)$params['scopecmid']) {
+                        throw new \invalid_parameter_exception('Effort updates are outside the selected module scope.');
+                    }
+                }
+            }
             $saved = effort_store::save_updates((int)$course->id, $current, $params['items']);
         }
         if ($params['model'] !== '') {
