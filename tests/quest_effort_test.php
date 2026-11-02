@@ -29,7 +29,32 @@ use local_reschedule\adapter\quest_adapter;
  */
 #[\PHPUnit\Framework\Attributes\CoversClass(quest_adapter::class)]
 #[\PHPUnit\Framework\Attributes\CoversClass(manager::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(adapter_manager::class)]
 final class quest_effort_test extends advanced_testcase {
+    /**
+     * The adapter supplied by mod_quest takes precedence over the bundled fallback.
+     */
+    public function test_manager_discovers_module_owned_adapter_for_parent_and_child(): void {
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $quest = $this->getDataGenerator()->create_module('quest', ['course' => $course->id]);
+
+        adapter_manager::reset_cache();
+        $parentadapter = adapter_manager::get_adapter('quest', $course, [
+            'cmid' => (int)$quest->cmid,
+            'table' => 'quest',
+        ]);
+        $this->assertInstanceOf(\mod_quest\local\reschedule\adapter::class, $parentadapter);
+
+        adapter_manager::reset_cache();
+        $childadapter = adapter_manager::get_adapter('quest_submissions', $course, [
+            'cmid' => (int)$quest->cmid,
+            'table' => 'quest_submissions',
+        ]);
+        $this->assertInstanceOf(\mod_quest\local\reschedule\adapter::class, $childadapter);
+    }
+
     public function test_challenge_effort_uses_minutes_and_difficulty(): void {
         $this->resetAfterTest(true);
         global $DB;

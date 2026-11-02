@@ -91,9 +91,10 @@ class adapter_manager {
      * Resolve the most appropriate adapter for the given item.
      *
      * Resolution order:
-     * 1. Specific local_reschedule adapters (handling complex workflows, subactivities, or dependent dates).
-     * 2. report_editdates discovery bridge (if report_editdates or module integration exists).
-     * 3. Generic safe fallback adapter.
+     * 1. Adapter supplied by the activity plugin using the standard class convention.
+     * 2. Specific local_reschedule fallback adapters.
+     * 3. report_editdates discovery bridge (if report_editdates or module integration exists).
+     * 4. Generic safe fallback adapter.
      *
      * @param string $modname Activity module name or table.
      * @param \stdClass $course Course object.
@@ -101,8 +102,6 @@ class adapter_manager {
      * @return adapter_interface
      */
     public static function get_adapter(string $modname, \stdClass $course, array $item): adapter_interface {
-        $courseid = (int)$course->id;
-
         if (!empty($item['ismilestone'])) {
             return self::get_instance(milestone_adapter::class, $course);
         }
@@ -110,7 +109,16 @@ class adapter_manager {
             return self::get_instance(editdates_bridge::class, $course);
         }
 
-        // 1. Specific local_reschedule adapters.
+        // 1. Adapter owned by the activity plugin.
+        $pluginadapterclass = self::get_plugin_adapter_class($modname, $course, $item);
+        if ($pluginadapterclass !== null) {
+            $adapter = self::get_instance($pluginadapterclass, $course);
+            if ($adapter->supports($modname, $item)) {
+                return $adapter;
+            }
+        }
+
+        // 2. Specific local_reschedule fallback adapters.
         $specificclasses = [
             kuet_adapter::class,
             quest_adapter::class,
@@ -134,14 +142,80 @@ class adapter_manager {
             return self::get_instance(generic_adapter::class, $course);
         }
 
-        // 2. report_editdates discovery bridge.
+        // 3. report_editdates discovery bridge.
         $bridge = self::get_instance(editdates_bridge::class, $course);
         if ($bridge->supports($modname, $item)) {
             return $bridge;
         }
 
-        // 3. Generic safe fallback.
+        // 4. Generic safe fallback.
         return self::get_instance(generic_adapter::class, $course);
+    }
+
+    /**
+     * Find the optional adapter class supplied by an activity plugin.
+     *
+     * Plugins expose their integration as `\\mod_PLUGIN\\local\\reschedule\\adapter`
+     * in `classes/local/reschedule/adapter.php`. Moodle's autoloader means no
+     * plugin files are scanned or included manually. The class is loaded only
+     * while local_reschedule is resolving an installed module, so the activity
+     * plugin remains installable when local_reschedule is absent.
+     *
+     * @param string $modname Candidate activity module name.
+     * @param \stdClass $course Course record.
+     * @param array $item Reschedule item metadata.
+     * @return class-string<adapter_interface>|null Compatible plugin adapter class.
+     */
+    private static function get_plugin_adapter_class(
+        string $modname,
+        \stdClass $course,
+        array $item
+    ): ?string {
+        $pluginname = self::get_owning_module_name($modname, $course, $item);
+        if ($pluginname === null) {
+            return null;
+        }
+
+        $class = '\\mod_' . $pluginname . '\\local\\reschedule\\adapter';
+        if (!class_exists($class)) {
+            return null;
+        }
+        if (!is_subclass_of($class, adapter_interface::class)) {
+            debugging(
+                "Activity adapter {$class} must implement " . adapter_interface::class . '.',
+                DEBUG_DEVELOPER
+            );
+            return null;
+        }
+        return $class;
+    }
+
+    /**
+     * Resolve a child table or item back to its owning activity module.
+     *
+     * The course-module id is authoritative. The supplied module name is used
+     * only when it identifies an installed activity plugin directly.
+     *
+     * @param string $modname Candidate activity module name.
+     * @param \stdClass $course Course record.
+     * @param array $item Reschedule item metadata.
+     * @return string|null Installed activity module name.
+     */
+    private static function get_owning_module_name(
+        string $modname,
+        \stdClass $course,
+        array $item
+    ): ?string {
+        $cmid = (int)($item['cmid'] ?? 0);
+        if ($cmid > 0) {
+            $cms = get_fast_modinfo((int)$course->id)->get_cms();
+            if (isset($cms[$cmid])) {
+                $cm = $cms[$cmid];
+                return $cm->modname;
+            }
+        }
+
+        return \core_component::get_plugin_directory('mod', $modname) !== null ? $modname : null;
     }
 
     /**

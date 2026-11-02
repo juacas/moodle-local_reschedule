@@ -155,7 +155,7 @@ In selection mode, Weekify previews and moves only checked course activity rows.
 
 Configure date discovery in **Site administration > Plugins > Local plugins > Activity Rescheduler**. The visual editor suggests date controls found in installed activities' `mod_form.php`, verifies that their fields exist in the activity table, and offers likely start/end pairs. Database field names are shown as lower-confidence hints where a form control is unavailable. Review suggestions before saving: a field's name alone cannot prove its meaning or validation rules.
 
-The setting stores a JSON array. The editor writes the JSON automatically; the raw JSON is available for advanced cases such as child tables. Dedicated adapters own Assignment, Quiz, Workshop, Quest and KUET definitions, including their child rows. These modules do not belong in the configurable mapping.
+The setting stores a JSON array. The editor writes the JSON automatically; the raw JSON is available for advanced cases such as child tables. Dedicated adapters own Assignment, Quiz, Workshop, Quest, KUET and Attendance definitions, including their child rows. These modules do not belong in the configurable mapping.
 
 ```json
 [
@@ -240,33 +240,400 @@ In Moodle, an activity is never just an isolated row in a table. Modifying date 
 
 ### Cascade Safe Adapter Engine
 
-To guarantee comprehensive consistency, `local_reschedule` employs a 3-level cascade resolution factory (`classes/adapter_manager.php`):
+To preserve module invariants, `local_reschedule` uses a four-level resolution factory (`classes/adapter_manager.php`):
 
 ```
-                       adapter_manager::get_adapter($modname, $course, $item)
-                                                 |
-         +---------------------------------------+---------------------------------------+
-         |                                       |                                       |
-    [Level 1: Reschedule]               [Level 2: Extractor Bridge]             [Level 3: Fallback]
-  Dedicated custom adapter exists?        Extractor exists (builtin/bridge)?        Safe Generic Adapter
- (assign, workshop, quest, kuet)                         |                                |
-          |                                              |                                |
-         YES                                            YES                       Applies standard hooks
-          |                                              |                        ({mod}_update_events)
-Instantiate dedicated adapter              Instantiate editdates_bridge           and core cm events
+Activity-owned adapter -> bundled adapter -> extractor bridge -> generic adapter
 ```
 
-#### 1. Level 1: Dedicated Custom Adapters (`local_reschedule\adapter\*`)
-Top priority for complex modules or those with subphases:
+#### 1. Activity-owned adapters
+
+An activity plugin can own its integration by exposing the autoloadable class
+`\mod_<plugin>\local\reschedule\adapter` in
+`mod/<plugin>/classes/local/reschedule/adapter.php`. Reschedule resolves the
+owning module from the course-module id, asks Moodle's class loader for that
+single class, and verifies that it implements
+`\local_reschedule\adapter\adapter_interface`. No plugin directory is scanned.
+
+The adapter class must implement `adapter_interface`. The complete minimum
+shape of a directly implemented adapter is:
+
+```php
+namespace mod_example\local\reschedule;
+
+use local_reschedule\adapter\adapter_interface;
+
+class adapter implements adapter_interface {
+    public function __construct(private \stdClass $course) {
+    }
+
+    public function supports(string $modname, array $item): bool {
+        return $modname === 'example' || ($item['table'] ?? '') === 'example_steps';
+    }
+
+    public function get_activity_records(array $rule): array {
+        return []; // Load parent records through the activity API.
+    }
+
+    public function get_activity_attributes(\stdClass $record, array $rule): array {
+        return [];
+    }
+
+    public function get_subitems(array $rule, array $parentids): array {
+        return []; // Load child records through the activity API.
+    }
+
+    public function get_subitem_attributes(\stdClass $record, array $rule): array {
+        return [];
+    }
+
+    public function is_derived_item(array $item): bool {
+        return false;
+    }
+
+    public function get_absolute_limits(array $item, array $children = []): array {
+        return [];
+    }
+
+    public function validate(array $item, int $newstart, int $newend): array {
+        return [];
+    }
+
+    public function save(array $item, int $newstart, int $newend): void {
+        // Validate and update dates through mod_example's public API.
+    }
+
+    public function save_batch(array $tasks): void {
+        foreach ($tasks as $task) {
+            $this->save($task['item'], $task['newstart'], $task['newend']);
+        }
+    }
+}
+```
+
+Keep this reference to Reschedule in the dedicated adapter class. Moodle
+registers an autoloader at startup but does not load every class file. The
+adapter is therefore loaded only when Reschedule calls `class_exists()` for
+it. The activity remains usable when `local_reschedule` is absent and does not
+need a hard dependency in `version.php`. An implementation may extend
+`base_adapter`, which already implements the same interface and supplies the
+course-aware constructor and shared defaults. Direct implementations must
+provide the constructor and every method shown above.
+
+If the class is absent, does not implement the interface, or its `supports()`
+method declines the item, resolution continues through the fallbacks below.
+This lets newer versions of an activity own their integration while older
+versions continue to work with a bundled adapter. `mod_quest` uses this model.
+
+For every third-party activity item, autodiscovery follows these steps before
+the bundled adapter list is inspected:
+
+1. Resolve the owning activity module from the item's `cmid`. This also maps
+   child rows such as sessions or phases back to their parent module.
+2. Build the conventional class name
+   `\mod_<plugin>\local\reschedule\adapter`.
+3. Call `class_exists()` so Moodle's autoloader checks only
+   `classes/local/reschedule/adapter.php`; Reschedule does not scan plugin
+   directories.
+4. Require the loaded class to implement
+   `\local_reschedule\adapter\adapter_interface` and ask its `supports()`
+   method about the current item.
+5. Use the plugin-owned adapter when accepted. Otherwise continue with the
+   bundled adapter, extractor bridge and generic fallback levels.
+
+##### `adapter_interface` PHPDoc reference
+
+The canonical contract is
+[`classes/adapter/adapter_interface.php`](classes/adapter/adapter_interface.php).
+The following reference mirrors its PHPDoc so an activity developer can build
+an adapter without inferring array formats from `manager.php`.
+
+All dates are Unix timestamps in seconds. A stored value of `0` disables that
+endpoint. Reschedule can substitute a course or parent boundary while drawing
+the row, but keeps `startenabled` or `endenabled` false and passes `0` to
+`save()`. The manager constructs adapters as `new adapter($course)`, so a direct
+implementation needs a constructor accepting the complete Moodle course
+record as `\stdClass`.
+
+###### Normalised mapping rule
+
+`get_activity_records()`, `get_activity_attributes()`, `get_subitems()` and
+`get_subitem_attributes()` receive the validated internal rule produced by
+`mapping::parse()`:
+
+```php
+[
+    'issubtype' => false,
+    'table' => 'example',
+    'titlecol' => 'name',
+    'label' => 'Example activity',
+    'startcol' => 'timeopen',
+    'endcol' => 'timeclose',
+    'foreignkey' => null,
+    'parenttable' => null,
+    'kind' => 'range', // range, milestone or open.
+    'optional' => false,
+    'dateonly' => false,
+    'boundtoparentstart' => true,
+    'boundtoparentend' => true,
+    'editable' => true,
+    'availability' => 'auto', // auto or off.
+    'effortestimator' => ['model' => 'fixed', 'value' => 2.5],
+]
+```
+
+`effortestimator` may also be `null` or
+`['model' => 'perday', 'value' => 1.5]`, where `value` is work hours per
+day. An adapter-owned effort returned as an attribute takes precedence.
+
+For a child rule, `issubtype` is true, `parenttable` contains the parent module
+table, and `foreignkey` contains the child field that refers to the parent:
+
+```php
+[
+    'issubtype' => true,
+    'table' => 'example_steps',
+    'parenttable' => 'example',
+    'foreignkey' => 'exampleid',
+    'titlecol' => 'name',
+    'startcol' => 'timeopen',
+    'endcol' => 'timeclose',
+    'kind' => 'range',
+    // The remaining keys use the same format as the parent rule.
+]
+```
+
+###### `supports(string $modname, array $item): bool`
+
+During initial discovery, `$item` may contain only:
+
+```php
+[
+    'table' => 'example_steps',
+    'mappedrule' => true,
+    'issubtype' => true,
+]
+```
+
+Later calls contain the complete Gantt row, including `id`, `recordid`, `cmid`,
+`parentrecordid`, `datestart`, `dateend`, `startenabled`, `endenabled`,
+`startcol`, `endcol`, `ismilestone`, and `editable`. Implementations must treat
+all keys except `table` as optional during discovery. Return true only when the
+adapter owns that item.
+
+###### `get_activity_records(array $rule): array`
+
+Return parent records in an associative array keyed by their integer record
+id. Every value is a `\stdClass` with these canonical properties:
+
+```php
+[
+    42 => (object) [
+        'id' => 42,
+        'title' => 'Research report',
+        'datestart' => 1793523600,
+        'dateend' => 1794128400,
+    ],
+]
+```
+
+Either timestamp may be `0`. For a milestone, both timestamps may be equal.
+Additional properties are preserved and passed to
+`get_activity_attributes()`.
+
+###### `get_activity_attributes(\stdClass $record, array $rule): array`
+
+Return parent display and editing metadata. Recognised keys are:
+
+- `derived` (`bool`): the interval is calculated from its children and is not
+  saved directly.
+- `editable` (`bool`): the parent dates can be changed.
+- `editreason` (`string`): explanation shown when saving is blocked.
+- `interactreason` (`string`): tooltip shown when drag or resize is blocked.
+
+```php
+[
+    'derived' => true,
+    'editable' => false,
+    'editreason' => 'This range is calculated from its sessions.',
+    'interactreason' => 'Move the individual sessions instead.',
+]
+```
+
+Omitted keys use mapping defaults. Identity and date values belong in the
+record returned by `get_activity_records()`.
+
+###### `get_subitems(array $rule, array $parentids): array`
+
+Return child records keyed by child id. `parentid` must identify one of the
+requested parent records:
+
+```php
+[
+    301 => (object) [
+        'id' => 301,
+        'parentid' => 42,
+        'title' => 'Peer review',
+        'datestart' => 1793782800,
+        'dateend' => 1793955600,
+    ],
+]
+```
+
+Extra properties can carry module data to `get_subitem_attributes()`, such as
+an effort estimate or the presence of existing submissions.
+
+###### `get_subitem_attributes(\stdClass $record, array $rule): array`
+
+The returned values are merged into the complete child row. Common keys are
+`editable`, `interactive`, `derived`, `editreason`, `interactreason`,
+`absolutelimits`, `effort` in work hours, and `effortsource`. Additional
+JSON-safe metadata is preserved for `validate()` and `save()`. An adapter must
+not replace structural keys such as `id`, `recordid`, `cmid`, `table`,
+`parentkey`, or `parentrecordid`.
+
+```php
+[
+    'editable' => true,
+    'effort' => 1.5,
+    'effortsource' => 'adapter',
+    'absolutelimits' => [[
+        'type' => 'start_max',
+        'date' => 1793869200,
+        'reason' => 'A submission already exists at this time.',
+    ]],
+]
+```
+
+###### `is_derived_item(array $item): bool`
+
+Return true when a parent interval is calculated from its children, for
+example from the earliest session start and latest session end. `$item` can be
+only `['table' => 'example']` during loading. Derived rows are rendered as
+calculated ranges and are not passed to `save()`.
+
+###### `get_absolute_limits(array $item, array $children = []): array`
+
+Return at most one start limit and one end limit. Each limit contains `type`, a
+positive Unix timestamp in `date`, and a formatted user-facing `reason` used by
+hover and touch tooltips.
+
+| Type | Constraint |
+| --- | --- |
+| `start_min` | Start must be greater than or equal to `date`. |
+| `start_max` | Start must be less than or equal to `date`. |
+| `end_min` | End must be greater than or equal to `date`. |
+| `end_max` | End must be less than or equal to `date`. |
+
+```php
+[
+    [
+        'type' => 'start_max',
+        'date' => 1793869200,
+        'reason' => 'An answer has already been submitted.',
+    ],
+    [
+        'type' => 'end_min',
+        'date' => 1793876400,
+        'reason' => 'The interval must contain the submitted answer.',
+    ],
+]
+```
+
+For a parent, `$children` contains its complete child rows, including their
+`absolutelimits`. The adapter can reduce them to the tightest applicable parent
+boundaries.
+
+###### `validate(array $item, int $newstart, int $newend): array`
+
+Return an empty list when valid or one translated, user-facing string per
+violation:
+
+```php
+['Peer review: the end date must be after the start date.']
+```
+
+The complete item includes identity, parent, column, editability, endpoint and
+adapter metadata. When several dates of one course module change together,
+`$item['proposeddates']` maps every affected database field to its final value:
+
+```php
+[
+    'id' => 'sub_example_steps_301',
+    'recordid' => 301,
+    'cmid' => 88,
+    'table' => 'example_steps',
+    'parentrecordid' => 42,
+    'title' => 'Peer review',
+    'startenabled' => true,
+    'endenabled' => true,
+    'proposeddates' => [
+        'timeopen' => 1793782800,
+        'timeclose' => 1793955600,
+    ],
+]
+```
+
+Validation should re-read mutable module constraints when needed to close race
+conditions. If an endpoint is disabled, `$newstart` or `$newend` can contain
+the positive drawing boundary; inspect the enabled flag. `save()` subsequently
+receives `0` for that disabled endpoint.
+
+###### `save(array $item, int $newstart, int $newend): void`
+
+The item contains the complete identity and adapter metadata. For children,
+`recordid` identifies the child, `parentrecordid` identifies its parent, and
+`cmid` identifies the course module. `$newstart` and `$newend` are storage
+values: disabled endpoints are `0`, and milestones receive the same timestamp
+for both arguments.
+
+Use the activity's public scheduling API so calendar, gradebook, cache and
+module events remain consistent. The manager already wraps all adapter saves
+in one delegated database transaction. Throw on failure so the transaction is
+rolled back.
+
+###### `save_batch(array $tasks): void`
+
+The list contains consecutive validated changes owned by the same adapter:
+
+```php
+[
+    [
+        'item' => [
+            'id' => 'sub_example_steps_301',
+            'table' => 'example_steps',
+            'recordid' => 301,
+            'parentrecordid' => 42,
+            'cmid' => 88,
+            // Remaining complete item metadata.
+        ],
+        'newstart' => 1793782800,
+        'newend' => 1793955600,
+    ],
+]
+```
+
+Manager tasks can also contain `adapter`, `saveactivity`, `saveavailability`,
+and `availabilityupdates`; ignore unused keys. `base_adapter` calls `save()`
+for each task in order. Override the method for a module bulk API, grouping by
+`parentrecordid` when the API is scoped to one parent. Throw when any batch
+operation fails so the outer transaction rolls back.
+
+#### 2. Bundled fallback adapters (`local_reschedule\adapter\*`)
+
+These integrations support complex modules and older module releases that do
+not yet ship their own adapter:
+
 - **`assign_adapter`**: Harmoniously adjusts dependent dates (`cutoffdate`, `gradingduedate`), invoking `$assign->update_calendar()` and `$assign->update_gradebook()`.
 - **`workshop_adapter`**: Handles workshops and submission/assessment subphases (`submissionstart/end`, `assessmentstart/end`), synchronizing events via `workshop_calendar_update()`.
-- **`quest_adapter`**: Handles `quest` and challenges `quest_submissions`, invoking `quest_update_quest_calendar()`, `quest_update_grades()`, and `quest_update_challenge_calendar()`.
+- **`quest_adapter`**: Fallback for Quest versions without `\mod_quest\local\reschedule\adapter`.
 - **`kuet_adapter`**: Handles `mod_kuet` and its scheduled sessions (`kuet_sessions`), managing automated session start flags (`automaticstart = 1`), programmed session modes, reactivation of rescheduled sessions, and course module cache synchronization.
+- **`attendance_adapter`**: Uses the `mod_attendance` library API to expose each attendance session as a child range. The activity range is derived from its sessions, sessions with recorded attendance receive absolute date limits, and saves are delegated to `mod_attendance_structure::update_session_from_form_data()` without direct Attendance table access.
 
-#### 2. Level 2: Extractor Bridge (`local_reschedule\adapter\editdates_bridge`)
+#### 3. Extractor Bridge (`local_reschedule\adapter\editdates_bridge`)
 Delegates to the extractor subsystem (`extractor_factory`), supporting any Moodle module that has a registered extractor (builtin to `local_reschedule`, in-module integration, or from `report_editdates`).
 
-#### 3. Level 3: Safe Generic Adapter (`local_reschedule\adapter\generic_adapter`)
+#### 4. Safe Generic Adapter (`local_reschedule\adapter\generic_adapter`)
 Fallback for third-party modules without a dedicated adapter or extractor:
 - Updates dates with `timemodified = time()`.
 - Dynamically invokes standard Moodle hooks if present in `mod/{table}/lib.php`:
@@ -420,6 +787,7 @@ local/reschedule/
 │   │   ├── workshop_adapter.php           # Safe handler for mod_workshop and phases
 │   │   ├── quest_adapter.php              # Safe handler for mod_quest and challenges
 │   │   ├── kuet_adapter.php               # Safe handler for mod_kuet and scheduled sessions
+│   │   ├── attendance_adapter.php          # API-backed handler for mod_attendance sessions
 │   │   ├── editdates_bridge.php           # Bridge to extractor subsystem
 │   │   └── generic_adapter.php            # Safe reflective fallback for third-party modules
 │   ├── extractor/                         # Autonomous extractor subsystem
