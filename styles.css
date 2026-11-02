@@ -1116,6 +1116,17 @@
     white-space: nowrap;
 }
 
+.badge.quest-subactivity-type-badge {
+    --bs-badge-color: #fff;
+    background:
+        linear-gradient(
+            135deg,
+            var(--quest-subactivity-bar-start-color) 0%,
+            var(--quest-subactivity-bar-end-color) 100%
+        );
+    color: #fff;
+}
+
 .badge.quest-lbl-effort,
 .badge.quest-lbl-dur,
 .badge.quest-duration-badge {

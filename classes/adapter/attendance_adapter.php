@@ -27,6 +27,9 @@ namespace local_reschedule\adapter;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class attendance_adapter extends base_adapter {
+    /** @var array<int, \stdClass>|null Attendance instance records keyed by id. */
+    private ?array $attendanceinstances = null;
+
     /**
      * Return Attendance activity records with ranges derived from their sessions.
      *
@@ -38,10 +41,8 @@ class attendance_adapter extends base_adapter {
         if (!$this->load_api()) {
             return [];
         }
-        $modinfo = get_fast_modinfo($this->course->id);
         $records = [];
-        foreach ($modinfo->instances['attendance'] ?? [] as $attendanceid => $cm) {
-            $instance = $cm->get_instance_record();
+        foreach ($this->get_attendance_instances() as $attendanceid => $instance) {
             $sessions = $this->get_sessions((int)$attendanceid);
             $starts = [];
             $ends = [];
@@ -91,11 +92,10 @@ class attendance_adapter extends base_adapter {
         if (!$this->load_api()) {
             return [];
         }
-        $modinfo = get_fast_modinfo($this->course->id);
+        $instances = $this->get_attendance_instances();
         $records = [];
         foreach ($parentids as $attendanceid) {
-            $cm = $modinfo->instances['attendance'][(int)$attendanceid] ?? null;
-            if (!$cm) {
+            if (!isset($instances[(int)$attendanceid])) {
                 continue;
             }
             foreach ($this->get_sessions((int)$attendanceid) as $session) {
@@ -172,17 +172,23 @@ class attendance_adapter extends base_adapter {
         }
         $attendanceid = (int)($item['parentrecordid'] ?? 0);
         $sessionid = (int)($item['recordid'] ?? 0);
-        $modinfo = get_fast_modinfo($this->course->id);
-        $cm = $modinfo->instances['attendance'][$attendanceid] ?? null;
-        if (!$cm) {
-            throw new \moodle_exception('Attendance activity no longer exists');
-        }
         if (!$this->load_api()) {
             throw new \moodle_exception('Attendance module is not available');
         }
+        $instance = $this->get_attendance_instances()[$attendanceid] ?? null;
+        $cm = get_coursemodule_from_instance(
+            'attendance',
+            $attendanceid,
+            (int)$this->course->id,
+            false,
+            IGNORE_MISSING
+        );
+        if (!$instance || !$cm) {
+            throw new \moodle_exception('Attendance activity no longer exists');
+        }
         $api = new \mod_attendance_structure(
-            $cm->get_instance_record(),
-            $cm->get_course_module_record(),
+            $instance,
+            $cm,
             $this->course,
             \context_module::instance((int)$cm->id)
         );
@@ -233,6 +239,38 @@ class attendance_adapter extends base_adapter {
      */
     private function get_sessions(int $attendanceid): array {
         return $attendanceid > 0 ? (array)\attendance_handler::get_sessions($attendanceid) : [];
+    }
+
+    /**
+     * Load Attendance instances through Moodle's module discovery API.
+     *
+     * `cm_info::get_instance_record()` and `get_course_module_record()` are not
+     * available in Moodle 4.5. The long-standing module discovery helper
+     * returns the Attendance record without requiring this adapter to query
+     * module tables. It also appends course-module fields, which must be
+     * removed before passing the record to mod_attendance_structure.
+     *
+     * @return array<int, \stdClass> Instance records accepted by Attendance.
+     */
+    private function get_attendance_instances(): array {
+        if ($this->attendanceinstances !== null) {
+            return $this->attendanceinstances;
+        }
+
+        $this->attendanceinstances = [];
+        foreach (get_all_instances_in_course('attendance', $this->course, null, true) as $record) {
+            $instance = new \stdClass();
+            foreach (get_object_vars($record) as $field => $value) {
+                if (property_exists(\mod_attendance_structure::class, $field)) {
+                    $instance->{$field} = $value;
+                }
+            }
+            $instanceid = (int)($instance->id ?? 0);
+            if ($instanceid > 0) {
+                $this->attendanceinstances[$instanceid] = $instance;
+            }
+        }
+        return $this->attendanceinstances;
     }
 
     /**

@@ -171,4 +171,25 @@ final class mapping_test extends advanced_testcase {
         $this->assertSame('mapping', $item['effortsource']);
         $this->assertSame(['model' => 'perday', 'value' => 2.0], $item['effortestimator']);
     }
+
+    /**
+     * A module support probe must not build schedule rows for other modules.
+     */
+    public function test_course_module_scope_only_extracts_the_requested_module(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $course = $this->getDataGenerator()->create_course();
+        $choice = $this->getDataGenerator()->create_module('choice', ['course' => $course->id]);
+        $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
+        rebuild_course_cache($course->id, true);
+
+        $items = manager::get_course_items((int)$course->id, (int)$choice->cmid);
+
+        $this->assertNotEmpty($items);
+        foreach ($items as $item) {
+            $this->assertSame((int)$choice->cmid, (int)$item['cmid']);
+        }
+        $this->assertTrue(manager::cm_is_supported((int)$course->id, (int)$choice->cmid));
+    }
 }

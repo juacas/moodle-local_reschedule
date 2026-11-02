@@ -39,7 +39,7 @@ class manager {
         if ($courseid <= 0 || $cmid <= 0) {
             return false;
         }
-        foreach (self::get_course_items($courseid) as $item) {
+        foreach (self::get_course_items($courseid, $cmid) as $item) {
             if ((int)($item['cmid'] ?? 0) === $cmid && empty($item['issubtype']) && !empty($item['haschildren'])) {
                 return true;
             }
@@ -61,7 +61,7 @@ class manager {
         if ($courseid <= 0 || $cmid <= 0) {
             return false;
         }
-        foreach (self::get_course_items($courseid) as $item) {
+        foreach (self::get_course_items($courseid, $cmid) as $item) {
             if ((int)($item['cmid'] ?? 0) === $cmid && empty($item['issubtype'])) {
                 return true;
             }
@@ -117,12 +117,18 @@ class manager {
     }
 
     /**
-     * Retrieve all activities and subtypes to schedule for a course.
+     * Retrieve activities and subtypes to schedule for a course.
+     *
+     * A course module scope is used by lightweight support checks in Moodle
+     * navigation and module forms. Filtering happens before adapters and
+     * extractors are invoked, so inspecting one module never loads scheduling
+     * data from unrelated activity types.
      *
      * @param int $courseid Course ID.
+     * @param int $onlycmid Optional course module ID to retrieve exclusively.
      * @return array Array of item objects ready for timeline and JSON output.
      */
-    public static function get_course_items(int $courseid): array {
+    public static function get_course_items(int $courseid, int $onlycmid = 0): array {
         global $DB, $OUTPUT;
 
         // Extractors load module records at construction. Begin each schedule
@@ -140,6 +146,13 @@ class manager {
         $courseend = $timeframe['end'];
 
         $modinfo = get_fast_modinfo($courseid);
+        $targetcm = null;
+        if ($onlycmid > 0) {
+            $targetcm = $modinfo->get_cms()[$onlycmid] ?? null;
+            if (!$targetcm) {
+                return [];
+            }
+        }
 
         $items = [];
         $itemorders = [];
@@ -177,11 +190,19 @@ class manager {
             }
 
             $table = $rule['table'];
+            if ($targetcm && $table !== $targetcm->modname) {
+                continue;
+            }
             $startcol = $rule['startcol'];
             $endcol = $rule['endcol'];
             $itemmetadata = ['table' => $table, 'mappedrule' => true];
             $adapter = adapter_manager::get_adapter($table, $course, $itemmetadata);
             $records = $adapter->get_activity_records($rule);
+            if ($targetcm) {
+                $records = array_filter($records, static function($record) use ($targetcm): bool {
+                    return (int)$record->id === (int)$targetcm->instance;
+                });
+            }
             $parentitems[$table] = $records;
 
             foreach ($records as $rec) {
@@ -359,6 +380,9 @@ class manager {
         // Modules without a configured interval still have dates worth editing
         // (for example, forum due dates). Give their milestones a parent row.
         foreach ($modinfo->get_cms() as $cm) {
+            if ($targetcm && (int)$cm->id !== (int)$targetcm->id) {
+                continue;
+            }
             $parentkey = 'main_' . $cm->modname . '_' . $cm->instance;
             if (isset($items[$parentkey])) {
                 continue;
@@ -671,6 +695,9 @@ class manager {
         }
         foreach ($modinfo->get_cms() as $cm) {
             $cmid = (int)$cm->id;
+            if ($targetcm && $cmid !== (int)$targetcm->id) {
+                continue;
+            }
             if ($cmid <= 0 || isset($mappedcmids[$cmid])) {
                 continue;
             }
