@@ -723,6 +723,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
                     ['data-error-saving-header', 'error_saving_header'],
                     ['data-error-saving-affected', 'error_saving_affected'],
                     ['data-error-saving-pending', 'error_saving_pending'],
+                    ['data-pending-changes', 'pendingchanges'],
                     ['data-schedulesaved', 'schedulesaved'],
                     ['data-saving', 'saving'],
                     ['data-error-code', 'errorcode'],
@@ -4511,14 +4512,23 @@ b3 = [];
             var pending = new Set(this.getPendingItems().map(function(item) {
                 return String(item.id);
             }));
+            var pendingTooltip = this.strings.pendingchanges || '';
             document.querySelectorAll('#reschedule-table tr[data-itemid], ' +
                 '#reschedule-timeline-app .quest-left-row[data-itemid], ' +
                 '#reschedule-timeline-app .quest-timeline-lane[data-itemid]').forEach(function(row) {
                 var changed = pending.has(row.getAttribute('data-itemid'));
                 row.classList.toggle('has-pending-changes', changed);
-                var description = row.querySelector('.quest-pending-description');
-                if (description) {
-                    description.classList.toggle('d-none', !changed);
+                if (!row.hasAttribute('data-pending-base-title')) {
+                    row.setAttribute('data-pending-base-title', row.getAttribute('title') || '');
+                }
+                var baseTitle = row.getAttribute('data-pending-base-title');
+                if (changed) {
+                    row.setAttribute('title', pendingTooltip +
+                        (baseTitle && baseTitle !== pendingTooltip ? ' — ' + baseTitle : ''));
+                } else if (baseTitle) {
+                    row.setAttribute('title', baseTitle);
+                } else {
+                    row.removeAttribute('title');
                 }
             });
             return pending.size;

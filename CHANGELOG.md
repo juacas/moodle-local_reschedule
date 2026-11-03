@@ -1,5 +1,86 @@
 # Changelog
 
+## 1.2.2 - 2026-11-03
+
+Integration, persistence and compatibility release. This version keeps the
+course-wide planner while also allowing supported activities to open a scoped
+Reschedule screen from their own module workflow.
+
+### Added
+
+- Persisted manual effort estimates and the selected effort model in Moodle's
+  `core_customfield` subsystem. Stored row locators tolerate deleted or
+  partially restored activities, and course backup/restore remaps activity and
+  subactivity references without adding plugin-owned database tables.
+- Added editable work-hour fields to the activity table and synchronized edits
+  with Gantt badges, the effort dialog and the effort plot. Effort badges also
+  support gradual mouse-wheel and horizontal-drag adjustment.
+- Added complete Attendance session support through the module library,
+  including session updates and absolute start/end limits when attendance has
+  already been recorded.
+- Added adapter autodiscovery for the conventional
+  `\mod_<plugin>\local\reschedule\adapter` class. Plugin-owned adapters must
+  implement `adapter_interface`; bundled adapters remain available as
+  fallbacks for older plugin versions.
+- Documented every `adapter_interface` method and normalized data structure in
+  PHPDoc and README examples for third-party module authors.
+- Added links from supported module settings and activity date fields to a
+  scoped planner. Caller breadcrumbs and `returnurl` are preserved, with
+  **Save and return** and **Back** actions inside Reschedule.
+- Added scoped edit mode (`editmode=2`): the selected activity and its children
+  remain editable while all other course rows are visible as read-only context.
+- Added start and end absolute-limit markers, reasons and hover/touch feedback
+  supplied by adapters. Quest challenge answers constrain both interval edges.
+- Added a parent/child movement lock, derived-range styling, double-click group
+  selection and automatic expansion of the activity selected by `cmid`.
+- Logged Reschedule views and successful schedule saves, including the affected
+  course modules and subactivities.
+
+### Changed
+
+- Expressed all effort values as work hours and displayed them with one decimal
+  place while retaining full precision in tooltips and dialogs.
+- Refactored schedule loading, validation and saving so the manager uses only
+  the common adapter contract. Quest, KUET and Attendance integrations now use
+  their module APIs instead of manager-level module queries or persistent
+  access.
+- Quest parent effort is the sum of its contributing challenges. Challenges
+  without estimated time or difficulty default to one work hour.
+- Group movement now evaluates absolute limits per row. A constrained child or
+  parent stops at its own limit without blocking otherwise valid members, and
+  parents with independent stored ranges are no longer always recalculated.
+- Weekify now refreshes section grouping after moves, places undated activities
+  in the first weekly section, preserves the existing parent/child rule and
+  excludes the course announcements forum.
+- Courses without an enabled end date now extend the Gantt to the latest dated
+  activity instead of hiding later activities behind a fallback boundary.
+- Standardized table and date-editor formatting on Moodle's user locale and
+  timezone preferences.
+- Extended default JSON mappings for Treasure Hunt, Listgrades and ChoiceGroup;
+  incompatible optional rules are reported by the visual editor but formally
+  valid JSON can still be saved when a referenced module is not installed.
+- Made configured mapping cards collapsible and prevented mapping-field edits
+  from scrolling the settings page.
+- Improved Gantt badges, scoped row colours, derived range markers, section
+  decoration, control wrapping and pending-change highlighting.
+
+### Fixed
+
+- Added Moodle 4.5 compatibility fallbacks for custom-field category and value
+  APIs and removed reliance on unavailable `cm_info` record helper methods.
+- Prevented support checks used by module navigation and edit forms from loading
+  adapters and schedule data for unrelated activity types.
+- Fixed scoped effort updates being rejected when the payload contained visible
+  read-only rows outside the selected module.
+- Fixed effort-input feedback loops, mouse-wheel updates and accidental badge
+  clicks after dragging.
+- Fixed Attendance save payload validation and parent movement being blocked by
+  one constrained session.
+- Fixed stale unsaved-change warnings after **Save and return**.
+- Fixed legacy event records whose saved metadata predates subactivity counts.
+- Replaced layout-affecting hidden pending-change text with row tooltips and
+  corrected the scoped-mode notice to show `"Activity name" (Activity type)`.
+
 ## 1.2.0 - 2026-10-26
 
 Maintenance release. It contains no database changes and no changes to the scheduling behaviour introduced in 1.1.0.

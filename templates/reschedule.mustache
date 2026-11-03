@@ -44,6 +44,7 @@
     data-error-saving-header="{{#str}}error_saving_header, local_reschedule{{/str}}"
     data-error-saving-affected="{{#str}}error_saving_affected, local_reschedule{{/str}}"
     data-error-saving-pending="{{#str}}error_saving_pending, local_reschedule{{/str}}"
+    data-pending-changes="{{#str}}pendingchanges, local_reschedule{{/str}}"
     data-schedulesaved="{{#str}}schedulesaved, local_reschedule{{/str}}"
     data-saving="{{#str}}saving, local_reschedule{{/str}}"
     data-error-code="{{#str}}errorcode, local_reschedule{{/str}}"
@@ -236,7 +237,6 @@
             </div>
             <div class="quest-row-text">
                 <div class="quest-row-title text-truncate fw-bold"></div>
-                <span class="quest-pending-description visually-hidden d-none">{{#str}}pendingchanges, local_reschedule{{/str}}</span>
                 <div class="quest-row-subtitle">
                     <span class="quest-row-typename text-truncate me-1"></span>
                     <span class="badge quest-lbl-effort flex-shrink-0 d-none"></span>
@@ -302,7 +302,6 @@
                                 {{#iconurl}}
                                 <img src="{{iconurl}}" class="activityicon me-2" style="width: 18px; height: 18px; vertical-align: middle; object-fit: contain;" alt="">
                                 {{/iconurl}}
-                                <span class="quest-pending-description visually-hidden d-none">{{#str}}pendingchanges, local_reschedule{{/str}}</span>
                                 {{#viewurl}}<a href="{{viewurl}}" class="text-dark fw-bold reschedule-activity-link">{{title}}</a>{{/viewurl}}
                                 {{^viewurl}}<strong class="text-dark">{{title}}</strong>{{/viewurl}}
                             </td>
