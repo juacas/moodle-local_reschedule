@@ -23,8 +23,17 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require(__DIR__ . '/../../config.php');
-require_once(__DIR__ . '/lib.php');
+// Resolve config.php from the web server's logical script path. __DIR__ points
+// to the physical target when this plugin directory is symlinked from another
+// Moodle checkout and would otherwise bootstrap the target checkout instead.
+// phpcs:ignore moodle.Files.MoodleInternal.MoodleInternalGlobalState -- Config path must be resolved before bootstrap.
+$scriptfilename = $_SERVER['SCRIPT_FILENAME'] ?? __FILE__;
+$configpath = dirname($scriptfilename, 3) . '/config.php';
+if (!is_readable($configpath)) {
+    $configpath = __DIR__ . '/../../config.php';
+}
+require($configpath);
+require_once($CFG->dirroot. '/local/reschedule/lib.php');
 
 $courseid = required_param('id', PARAM_INT);
 $cmidsparam = optional_param('cmids', '', PARAM_SEQUENCE);
