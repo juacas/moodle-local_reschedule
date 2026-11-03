@@ -63,11 +63,16 @@ $context = \context_course::instance($courseid);
 require_capability('moodle/course:manageactivities', $context);
 $scopededitmode = $editmode === 2;
 $scopecmid = 0;
+$scopeactivityname = '';
 if ($scopededitmode) {
     if ($singlecmid <= 0 || !\local_reschedule\manager::cm_is_supported($courseid, $singlecmid)) {
         throw new \invalid_parameter_exception('Scoped edit mode requires a supported course module.');
     }
     $scopecmid = $singlecmid;
+    $scopeactivitycm = get_fast_modinfo($courseid)->get_cm($scopecmid);
+    $scopeactivityname = '"' . format_string($scopeactivitycm->name, true, [
+        'context' => \context_module::instance($scopecmid),
+    ]) . '" (' . get_string('modulename', 'mod_' . $scopeactivitycm->modname) . ')';
 }
 
 $urlparams = ['id' => $courseid];
@@ -316,7 +321,7 @@ $templatecontext = [
     'scopededitmode' => $scopededitmode,
     'scopecmid' => $scopecmid,
     'focuscmid' => $singlecmid,
-    'scopeactivityname' => $scopededitmode ? format_string(get_fast_modinfo($courseid)->get_cm($scopecmid)->name) : '',
+    'scopeactivityname' => $scopeactivityname,
     'returnurl' => $returnurl,
     'effortmodel' => \local_reschedule\effort_store::get_model($courseid),
     'language' => $localecldr,
