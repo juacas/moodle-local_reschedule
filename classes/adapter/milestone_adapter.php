@@ -83,18 +83,10 @@ class milestone_adapter extends base_adapter {
         if (!$errors) {
             return [];
         }
-        // A validation error normally belongs to its own field. Assignment due
-        // dates also affect the cutoff rule, while unrelated milestones such as
-        // grading due must not inherit that error.
-        $relevantfields = [$field];
-        if ($item['table'] === 'assign') {
-            if ($field === 'duedate') {
-                $relevantfields[] = 'cutoffdate';
-            } else if ($field === 'allowsubmissionsfromdate') {
-                $relevantfields[] = 'duedate';
-                $relevantfields[] = 'cutoffdate';
-            }
-        }
+        // Extractors decide which cross-field validation errors relate to this
+        // milestone, so module-specific rules stay with the module integration.
+        $relevantfields = method_exists($extractor, 'get_reschedule_validation_fields') ?
+            $extractor->get_reschedule_validation_fields($field) : [$field];
         $relevanterrors = array_intersect_key($errors, array_fill_keys($relevantfields, true));
         if (!$relevanterrors) {
             return [];

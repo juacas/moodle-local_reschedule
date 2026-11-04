@@ -63,6 +63,19 @@ class forum_extractor extends base_builtin_extractor {
         return ['cutoffdate'];
     }
 
+    /**
+     * Moving the due milestone must also respect the forum cutoff date.
+     *
+     * @param string $field Date field being changed.
+     * @return string[] Field names whose errors are relevant.
+     */
+    public function get_reschedule_validation_fields(string $field): array {
+        if ($field === 'duedate') {
+            return ['duedate', 'cutoffdate'];
+        }
+        return parent::get_reschedule_validation_fields($field);
+    }
+
     #[\Override]
     public function get_settings(cm_info $cm) {
         if (!isset($this->mods[$cm->instance])) {
