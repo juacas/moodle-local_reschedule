@@ -42,6 +42,20 @@ compat::init();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 abstract class base_builtin_extractor extends \report_editdates_mod_date_extractor {
+    /**
+     * Identify extractor validation errors relevant to one date field edit.
+     *
+     * By default, an error is relevant only when the validator associates it
+     * with the edited field. Activity extractors can override this when moving
+     * one date affects validation rules reported against another field.
+     *
+     * @param string $field Date field being changed.
+     * @return string[] Field names whose validation errors should block this edit.
+     */
+    public function get_reschedule_validation_fields(string $field): array {
+        return [$field];
+    }
+
     #[\Override]
     public function load_data() {
         global $DB;

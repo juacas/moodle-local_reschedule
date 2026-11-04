@@ -28,7 +28,7 @@ use advanced_testcase;
 #[\PHPUnit\Framework\Attributes\CoversClass(weekifier::class)]
 final class weekifier_test extends advanced_testcase {
     /**
-     * A dated child supplies the week when its parent has no start date.
+     * An open-start activity with no dated children belongs in the first week.
      */
     public function test_missing_start_uses_earliest_dated_subactivity(): void {
         global $DB;
@@ -41,17 +41,16 @@ final class weekifier_test extends advanced_testcase {
             'startdate' => time(),
         ], ['createsections' => true]);
         $assignment = $this->getDataGenerator()->create_module('assign', ['course' => $course->id, 'section' => 2]);
-        $weekthree = \course_get_format($course)->get_section_dates(3);
         $DB->update_record('assign', (object)[
             'id' => $assignment->id,
             'allowsubmissionsfromdate' => 0,
             'duedate' => 0,
-            'cutoffdate' => $weekthree->start + HOURSECS,
+            'cutoffdate' => time() + (30 * DAYSECS),
         ]);
 
         $plan = weekifier::plan($course, [$assignment->cmid]);
         $this->assertCount(1, $plan['moves'], json_encode($plan));
-        $targetsectionid = (int)\get_fast_modinfo($course)->get_section_info(3)->id;
+        $targetsectionid = (int)\get_fast_modinfo($course)->get_section_info(1)->id;
         $this->assertSame($targetsectionid,
             $plan['moves'][0]['targetsectionid']);
         $result = weekifier::apply($course, [$assignment->cmid]);
