@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.2.3 - 2026-11-04
+
+Maintenance release focused on correcting Assignment scheduling semantics.
+
+### Fixed
+
+- Assignment activities now span from **Allow submissions from** to **Cut-off
+  date**. **Due date** and **Remind me to grade by** are separate milestones.
+- Moving the Assignment interval no longer treats the due date as its end or
+  shifts cutoff and grading milestones implicitly. The complete proposed date
+  set is checked against Moodle's Assignment validation rules before saving.
+- Assignment date errors now identify the affected milestone and its parent
+  activity, and use Moodle's specific cutoff validation messages.
+- Corrected the Gantt snap guide so it points from the dragged row to the target
+  row. A collapsed parent row also shows pending changes from its subactivities.
+
+There are no database schema changes in this release.
+
 ## 1.2.2 - 2026-11-03
 
 Integration, persistence and compatibility release. This version keeps the
