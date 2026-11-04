@@ -37,6 +37,47 @@ class assign_adapter extends base_adapter {
             $title = $item['title'] ?? 'Assignment';
             $errors[] = "{$title}: " . get_string('duedatevalidation', 'assign');
         }
+
+        // Assignment dates have cross-field rules (for example cutoffdate must
+        // follow duedate). Validate the complete proposed date set even when
+        // only the main interval row is being moved.
+        $extractor = editdates_bridge::get_extractor('assign', $this->course);
+        $cm = $this->get_cm('assign', (int)$item['recordid']);
+        if (!$extractor || !$cm || !method_exists($extractor, 'validate_dates')) {
+            return $errors;
+        }
+
+        global $DB;
+        $record = $DB->get_record('assign', ['id' => (int)$item['recordid']]);
+        if (!$record) {
+            return $errors;
+        }
+        $settings = $extractor->get_settings($cm);
+        if (!is_array($settings)) {
+            return $errors;
+        }
+        $dates = [];
+        foreach ($settings as $field => $setting) {
+            $dates[$field] = isset($record->{$field}) ? (int)$record->{$field} :
+                (int)($setting->currentvalue ?? 0);
+        }
+        foreach ($item['proposeddates'] ?? [] as $field => $value) {
+            if (array_key_exists($field, $dates)) {
+                $dates[$field] = (int)$value;
+            }
+        }
+        $dates[$item['startcol']] = !empty($item['startenabled']) ? $newstart : 0;
+        $dates[$item['endcol']] = !empty($item['endenabled']) ? $newend : 0;
+
+        foreach ($extractor->validate_dates($cm, $dates) as $field => $message) {
+            // If the invalid point date is also part of this save, its
+            // milestone adapter reports the error with the child row context.
+            if ($field !== $item['startcol'] && $field !== $item['endcol'] &&
+                    array_key_exists($field, $item['proposeddates'] ?? [])) {
+                continue;
+            }
+            $errors[] = ($item['title'] ?? 'Assignment') . ': ' . $message;
+        }
         return $errors;
     }
 
@@ -50,28 +91,15 @@ class assign_adapter extends base_adapter {
             return;
         }
 
-        $origstart = (int)$assignrecord->allowsubmissionsfromdate;
-        $origdue = (int)$assignrecord->duedate;
-        $origcutoff = (int)$assignrecord->cutoffdate;
-        $origgrading = (int)$assignrecord->gradingduedate;
-
         $up = new \stdClass();
         $up->id = $recordid;
-        $up->allowsubmissionsfromdate = $newstart;
-        $up->duedate = $newend;
+        if (!empty($item['startcol'])) {
+            $up->{$item['startcol']} = $newstart;
+        }
+        if (!empty($item['endcol'])) {
+            $up->{$item['endcol']} = $newend;
+        }
         $up->timemodified = time();
-
-        // Harmoniously shift cutoff date if originally configured.
-        if ($origcutoff > 0 && $newend > 0) {
-            $cutoffmargin = $origdue > 0 ? max(0, $origcutoff - $origdue) : 0;
-            $up->cutoffdate = $newend + $cutoffmargin;
-        }
-
-        // Harmoniously shift grading due date if originally configured.
-        if ($origgrading > 0 && $newend > 0) {
-            $gradingmargin = $origdue > 0 ? max(86400 * 7, $origgrading - $origdue) : 86400 * 7;
-            $up->gradingduedate = $newend + $gradingmargin;
-        }
 
         $DB->update_record('assign', $up);
 

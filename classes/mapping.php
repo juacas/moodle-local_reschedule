@@ -51,7 +51,7 @@ JSON;
     private const BUILTIN_JSON = <<<'JSON'
 [
   {"module":"assign","title":"name","label":"Assignment","kind":"range",
-   "start":"allowsubmissionsfromdate","end":"duedate"},
+   "start":"allowsubmissionsfromdate","end":"cutoffdate"},
   {"module":"quiz","title":"name","label":"Quiz","kind":"range","start":"timeopen","end":"timeclose"},
   {"module":"workshop","title":"name","label":"Workshop","kind":"range","start":"submissionstart","end":"assessmentend"},
   {"module":"workshop","title":"name","label":"Workshop - Submission Phase","kind":"range",

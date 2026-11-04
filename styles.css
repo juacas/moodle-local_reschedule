@@ -728,12 +728,47 @@
 
 .quest-snap-guide {
     background: rgba(5, 150, 105, 0.8);
-    bottom: 0;
     box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.18);
     pointer-events: none;
     position: absolute;
     width: 2px;
     z-index: 2;
+}
+
+.quest-snap-alignment-guide {
+    background: rgba(4, 120, 87, 0.68);
+    box-shadow: 0 0 1px rgba(4, 120, 87, 0.55);
+    pointer-events: none;
+    position: absolute;
+    width: 2px;
+    z-index: 4;
+}
+
+.quest-snap-alignment-marker {
+    background: rgba(4, 120, 87, 0.48);
+    bottom: -3px;
+    pointer-events: none;
+    position: absolute;
+    top: -3px;
+    width: 3px;
+    z-index: 6;
+}
+
+.quest-snap-alignment-marker.is-start {
+    left: 0;
+}
+
+.quest-snap-alignment-marker.is-end {
+    right: 0;
+}
+
+.quest-calendar-bar.is-milestone .quest-snap-alignment-marker {
+    bottom: auto;
+    height: 24px;
+    left: 50%;
+    right: auto;
+    top: 7px;
+    transform: translateX(-50%);
 }
 
 .quest-calendar-bar.is-dragging.is-snapped-start,

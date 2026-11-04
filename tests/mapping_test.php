@@ -56,7 +56,7 @@ final class mapping_test extends advanced_testcase {
         $this->resetAfterTest(true);
         set_config('mapping', json_encode([
             ['module' => 'assign', 'title' => 'name', 'label' => 'Duplicate',
-                'kind' => 'range', 'start' => 'allowsubmissionsfromdate', 'end' => 'duedate'],
+                'kind' => 'range', 'start' => 'allowsubmissionsfromdate', 'end' => 'cutoffdate'],
             ['module' => 'choice', 'title' => 'name', 'label' => 'Choice',
                 'kind' => 'range', 'start' => 'timeopen', 'end' => 'timeclose'],
         ]), 'local_reschedule');

@@ -289,17 +289,6 @@ class editdates_bridge extends base_adapter {
                 $dates[$endcol] = !empty($item['endenabled']) ? $newend : 0;
             }
 
-            // Handle dependent fields for assign (e.g. cutoffdate / gradingduedate).
-            if ($modname === 'assign') {
-                $storedend = $endcol !== '' ? (int)($dates[$endcol] ?? 0) : 0;
-                if ($storedend > 0 && !empty($dates['cutoffdate']) && $dates['cutoffdate'] < $storedend) {
-                    $dates['cutoffdate'] = $storedend;
-                }
-                if ($storedend > 0 && !empty($dates['gradingduedate']) && $dates['gradingduedate'] < $storedend) {
-                    $dates['gradingduedate'] = $storedend + (7 * 86400);
-                }
-            }
-
             $moderrors = $extractor->validate_dates($cm, $dates);
             if (!empty($moderrors)) {
                 $title = $item['title'] ?? $cm->name;
@@ -351,16 +340,6 @@ class editdates_bridge extends base_adapter {
         }
         if ($endcol !== '' && empty($item['isopenended'])) {
             $dates[$endcol] = $newend;
-        }
-
-        // Auto-adjust dependent dates for assignment to prevent database validation conflicts.
-        if ($modname === 'assign') {
-            if (!empty($dates['cutoffdate']) && $dates['cutoffdate'] < $newend) {
-                $dates['cutoffdate'] = $newend;
-            }
-            if (!empty($dates['gradingduedate']) && $dates['gradingduedate'] < $newend) {
-                $dates['gradingduedate'] = $newend + (7 * 86400);
-            }
         }
 
         $extractor->save_dates($cm, $dates);

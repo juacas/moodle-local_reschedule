@@ -87,13 +87,13 @@ final class event_test extends \advanced_testcase {
             'cutoffdate' => $cutoff,
         ]);
         rebuild_course_cache($course->id, true);
-        $milestoneid = 'milestone_assign_' . $assignment->id . '_cutoffdate';
+        $milestoneid = 'milestone_assign_' . $assignment->id . '_duedate';
 
         $sink = $this->redirectEvents();
         $result = manager::save_schedule((int)$course->id, [[
             'id' => $milestoneid,
-            'datestart' => $cutoff + HOURSECS,
-            'dateend' => $cutoff + HOURSECS,
+            'datestart' => $due + HOURSECS,
+            'dateend' => $due + HOURSECS,
             'startenabled' => true,
             'endenabled' => true,
         ]]);
