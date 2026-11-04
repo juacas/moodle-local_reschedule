@@ -1448,7 +1448,6 @@ b3 = [];
                 lanes: gridLanes, start: -1, end: -1};
             self.sectionRuns = sectionRuns;
             self.updateSectionDecorations(true);
-            self.renderSnapAlignmentMarkers();
             self.renderEffortDrops(dropsCanvas);
             self.items.forEach(function(item) {
                 var tableRow = document.getElementById('reschedule-row-' + item.id);
@@ -2624,95 +2623,17 @@ b3 = [];
             guide.style.left = ((target.time - timelineStart) / totalSec * 100) + '%';
             var sourceLane = source.closest('.quest-timeline-lane');
             var targetLane = target.element.closest('.quest-timeline-lane');
-            var areaRect = area.getBoundingClientRect();
-            var sourceRect = (sourceLane || source).getBoundingClientRect();
-            var targetRect = (targetLane || target.element).getBoundingClientRect();
-            var top = Math.min(sourceRect.top, targetRect.top) - areaRect.top + area.scrollTop;
-            var bottom = Math.max(sourceRect.bottom, targetRect.bottom) - areaRect.top + area.scrollTop;
-            guide.style.top = top + 'px';
-            guide.style.height = Math.max(1, bottom - top) + 'px';
+            var sourceRow = sourceLane || source;
+            var targetRow = targetLane || target.element;
+            var sourceY = sourceRow.offsetTop + sourceRow.offsetHeight / 2;
+            var targetY = targetRow.offsetTop + targetRow.offsetHeight / 2;
+            guide.style.top = Math.min(sourceY, targetY) + 'px';
+            guide.style.height = Math.max(1, Math.abs(targetY - sourceY)) + 'px';
+            guide.classList.add(targetY >= sourceY ? 'is-target-below' : 'is-target-above');
             area.appendChild(guide);
             source.classList.add('is-snapped-' + edge);
             target.element.classList.add('is-snap-target-' + target.edge);
             this.snapHint = {source: source, edge: edge, target: target, guide: guide};
-        },
-
-        /** Render faint endpoint markers where separate activities share an exact timestamp. */
-        renderSnapAlignmentMarkers: function() {
-            var endpoints = Object.create(null);
-            var self = this;
-            this.board.querySelectorAll('.quest-snap-alignment-marker, .quest-snap-alignment-guide')
-                .forEach(function(marker) {
-                marker.remove();
-            });
-            this.items.forEach(function(item) {
-                [
-                    {edge: 'start', enabled: item.startenabled !== false, time: item.datestart},
-                    {edge: 'end', enabled: item.endenabled !== false, time: item.dateend}
-                ].forEach(function(endpoint) {
-                    var time = Number(endpoint.time);
-                    if (!endpoint.enabled || !isFinite(time) || time <= 0) {
-                        return;
-                    }
-                    var key = String(time);
-                    if (!endpoints[key]) {
-                        endpoints[key] = [];
-                    }
-                    endpoints[key].push({itemid: String(item.id), edge: endpoint.edge});
-                });
-            });
-
-            Object.keys(endpoints).forEach(function(time) {
-                var matches = endpoints[time];
-                if (matches.length < 2) {
-                    return;
-                }
-                var itemIds = Array.from(new Set(matches.map(function(endpoint) {
-                    return endpoint.itemid;
-                })));
-                if (itemIds.length > 1) {
-                    var area = self.board.querySelector('.quest-timeline-right-area');
-                    var areaRect = area && area.getBoundingClientRect();
-                    var laneRects = itemIds.map(function(itemid) {
-                        var lane = self.board.querySelector(
-                            '.quest-timeline-lane[data-itemid="' + itemid + '"]');
-                        return lane && lane.getBoundingClientRect();
-                    }).filter(Boolean);
-                    if (area && laneRects.length > 1) {
-                        var timestamp = Number(time);
-                        var timelineStart = self.getTimelineStart();
-                        var totalSec = Math.max(3600, self.getTimelineEnd() - timelineStart);
-                        var guide = document.createElement('div');
-                        guide.className = 'quest-snap-alignment-guide';
-                        guide.setAttribute('aria-hidden', 'true');
-                        guide.style.left = ((timestamp - timelineStart) / totalSec * 100) + '%';
-                        var top = Math.min.apply(null, laneRects.map(function(rect) {
-                            return rect.top;
-                        })) - areaRect.top + area.scrollTop;
-                        var bottom = Math.max.apply(null, laneRects.map(function(rect) {
-                            return rect.bottom;
-                        })) - areaRect.top + area.scrollTop;
-                        guide.style.top = top + 'px';
-                        guide.style.height = Math.max(1, bottom - top) + 'px';
-                        area.appendChild(guide);
-                    }
-                }
-                matches.forEach(function(endpoint) {
-                    if (!matches.some(function(match) {
-                        return match.itemid !== endpoint.itemid;
-                    })) {
-                        return;
-                    }
-                    var bar = self.board.querySelector('.quest-calendar-bar[data-itemid="' + endpoint.itemid + '"]');
-                    if (!bar) {
-                        return;
-                    }
-                    var marker = document.createElement('span');
-                    marker.className = 'quest-snap-alignment-marker is-' + endpoint.edge;
-                    marker.setAttribute('aria-hidden', 'true');
-                    bar.appendChild(marker);
-                });
-            });
         },
 
         /** Remove transient snap decorations on release, cancellation or redraw. */
@@ -3715,7 +3636,6 @@ b3 = [];
                 self.activeDrag.barEl.classList.remove('is-dragging');
                 self.clearSnapHint();
                 self.activeDrag = null;
-                self.renderSnapAlignmentMarkers();
                 self.hideHUD();
             });
 
@@ -3739,7 +3659,6 @@ b3 = [];
                 self.activeDrag.barEl.classList.remove('is-dragging');
                 self.clearSnapHint();
                 self.activeDrag = null;
-                self.renderSnapAlignmentMarkers();
                 self.hideHUD();
             });
 
@@ -4597,14 +4516,23 @@ b3 = [];
          * @return {number} Number of changed activity items.
          */
         refreshPendingRows: function() {
-            var pending = new Set(this.getPendingItems().map(function(item) {
+            var pendingItems = this.getPendingItems();
+            var pending = new Set(pendingItems.map(function(item) {
                 return String(item.id);
             }));
+            var highlighted = new Set(pending);
+            var self = this;
+            pendingItems.forEach(function(item) {
+                var parentkey = String(item.parentkey || '');
+                if (parentkey && !self.expandedParents[parentkey]) {
+                    highlighted.add(parentkey);
+                }
+            });
             var pendingTooltip = this.strings.pendingchanges || '';
             document.querySelectorAll('#reschedule-table tr[data-itemid], ' +
                 '#reschedule-timeline-app .quest-left-row[data-itemid], ' +
                 '#reschedule-timeline-app .quest-timeline-lane[data-itemid]').forEach(function(row) {
-                var changed = pending.has(row.getAttribute('data-itemid'));
+                var changed = highlighted.has(row.getAttribute('data-itemid'));
                 row.classList.toggle('has-pending-changes', changed);
                 if (!row.hasAttribute('data-pending-base-title')) {
                     row.setAttribute('data-pending-base-title', row.getAttribute('title') || '');
@@ -6318,6 +6246,7 @@ b3 = [];
                     icon.className = isNowExpanded ? 'fa fa-minus' : 'fa fa-plus';
                 }
             });
+            self.refreshPendingRows();
             self.updateSectionDecorations(true);
         },
 
