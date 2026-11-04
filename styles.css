@@ -1348,3 +1348,98 @@
 #reschedule-table .reschedule-activity-link:hover {
     text-decoration: underline;
 }
+
+.global-report-timeline-app {
+    border: 0;
+    border-radius: 0;
+    min-height: 228px;
+}
+
+.global-report-timeline-scroll {
+    max-height: 70vh;
+    overflow: auto;
+}
+
+.global-report-timeline-table {
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: fixed;
+}
+
+.global-report-timeline-table > tbody > tr > th {
+    box-sizing: border-box;
+    min-width: 280px;
+    width: 280px;
+}
+
+.global-report-timeline-table > tbody > tr > td {
+    box-sizing: border-box;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.global-report-aggregate-label {
+    background: #fff;
+    height: 156px;
+    padding: 0;
+    top: 0;
+    vertical-align: top;
+    z-index: 32;
+}
+
+.global-report-aggregate-row > td {
+    background: #fff;
+    position: sticky;
+    top: 0;
+    z-index: 25;
+}
+
+.global-report-aggregate-label .quest-left-header {
+    height: 156px;
+    position: relative;
+}
+
+.global-report-aggregate-summary {
+    line-height: 1.25;
+}
+
+.global-report-student-row > th,
+.global-report-student-row > td {
+    background: #fff;
+    border-bottom: 1px solid #e2e8f0;
+    height: 72px;
+}
+
+.global-report-student-label {
+    padding: 0.75rem;
+    text-align: left;
+    vertical-align: middle;
+}
+
+.global-report-timeline-app,
+.global-report-timeline-app .quest-drops-row {
+    cursor: grab;
+}
+
+.global-report-timeline-app.is-panning,
+.global-report-timeline-app.is-panning .quest-drops-row {
+    cursor: grabbing;
+}
+
+.global-report-legend-line {
+    border-top: 3px solid #ea8700;
+    display: inline-block;
+    margin-right: 0.4rem;
+    transform: translateY(-2px);
+    width: 2rem;
+}
+
+.global-report-legend-line.is-course {
+    border-color: #7c3aed;
+    border-top-style: dashed;
+    border-top-width: 1px;
+}
+
+.local-reschedule-global-report.is-ideal-effort .global-report-legend-line:not(.is-course) {
+    border-color: #2563eb;
+}

@@ -46,7 +46,12 @@ class save_efforts extends external_api {
                 'hours' => new external_value(PARAM_FLOAT, 'Estimated work hours.'),
             ]), 'Effort updates.', VALUE_DEFAULT, []),
             'model' => new external_value(PARAM_ALPHA, 'Effort distribution model.', VALUE_DEFAULT, ''),
-            'scopecmid' => new external_value(PARAM_INT, 'Only allow effort updates for this module and its subactivities.', VALUE_DEFAULT, 0),
+            'scopecmid' => new external_value(
+                PARAM_INT,
+                'Only allow effort updates for this module and its subactivities.',
+                VALUE_DEFAULT,
+                0
+            ),
         ]);
     }
 
@@ -97,17 +102,23 @@ class save_efforts extends external_api {
         $saved = count(effort_store::read((int)$course->id)['entries']);
         if ($params['items']) {
             $current = manager::get_course_items((int)$course->id);
-            if ($params['scopecmid'] > 0) {
-                $itemmap = [];
-                foreach ($current as $currentitem) {
-                    $itemmap[(string)$currentitem['id']] = $currentitem;
+            $itemmap = [];
+            foreach ($current as $currentitem) {
+                $itemmap[(string)$currentitem['id']] = $currentitem;
+            }
+            foreach ($params['items'] as $effortitem) {
+                $target = $itemmap[(string)$effortitem['id']] ?? null;
+                if (!$target) {
+                    throw new \invalid_parameter_exception('The effort item does not exist in this course.');
                 }
-                foreach ($params['items'] as $effortitem) {
-                    $target = $itemmap[(string)$effortitem['id']] ?? null;
-                    if (!$target || (int)($target['cmid'] ?? 0) !== (int)$params['scopecmid']) {
+                $cmid = (int)($target['cmid'] ?? 0);
+                if ($params['scopecmid'] > 0 && $cmid !== (int)$params['scopecmid']) {
                         throw new \invalid_parameter_exception('Effort updates are outside the selected module scope.');
-                    }
                 }
+                if ($cmid <= 0) {
+                    throw new \invalid_parameter_exception('The effort item is not associated with a course module.');
+                }
+                require_capability('moodle/course:manageactivities', \context_module::instance($cmid));
             }
             $saved = effort_store::save_updates((int)$course->id, $current, $params['items']);
         }
