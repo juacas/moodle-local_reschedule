@@ -2621,8 +2621,15 @@ b3 = [];
             guide.className = 'quest-snap-guide';
             guide.setAttribute('aria-hidden', 'true');
             guide.style.left = ((target.time - timelineStart) / totalSec * 100) + '%';
-            var header = area.querySelector('.quest-bands-header');
-            guide.style.top = (header ? header.offsetHeight : 0) + 'px';
+            var sourceLane = source.closest('.quest-timeline-lane');
+            var targetLane = target.element.closest('.quest-timeline-lane');
+            var sourceRow = sourceLane || source;
+            var targetRow = targetLane || target.element;
+            var sourceY = sourceRow.offsetTop + sourceRow.offsetHeight / 2;
+            var targetY = targetRow.offsetTop + targetRow.offsetHeight / 2;
+            guide.style.top = Math.min(sourceY, targetY) + 'px';
+            guide.style.height = Math.max(1, Math.abs(targetY - sourceY)) + 'px';
+            guide.classList.add(targetY >= sourceY ? 'is-target-below' : 'is-target-above');
             area.appendChild(guide);
             source.classList.add('is-snapped-' + edge);
             target.element.classList.add('is-snap-target-' + target.edge);
@@ -4509,14 +4516,23 @@ b3 = [];
          * @return {number} Number of changed activity items.
          */
         refreshPendingRows: function() {
-            var pending = new Set(this.getPendingItems().map(function(item) {
+            var pendingItems = this.getPendingItems();
+            var pending = new Set(pendingItems.map(function(item) {
                 return String(item.id);
             }));
+            var highlighted = new Set(pending);
+            var self = this;
+            pendingItems.forEach(function(item) {
+                var parentkey = String(item.parentkey || '');
+                if (parentkey && !self.expandedParents[parentkey]) {
+                    highlighted.add(parentkey);
+                }
+            });
             var pendingTooltip = this.strings.pendingchanges || '';
             document.querySelectorAll('#reschedule-table tr[data-itemid], ' +
                 '#reschedule-timeline-app .quest-left-row[data-itemid], ' +
                 '#reschedule-timeline-app .quest-timeline-lane[data-itemid]').forEach(function(row) {
-                var changed = pending.has(row.getAttribute('data-itemid'));
+                var changed = highlighted.has(row.getAttribute('data-itemid'));
                 row.classList.toggle('has-pending-changes', changed);
                 if (!row.hasAttribute('data-pending-base-title')) {
                     row.setAttribute('data-pending-base-title', row.getAttribute('title') || '');
@@ -6230,6 +6246,7 @@ b3 = [];
                     icon.className = isNowExpanded ? 'fa fa-minus' : 'fa fa-plus';
                 }
             });
+            self.refreshPendingRows();
             self.updateSectionDecorations(true);
         },
 

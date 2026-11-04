@@ -236,7 +236,7 @@ To enable the landing page deployment, go to the repository's **Settings > Pages
 In Moodle, an activity is never just an isolated row in a table. Modifying date columns directly via SQL (`$DB->update_record()`) causes severe inconsistencies:
 - **Orphan events in `{event}`**: Students continue seeing outdated dates in their timeline, Moodle calendar, and upcoming deadline alerts.
 - **Desynchronization in `{grade_items}`**: The gradebook retains outdated due dates.
-- **Relative inconsistencies**: In modules like `assign`, if `duedate` exceeds `cutoffdate` or `gradingduedate`, the activity enters an invalid or uneditable state.
+- **Relative inconsistencies**: In `assign`, the submission interval runs from `allowsubmissionsfromdate` to `cutoffdate`; `duedate` and `gradingduedate` are separate milestones. Moodle requires the due date to follow the opening date and the cutoff date to be no earlier than either the due date or opening date.
 
 ### Cascade Safe Adapter Engine
 
@@ -624,7 +624,7 @@ operation fails so the outer transaction rolls back.
 These integrations support complex modules and older module releases that do
 not yet ship their own adapter:
 
-- **`assign_adapter`**: Harmoniously adjusts dependent dates (`cutoffdate`, `gradingduedate`), invoking `$assign->update_calendar()` and `$assign->update_gradebook()`.
+- **`assign_adapter`**: Saves the submission opening-to-cutoff interval while preserving the independent due and grading due milestones. It validates the complete Assignment date set and refreshes calendar and gradebook data through the Assign API.
 - **`workshop_adapter`**: Handles workshops and submission/assessment subphases (`submissionstart/end`, `assessmentstart/end`), synchronizing events via `workshop_calendar_update()`.
 - **`quest_adapter`**: Fallback for Quest versions without `\mod_quest\local\reschedule\adapter`.
 - **`kuet_adapter`**: Handles `mod_kuet` and its scheduled sessions (`kuet_sessions`), managing automated session start flags (`automaticstart = 1`), programmed session modes, reactivation of rescheduled sessions, and course module cache synchronization.
