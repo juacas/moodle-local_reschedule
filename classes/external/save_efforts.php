@@ -46,7 +46,12 @@ class save_efforts extends external_api {
                 'hours' => new external_value(PARAM_FLOAT, 'Estimated work hours.'),
             ]), 'Effort updates.', VALUE_DEFAULT, []),
             'model' => new external_value(PARAM_ALPHA, 'Effort distribution model.', VALUE_DEFAULT, ''),
-            'scopecmid' => new external_value(PARAM_INT, 'Only allow effort updates for this module and its subactivities.', VALUE_DEFAULT, 0),
+            'scopecmid' => new external_value(
+                PARAM_INT,
+                'Only allow effort updates for this module and its subactivities.',
+                VALUE_DEFAULT,
+                0
+            ),
         ]);
     }
 

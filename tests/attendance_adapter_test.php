@@ -24,16 +24,12 @@ use local_reschedule\adapter\attendance_adapter;
  * @package    local_reschedule
  * @copyright  2026 Juan Pablo de Castro
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @coversDefaultClass \local_reschedule\adapter\attendance_adapter
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(attendance_adapter::class)]
 final class attendance_adapter_test extends \advanced_testcase {
     /**
      * Check session loading, log limits and date updates through module APIs.
      *
-     * @covers ::get_activity_records
-     * @covers ::get_subitems
-     * @covers ::get_subitem_attributes
-     * @covers ::save
      */
     public function test_attendance_sessions_use_module_api(): void {
         global $CFG;

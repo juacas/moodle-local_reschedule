@@ -47,6 +47,22 @@ class assign_extractor extends base_builtin_extractor {
         parent::load_data();
     }
 
+    /**
+     * Include related Assignment fields whose ordering errors affect this edit.
+     *
+     * @param string $field Date field being changed.
+     * @return string[] Field names whose errors are relevant.
+     */
+    public function get_reschedule_validation_fields(string $field): array {
+        if ($field === 'duedate') {
+            return ['duedate', 'cutoffdate'];
+        }
+        if ($field === 'allowsubmissionsfromdate') {
+            return ['allowsubmissionsfromdate', 'duedate', 'cutoffdate'];
+        }
+        return parent::get_reschedule_validation_fields($field);
+    }
+
     #[\Override]
     public function get_settings(cm_info $cm) {
         if (!isset($this->mods[$cm->instance])) {
