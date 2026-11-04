@@ -83,9 +83,28 @@ class milestone_adapter extends base_adapter {
         if (!$errors) {
             return [];
         }
+        // A validation error normally belongs to its own field. Assignment due
+        // dates also affect the cutoff rule, while unrelated milestones such as
+        // grading due must not inherit that error.
+        $relevantfields = [$field];
+        if ($item['table'] === 'assign') {
+            if ($field === 'duedate') {
+                $relevantfields[] = 'cutoffdate';
+            } else if ($field === 'allowsubmissionsfromdate') {
+                $relevantfields[] = 'duedate';
+                $relevantfields[] = 'cutoffdate';
+            }
+        }
+        $relevanterrors = array_intersect_key($errors, array_fill_keys($relevantfields, true));
+        if (!$relevanterrors) {
+            return [];
+        }
         $messages = [];
-        foreach ($errors as $message) {
-            $messages[] = ($item['title'] ?? $field) . ': ' . $message;
+        $parenttitle = trim((string)($item['parenttitle'] ?? ''));
+        $title = trim((string)($item['title'] ?? $field));
+        $context = $parenttitle !== '' ? $parenttitle . ' > ' . $title : $title;
+        foreach ($relevanterrors as $message) {
+            $messages[] = $context . ': ' . $message;
         }
         return $messages;
     }

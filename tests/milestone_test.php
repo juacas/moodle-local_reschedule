@@ -28,7 +28,7 @@ use advanced_testcase;
 #[\PHPUnit\Framework\Attributes\CoversClass(manager::class)]
 final class milestone_test extends advanced_testcase {
     /**
-     * Assignment deadlines beyond the main interval are independent editable rows.
+     * Assignment due dates are milestones outside the opening-to-cutoff interval.
      */
     public function test_assignment_extra_dates_are_discovered_and_saved(): void {
         global $DB;
@@ -51,48 +51,50 @@ final class milestone_test extends advanced_testcase {
 
         $items = array_column(manager::get_course_items($course->id), null, 'id');
         $parentid = 'main_assign_' . $assign->id;
-        $cutoffid = 'milestone_assign_' . $assign->id . '_cutoffdate';
+        $dueid = 'milestone_assign_' . $assign->id . '_duedate';
         $gradingid = 'milestone_assign_' . $assign->id . '_gradingduedate';
         $this->assertArrayHasKey($parentid, $items);
-        $this->assertArrayHasKey($cutoffid, $items);
+        $this->assertArrayHasKey($dueid, $items);
         $this->assertArrayHasKey($gradingid, $items);
         $this->assertTrue($items[$parentid]['haschildren']);
-        $this->assertSame($parentid, $items[$cutoffid]['parentkey']);
-        $this->assertTrue($items[$cutoffid]['ismilestone']);
-        $this->assertSame($cutoff, $items[$cutoffid]['datestart']);
-        $this->assertSame($cutoff, $items[$cutoffid]['dateend']);
+        $this->assertSame('allowsubmissionsfromdate', $items[$parentid]['startcol']);
+        $this->assertSame('cutoffdate', $items[$parentid]['endcol']);
+        $this->assertSame($parentid, $items[$dueid]['parentkey']);
+        $this->assertTrue($items[$dueid]['ismilestone']);
+        $this->assertSame($due, $items[$dueid]['datestart']);
+        $this->assertSame($due, $items[$dueid]['dateend']);
 
         $result = manager::save_schedule($course->id, [
-            ['id' => $cutoffid, 'datestart' => $cutoff + HOURSECS,
-                'dateend' => $cutoff + HOURSECS, 'startenabled' => true, 'endenabled' => true],
+            ['id' => $dueid, 'datestart' => $due + HOURSECS,
+                'dateend' => $due + HOURSECS, 'startenabled' => true, 'endenabled' => true],
             ['id' => $gradingid, 'datestart' => $grading + HOURSECS,
                 'dateend' => $grading + HOURSECS, 'startenabled' => true, 'endenabled' => true],
         ]);
         $this->assertTrue($result['success'], $result['message']);
         $this->assertSame(2, $result['updated']);
         $stored = $DB->get_record('assign', ['id' => $assign->id], '*', MUST_EXIST);
-        $this->assertEquals($cutoff + HOURSECS, $stored->cutoffdate);
+        $this->assertEquals($cutoff, $stored->cutoffdate);
         $this->assertEquals($grading + HOURSECS, $stored->gradingduedate);
         $this->assertEquals($start, $stored->allowsubmissionsfromdate);
-        $this->assertEquals($due, $stored->duedate);
+        $this->assertEquals($due + HOURSECS, $stored->duedate);
 
-        // The cutoff would be invalid against the old due date, but is valid
-        // alongside the new due date. Explicit edits win over automatic shifts.
+        // Update the due milestone and interval end together to keep Moodle's
+        // required ordering (opening <= due <= cutoff).
         $newdue = $due - (2 * HOURSECS);
         $newcutoff = $due - HOURSECS;
         $combined = manager::save_schedule($course->id, [
-            ['id' => $cutoffid, 'datestart' => $newcutoff, 'dateend' => $newcutoff],
-            ['id' => $parentid, 'datestart' => $start, 'dateend' => $newdue],
+            ['id' => $dueid, 'datestart' => $newdue, 'dateend' => $newdue],
+            ['id' => $parentid, 'datestart' => $start, 'dateend' => $newcutoff],
         ]);
         $this->assertTrue($combined['success'], $combined['message']);
         $this->assertEquals($newdue, $DB->get_field('assign', 'duedate', ['id' => $assign->id]));
         $this->assertEquals($newcutoff, $DB->get_field('assign', 'cutoffdate', ['id' => $assign->id]));
 
         $invalid = manager::save_schedule($course->id, [
-            ['id' => $cutoffid, 'datestart' => -1, 'dateend' => -1],
+            ['id' => $parentid, 'datestart' => -1, 'dateend' => -1],
         ]);
         $this->assertFalse($invalid['success']);
-        $this->assertSame($cutoffid, $invalid['itemerrors'][0]['id']);
+        $this->assertSame($parentid, $invalid['itemerrors'][0]['id']);
         $this->assertEquals($newcutoff, $DB->get_field('assign', 'cutoffdate', ['id' => $assign->id]));
 
         $disable = manager::save_schedule($course->id, [
@@ -169,14 +171,14 @@ final class milestone_test extends advanced_testcase {
         $this->setAdminUser();
         $course = $this->getDataGenerator()->create_course();
         $assignment = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
-        $milestoneid = 'milestone_assign_' . $assignment->id . '_cutoffdate';
+        $milestoneid = 'milestone_assign_' . $assignment->id . '_duedate';
 
         $before = array_column(manager::get_course_items($course->id), null, 'id');
         $this->assertArrayHasKey($milestoneid, $before);
         $this->assertFalse($before[$milestoneid]['startenabled']);
 
         $cutoff = time() + (3 * DAYSECS);
-        $DB->set_field('assign', 'cutoffdate', $cutoff, ['id' => $assignment->id]);
+        $DB->set_field('assign', 'duedate', $cutoff, ['id' => $assignment->id]);
         $after = array_column(manager::get_course_items($course->id), null, 'id');
         $this->assertTrue($after[$milestoneid]['startenabled']);
         $this->assertSame($cutoff, $after[$milestoneid]['datestart']);

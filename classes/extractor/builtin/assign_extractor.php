@@ -25,10 +25,10 @@ use report_editdates_date_setting;
 /**
  * Replicated date extractor for Assignment scheduling.
  *
- * Exposes submission opening, due, cutoff, and grading due dates. It validates
- * that the due and cutoff dates follow the opening date and that cutoff does
- * not precede due. Saving refreshes Assignment calendar and gradebook data via
- * the assign API after persisting the complete date set.
+ * Exposes the submission opening-to-cutoff interval, with due and grading due
+ * dates as independent point milestones. It validates Moodle's ordering rules
+ * for opening, due, and cutoff dates. Saving refreshes Assignment calendar and
+ * gradebook data via the assign API after persisting the complete date set.
  *
  * @package    local_reschedule
  * @copyright  2012 The Open University (based on report_editdates)
@@ -95,13 +95,12 @@ class assign_extractor extends base_builtin_extractor {
             !empty($dates['cutoffdate']) && !empty($dates['allowsubmissionsfromdate'])
                 && $dates['cutoffdate'] < $dates['allowsubmissionsfromdate']
         ) {
-            $errors['cutoffdate'] = $this->get_error_string('timeend');
-        }
-        if (
+            $errors['cutoffdate'] = get_string('cutoffdatefromdatevalidation', 'assign');
+        } else if (
             !empty($dates['cutoffdate']) && !empty($dates['duedate'])
                 && $dates['cutoffdate'] < $dates['duedate']
         ) {
-            $errors['cutoffdate'] = $this->get_error_string('timeend');
+            $errors['cutoffdate'] = get_string('cutoffdatevalidation', 'assign');
         }
         return $errors;
     }
