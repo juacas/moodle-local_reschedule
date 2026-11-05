@@ -20,8 +20,8 @@
  * @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'core/ajax'],
-    function(Notification, Chart, EffortTable, Ajax) {
+define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'core/ajax',
+    'local_reschedule/effort_curve'], function(Notification, Chart, EffortTable, Ajax, EffortCurve) {
     'use strict';
 
     var activeLocale;
@@ -553,11 +553,11 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
         return endHandle ? 'resize-end' : 'move';
     }
 
-    var EFFORT_DAY = 86400;
+    var EFFORT_DAY = EffortCurve.DAY;
     var EFFORT_DEFAULT = 5;
-    var EFFORT_TAIL_DAYS = 2;
+    var EFFORT_TAIL_DAYS = EffortCurve.TAIL_DAYS;
     var EFFORT_SCALE_MAX = 4;
-    var EFFORT_DAYS_PER_WEEK = 7;
+    var EFFORT_DAYS_PER_WEEK = EffortCurve.DAYS_PER_WEEK;
     // Five labels (0–4) fit at 15px intervals with a little canvas padding.
     var EFFORT_PLOT_HEIGHT = 72;
     var EFFORT_HEADER_MIN_HEIGHT = 116;
@@ -600,25 +600,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
      * @param {Object} period Scheduled activity period.
      * @return {number} Relative daily effort at this timestamp.
      */
-    function effortShape(time, period) {
-        if (time <= period.start || time > period.tailEnd) {
-            return 0;
-        }
-        if (period.model === 'ideal') {
-            var idealEnd = 4 * Math.exp(-4.5) / Math.pow(1 + Math.exp(-4.5), 2) * (1 - Math.exp(-20));
-            if (time > period.end) {
-                return idealEnd * Math.exp(-4 * (time - period.end) / EFFORT_DAY);
-            }
-            var u = (time - period.start) / (period.end - period.start);
-            var z = Math.exp(-9 * (u - 0.5));
-            return 4 * z / Math.pow(1 + z, 2) * (1 - Math.exp(-20 * u));
-        }
-        if (time <= period.end) {
-            var rise = (time - period.start) / (period.end - period.start);
-            return Math.expm1(5 * rise) / Math.expm1(5);
-        }
-        return Math.exp(-4 * (time - period.end) / EFFORT_DAY);
-    }
+    var effortShape = EffortCurve.shape;
 
     /**
      * Scale the curve so its integral in days equals the item's effort.
@@ -626,20 +608,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
      * @param {Object} period Scheduled activity period.
      * @return {Object} Scaled activity period.
      */
-    function prepareEffortPeriod(period) {
-        var area = 0;
-        var boundaries = period.model === 'real' ?
-            [period.start, period.end, period.tailEnd] :
-            [period.start, period.peak, period.end, period.tailEnd];
-        for (var segment = 0; segment < boundaries.length - 1; segment++) {
-            var width = (boundaries[segment + 1] - boundaries[segment]) / 64;
-            for (var sample = 0; sample < 64; sample++) {
-                area += effortShape(boundaries[segment] + (sample + 0.5) * width, period) * width / EFFORT_DAY;
-            }
-        }
-        period.scale = area > 0 ? period.effort / area : 0;
-        return period;
-    }
+    var prepareEffortPeriod = EffortCurve.prepare;
 
     /**
      * Daily effort contributed by one activity.
@@ -674,6 +643,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
         effortChart: null,
         effortTable: null,
         effortModel: 'real',
+        effortAutoScale: true,
         hoveredEffortItemId: null,
         effortUpdatePending: false,
         absoluteLimitTooltipCounter: 0,
@@ -894,7 +864,8 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
  return calendar.canEditSchedule();
 },
                 isReadWrite: function(item) {
- return !calendar.config.scopedEditMode || item.scopedreadwrite === true;
+ return item.efforteditable !== false &&
+    (!calendar.config.scopedEditMode || item.scopedreadwrite === true);
 },
                 locale: this.locale,
                 strings: this.strings,
@@ -1238,6 +1209,7 @@ b3 = [];
                     effortBadge.setAttribute('data-effort-value', String(effort));
                     effortBadge.setAttribute('aria-valuenow', String(effort));
                     var effortEditable = self.canEditSchedule() &&
+                        item.efforteditable !== false &&
                         (!self.config.scopedEditMode || item.scopedreadwrite === true) &&
                         item.effortsource !== 'adapter' &&
                         item.effortsource !== 'children';
@@ -1608,9 +1580,10 @@ b3 = [];
          *
          * @param {*} viewStart
          * @param {*} viewEnd
+         * @param {Object[]} [sourceItems] Optional item set for an overlay.
          * @return {Object} Line and peak markers in timeline seconds.
          */
-        getEffortDropsData: function(viewStart, viewEnd) {
+        getEffortDropsData: function(viewStart, viewEnd, sourceItems) {
             var start = typeof viewStart === 'number' ? viewStart : this.getTimelineStart();
             var end = typeof viewEnd === 'number' ? viewEnd : this.getTimelineEnd();
             var day = EFFORT_DAY;
@@ -1623,18 +1596,20 @@ b3 = [];
             var timelineStart = this.getTimelineStart();
             var timelineEnd = this.getTimelineEnd();
             var parentsWithSubactivities = Object.create(null);
-            this.items.forEach(function(item) {
+            var effortItems = sourceItems || this.items;
+            effortItems.forEach(function(item) {
                 if (item.issubtype && !item.ismilestone && item.parentkey) {
                     parentsWithSubactivities[String(item.parentkey)] = true;
                 }
             });
             // Effort eligibility is evaluated together to avoid divergent graph and total calculations.
             // eslint-disable-next-line complexity
-            this.items.forEach(function(item) {
+            effortItems.forEach(function(item) {
                 var itemStart = item.startenabled === false ? timelineStart : Number(item.datestart);
                 var itemEnd = item.endenabled === false ? timelineEnd : Number(item.dateend);
                 var effort = item.effort === null || typeof item.effort === 'undefined' ?
                     EFFORT_DEFAULT : Number(item.effort);
+                effort *= typeof item.effortweight === 'undefined' ? 1 : Number(item.effortweight);
                 if (parentsWithSubactivities[String(item.id)] || item.ismilestone ||
                         !isFinite(itemStart) || !isFinite(itemEnd) || !isFinite(effort) ||
                         itemStart <= 0 || itemEnd <= itemStart || effort <= 0 ||
@@ -1698,6 +1673,38 @@ b3 = [];
         },
 
         /**
+         * Calculate a readable vertical maximum from an effort curve.
+         *
+         * Keep ten percent of headroom above the peak and use a readable tick
+         * interval. The plot has four intervals, so its maximum is four times
+         * that rounded interval.
+         *
+         * @param {Object} data Effort line and marker data.
+         * @return {number} Suggested vertical axis maximum.
+         */
+        calculateEffortScaleMax: function(data) {
+            var peak = (data.line || []).reduce(function(maximum, point) {
+                var value = Number(point.y);
+                return isFinite(value) ? Math.max(maximum, value) : maximum;
+            }, 0);
+            var requiredMaximum = peak * 1.1;
+            if (requiredMaximum <= 1) {
+                return 1;
+            }
+
+            var requiredStep = requiredMaximum / 4;
+            var magnitude = Math.pow(10, Math.floor(Math.log10(requiredStep)));
+            var roundedSteps = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
+            var roundedStep = roundedSteps.find(function(candidate) {
+                return candidate * magnitude >= requiredStep;
+            });
+            if (typeof roundedStep === 'undefined') {
+                roundedStep = 10;
+            }
+            return Number((roundedStep * magnitude * 4).toPrecision(12));
+        },
+
+        /**
          * Give each hovered subactivity its own labelled effort line.
          * @param {*} curves
          */
@@ -1720,6 +1727,34 @@ b3 = [];
         },
 
         /**
+         * Build the thin dashed contribution line configured for each course.
+         *
+         * @param {number} start Visible range start.
+         * @param {number} end Visible range end.
+         * @return {Object[]} Chart.js datasets.
+         */
+        getEffortContributionDatasets: function(start, end) {
+            var self = this;
+            return (self.effortOverlays || []).map(function(overlay) {
+                var contribution = self.getEffortDropsData(start, end, overlay.items);
+                return {
+                    label: overlay.label,
+                    data: contribution.line,
+                    parsing: false,
+                    order: 1,
+                    borderColor: overlay.color,
+                    borderWidth: 1,
+                    borderDash: [5, 4],
+                    pointRadius: 0,
+                    pointHitRadius: 8,
+                    fill: false,
+                    tension: 0,
+                    rescheduleContribution: true
+                };
+            });
+        },
+
+        /**
          * Draw the effort row with Moodle's local Chart.js package.
          *
          * @param {HTMLCanvasElement} canvas The row canvas.
@@ -1733,39 +1768,50 @@ b3 = [];
             canvas.style.left = range.left + 'px';
             self.effortViewportWidth = range.width;
             self.effortCanvas = canvas;
-            var data = self.getEffortDropsData(range.start, range.end);
+            // The report's aggregate line sets a shared scale across the full
+            // report interval, even when the initial viewport shows only part.
+            var data = self.effortAutoScale ? self.getEffortDropsData(
+                self.getTimelineStart(), self.getTimelineEnd()) :
+                self.getEffortDropsData(range.start, range.end);
+            if (self.effortAutoScale) {
+                self.effortScaleMax = self.calculateEffortScaleMax(data);
+            }
+            var scaleMax = Number(self.effortScaleMax) || EFFORT_SCALE_MAX;
             var colors = self.getEffortColors();
+            var datasets = [{
+                label: self.strings.effortscale,
+                data: data.line,
+                parsing: false,
+                order: 2,
+                borderColor: colors.line,
+                backgroundColor: effortFillGradient,
+                borderWidth: 2,
+                pointRadius: 0,
+                fill: 'origin',
+                tension: 0
+            }, {
+                type: 'scatter',
+                label: self.strings.effortdrops,
+                data: data.drops,
+                parsing: false,
+                order: -1,
+                backgroundColor: colors.marker,
+                borderColor: '#fff',
+                borderWidth: 1,
+                pointRadius: 5,
+                pointHoverRadius: 7
+            }];
+            datasets = datasets.concat(self.getEffortContributionDatasets(range.start, range.end));
             self.effortChart = new Chart(canvas, {
                 type: 'line',
                 data: {
-                    datasets: [{
-                        label: self.strings.effortscale,
-                        data: data.line,
-                        parsing: false,
-                        order: 2,
-                        borderColor: colors.line,
-                        backgroundColor: effortFillGradient,
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        fill: 'origin',
-                        tension: 0
-                    }, {
-                        type: 'scatter',
-                        label: self.strings.effortdrops,
-                        data: data.drops,
-                        parsing: false,
-                        order: -1,
-                        backgroundColor: colors.marker,
-                        borderColor: '#fff',
-                        borderWidth: 1,
-                        pointRadius: 5,
-                        pointHoverRadius: 7
-                    }].concat(self.getEffortOverlayDatasets(data.hoveredCurves))
+                    datasets: datasets.concat(self.getEffortOverlayDatasets(data.hoveredCurves))
                 },
                 options: {
                     responsive: false,
                     maintainAspectRatio: false,
                     animation: false,
+                    interaction: {mode: 'nearest', intersect: false},
                     layout: {autoPadding: false, padding: {top: 6, bottom: 6}},
                     plugins: {
                         legend: {display: false},
@@ -1786,10 +1832,11 @@ b3 = [];
                     scales: {
                         x: {type: 'linear', display: false, min: range.start, max: range.end},
                         y: {
-                            type: 'linear', display: true, min: 0, max: EFFORT_SCALE_MAX,
+                            type: 'linear', display: true, min: 0,
+                            max: scaleMax,
                             grid: {display: true, color: 'rgba(30, 64, 175, 0.28)', z: 1},
                             ticks: {
-                                stepSize: 1,
+                                stepSize: scaleMax / 4,
                                 autoSkip: false,
                                 color: '#334155',
                                 font: {size: 10},
@@ -1810,7 +1857,7 @@ b3 = [];
             if (!this.effortChart) {
                 return;
             }
-            this.updateEffortViewport();
+            this.updateEffortViewport(true);
         },
 
         /** Recalculate JSON rule estimates from current dates and update parent totals. */
@@ -1891,8 +1938,12 @@ b3 = [];
                 end: start + seconds * (left + width) / this.trackWidthPx};
         },
 
-        /** Redraw the fixed-width effort plot for the visible timeline window. */
-        updateEffortViewport: function() {
+        /**
+         * Redraw the fixed-width effort plot for the visible timeline window.
+         *
+         * @param {boolean} recalculateScale Recalculate an automatic scale after data changes.
+         */
+        updateEffortViewport: function(recalculateScale) {
             if (!this.effortChart || !this.effortCanvas) {
                 return;
             }
@@ -1902,13 +1953,21 @@ b3 = [];
             var colors = this.getEffortColors();
             this.effortChart.data.datasets[0].data = data.line;
             this.effortChart.data.datasets[1].data = data.drops;
-            this.effortChart.data.datasets = this.effortChart.data.datasets.slice(0, 2).concat(
-                this.getEffortOverlayDatasets(data.hoveredCurves));
+            var baseDatasets = this.effortChart.data.datasets.slice(0, 2);
+            this.effortChart.data.datasets = baseDatasets
+                .concat(this.getEffortContributionDatasets(range.start, range.end))
+                .concat(this.getEffortOverlayDatasets(data.hoveredCurves));
             this.effortChart.data.datasets[0].borderColor = colors.line;
             this.effortChart.data.datasets[1].backgroundColor = colors.marker;
             this.effortChart.options.scales.x.min = range.start;
             this.effortChart.options.scales.x.max = range.end;
-            this.effortChart.options.scales.y.max = EFFORT_SCALE_MAX;
+            if (this.effortAutoScale && recalculateScale === true) {
+                var fullData = this.getEffortDropsData(this.getTimelineStart(), this.getTimelineEnd());
+                this.effortScaleMax = this.calculateEffortScaleMax(fullData);
+            }
+            var scaleMax = Number(this.effortScaleMax) || EFFORT_SCALE_MAX;
+            this.effortChart.options.scales.y.max = scaleMax;
+            this.effortChart.options.scales.y.ticks.stepSize = scaleMax / 4;
             this.effortChart.update('none');
         },
 
@@ -7152,9 +7211,520 @@ b3 = [];
         }
     };
 
+    /**
+     * Read-only cross-course report using the same bands, effort calculator,
+     * Chart.js configuration and zoom implementation as the main Gantt.
+     */
+    var EffortReport = Object.create(RescheduleCalendar);
+
+    /** Parse report data and initialise the common timeline. */
+    EffortReport.initReport = function() {
+        var root = document.getElementById('reschedule-global-report');
+        var dataNode = document.getElementById('reschedule-global-report-data');
+        var board = document.getElementById('global-report-timeline-app');
+        if (!root || !dataNode || !board) {
+            return;
+        }
+        try {
+            this.report = JSON.parse(dataNode.textContent);
+        } catch (error) {
+            return;
+        }
+        this.pageRoot = root;
+        this.board = board;
+        this.wrapper = board;
+        this.config = {
+            courseid: Number(this.report.currentcourseid),
+            courseStart: Number(this.report.rangestart),
+            courseEnd: Number(this.report.rangeend),
+            timelineStart: Number(this.report.rangestart),
+            timelineEnd: Number(this.report.rangeend),
+            forceEditMode: true,
+            scopeCmid: 0,
+            scopedEditMode: false
+        };
+        this.strings = {
+            effortdrops: root.dataset.effortDrops,
+            effortscale: root.dataset.effortScale,
+            effortweeklyunit: root.dataset.effortWeeklyUnit,
+            effortsettings: root.dataset.effortSettings,
+            efforttabletitle: root.dataset.effortTableTitle,
+            efforttablehours: root.dataset.effortTableHours,
+            efforttableadapter: root.dataset.effortTableAdapter,
+            efforttablechildren: root.dataset.effortTableChildren,
+            efforttabledefault: root.dataset.effortTableDefault,
+            efforttablemanual: root.dataset.effortTableManual,
+            efforttablemapping: root.dataset.effortTableMapping,
+            efforttablemilestone: root.dataset.effortTableMilestone,
+            efforttableinvalid: root.dataset.effortTableInvalid,
+            efforthoursabbr: root.dataset.effortHoursAbbr,
+            currentcourseeffort: root.dataset.currentCourseEffort,
+            error_saving: root.dataset.errorSaving
+        };
+        this.locale = root.dataset.language || document.documentElement.lang || undefined;
+        activeLocale = this.locale;
+        activeDateTimeFormat = root.dataset.datetimeFormat || activeDateTimeFormat;
+        activeDateOnlyFormat = root.dataset.dateonlyFormat || activeDateOnlyFormat;
+        activeTimezone = root.dataset.userTimezone || undefined;
+        activeTimezoneOffset = null;
+        if (/^[+-]?\d+(\.\d+)?$/.test(activeTimezone || '')) {
+            activeTimezoneOffset = Number(activeTimezone) * 3600;
+            activeTimezone = undefined;
+        } else if (activeTimezone) {
+            try {
+                new Intl.DateTimeFormat('en', {timeZone: activeTimezone}).format(new Date());
+            } catch (error) {
+                activeTimezone = undefined;
+            }
+        }
+        this.effortModel = this.report.effortmodel === 'ideal' ? 'ideal' : 'real';
+        this.effortScaleMax = Number(root.dataset.effortScaleMax) || EFFORT_SCALE_MAX;
+        this.zoomLevel = 1;
+        this.minZoom = 0.5;
+        this.maxZoom = 5;
+        this.trackWidthPx = 1000;
+        this.baseTrackWidthPx = 1000;
+        this.charts = [];
+        this.pointerPositions = {};
+        this.effortSaveChain = Promise.resolve();
+        this.editingEnabled = true;
+        this.bindReportControls();
+        this.renderTimeline();
+        this.bindReportNavigation();
+    };
+
+    /**
+     * Return copies of all items in the selected courses.
+     *
+     * @param {number[]} courseIds Included courses.
+     * @param {boolean} weighted Whether to apply cohort weights.
+     * @return {Object[]} Copied Gantt items.
+     */
+    EffortReport.itemsForCourses = function(courseIds, weighted) {
+        var self = this;
+        var allowed = new Set((courseIds || []).map(Number));
+        var denominator = Math.max(1, Number(self.report.studentcount));
+        var items = [];
+        self.report.courses.forEach(function(course) {
+            if (!allowed.has(Number(course.id))) {
+                return;
+            }
+            var weight = weighted ? Number(course.studentcount) / denominator : 1;
+            course.items.forEach(function(item) {
+                var copy = JSON.parse(JSON.stringify(item));
+                copy.effortweight = weight;
+                items.push(copy);
+            });
+        });
+        return items;
+    };
+
+    /** Build the common left cell used by the aggregate effort row. */
+    EffortReport.createAggregateLabel = function() {
+        var cell = document.createElement('th');
+        cell.scope = 'row';
+        cell.className = 'quest-timeline-left-column global-report-aggregate-label p-0';
+        var header = document.createElement('div');
+        header.className = 'quest-left-header p-2 d-flex flex-column justify-content-center';
+        var label = document.createElement('div');
+        label.className = 'quest-left-drops-label fw-bold small';
+        var title = document.createElement('span');
+        title.innerHTML = '<i class="fa fa-tint me-1" aria-hidden="true"></i>' +
+            this.escapeHtml(this.strings.effortdrops);
+        label.appendChild(title);
+        var actions = document.createElement('span');
+        actions.className = 'quest-effort-actions';
+        var tableButton = document.createElement('button');
+        tableButton.type = 'button';
+        tableButton.className = 'quest-effort-settings quest-effort-table-button btn btn-sm';
+        tableButton.title = this.strings.efforttabletitle;
+        tableButton.setAttribute('aria-label', this.strings.efforttabletitle);
+        tableButton.innerHTML = '<i class="fa fa-table" aria-hidden="true"></i>';
+        actions.appendChild(tableButton);
+        var settingsButton = document.createElement('button');
+        settingsButton.type = 'button';
+        settingsButton.className = 'quest-effort-settings btn btn-sm';
+        settingsButton.title = this.strings.effortsettings;
+        settingsButton.setAttribute('aria-label', this.strings.effortsettings);
+        settingsButton.innerHTML = '<i class="fa fa-cog" aria-hidden="true"></i>';
+        actions.appendChild(settingsButton);
+        label.appendChild(actions);
+        header.appendChild(label);
+        var summary = document.createElement('div');
+        summary.className = 'global-report-aggregate-summary px-2 py-3 text-start';
+        summary.innerHTML = '<strong>' + this.escapeHtml(rootString(this.pageRoot, 'weightedTitle')) +
+            '</strong><div class="small text-muted mt-1">' +
+            this.escapeHtml(rootString(this.pageRoot, 'weightedDesc')) + '</div>';
+        header.appendChild(summary);
+        cell.appendChild(header);
+        return cell;
+    };
+
+    /**
+     * Read one camel-cased data attribute without coupling calculations to markup.
+     *
+     * @param {HTMLElement} root Report root.
+     * @param {string} name Dataset property.
+     * @return {string} Attribute value.
+     */
+    function rootString(root, name) {
+        return root && root.dataset ? root.dataset[name] || '' : '';
+    }
+
+    /**
+     * Build the shared calendar scale rows with the main Gantt band calculator.
+     *
+     * @param {HTMLElement} container Timeline header.
+     * @param {Object} bands Calculated calendar bands.
+     */
+    EffortReport.createBands = function(container, bands) {
+        [bands.b1, bands.b2, bands.b3].forEach(function(items, index) {
+            if (!items.length) {
+                return;
+            }
+            var level = index + 1;
+            var row = document.createElement('div');
+            row.className = 'quest-band-row quest-band-l' + level + ' position-relative';
+            items.forEach(function(item) {
+                var cell = document.createElement('div');
+                cell.className = 'quest-band-cell quest-cell-l' + level +
+                    ' text-center position-absolute border-end' +
+                    (level === 1 ? ' fw-bold' : '') +
+                    (item.isWeekend ? ' quest-cell-weekend' : '');
+                cell.style.left = item.left + '%';
+                cell.style.width = item.width + '%';
+                cell.textContent = item.label;
+                if (item.title) {
+                    cell.title = item.title;
+                }
+                row.appendChild(cell);
+            });
+            container.appendChild(row);
+        });
+    };
+
+    /**
+     * Create one chart controller backed by the main Gantt effort methods.
+     *
+     * @param {HTMLCanvasElement} canvas Row canvas.
+     * @param {Object[]} items Row activities.
+     * @param {boolean} autoScale Calculate an automatic scale from the full interval.
+     */
+    EffortReport.createChart = function(canvas, items, autoScale) {
+        var controller = Object.create(RescheduleCalendar);
+        var palette = ['#7c3aed', '#0369a1', '#15803d', '#b45309', '#be123c', '#0f766e', '#6d28d9'];
+        controller.config = this.config;
+        controller.items = items;
+        controller.effortOverlays = this.report.courses.map(function(course, index) {
+            return {
+                label: course.fullname,
+                color: palette[index % palette.length],
+                items: items.filter(function(item) {
+                    return Number(item.reportcourseid) === Number(course.id);
+                })
+            };
+        }).filter(function(overlay) {
+            return overlay.items.length > 0;
+        });
+        controller.strings = this.strings;
+        controller.locale = this.locale;
+        controller.effortModel = this.effortModel;
+        controller.effortScaleMax = this.effortScaleMax;
+        controller.effortAutoScale = autoScale === true;
+        controller.trackWidthPx = this.trackWidthPx;
+        controller.effortViewportWidth = Math.max(1, this.scrollContainer.clientWidth - 280);
+        controller.scrollContainer = this.scrollContainer;
+        controller.board = this.board;
+        controller.hoveredEffortItemId = null;
+        controller.refreshMappedEfforts();
+        controller.renderEffortDrops(canvas);
+        this.charts.push(controller);
+        return controller;
+    };
+
+    /** Render the aggregate and one student row on one synchronized timeline. */
+    EffortReport.renderTimeline = function() {
+        var self = this;
+        self.pageRoot.classList.toggle('is-ideal-effort', self.effortModel === 'ideal');
+        (self.charts || []).forEach(function(controller) {
+            if (controller.effortChart) {
+                controller.effortChart.destroy();
+            }
+        });
+        self.charts = [];
+        var previousScroll = self.scrollContainer ? self.scrollContainer.scrollLeft : 0;
+        var wrapperWidth = Math.max(1, self.wrapper.clientWidth - 280);
+        self.baseTrackWidthPx = wrapperWidth;
+        self.trackWidthPx = Math.max(wrapperWidth, self.baseTrackWidthPx * self.zoomLevel);
+        var bands = self.calculateBands(self.getTimelineStart(), self.getTimelineEnd(), self.trackWidthPx);
+
+        var scroll = document.createElement('div');
+        scroll.className = 'quest-timeline-scroll global-report-timeline-scroll';
+        var table = document.createElement('table');
+        table.className = 'global-report-timeline-table';
+        table.style.width = (280 + self.trackWidthPx) + 'px';
+        var body = document.createElement('tbody');
+        var aggregateRow = document.createElement('tr');
+        aggregateRow.className = 'global-report-aggregate-row';
+        aggregateRow.appendChild(self.createAggregateLabel());
+        var aggregateTimeline = document.createElement('td');
+        aggregateTimeline.className = 'p-0';
+        aggregateTimeline.style.width = self.trackWidthPx + 'px';
+        var bandsHeader = document.createElement('div');
+        bandsHeader.className = 'quest-bands-header position-relative';
+        bandsHeader.style.width = self.trackWidthPx + 'px';
+        var aggregatePlot = document.createElement('div');
+        aggregatePlot.className = 'quest-drops-row position-relative';
+        var aggregateCanvas = document.createElement('canvas');
+        aggregateCanvas.className = 'quest-drops-canvas';
+        aggregateCanvas.setAttribute('aria-label', self.strings.effortdrops);
+        aggregatePlot.appendChild(aggregateCanvas);
+        bandsHeader.appendChild(aggregatePlot);
+        self.createBands(bandsHeader, bands);
+        aggregateTimeline.appendChild(bandsHeader);
+        aggregateRow.appendChild(aggregateTimeline);
+        body.appendChild(aggregateRow);
+
+        self.report.students.forEach(function(student) {
+            var row = document.createElement('tr');
+            row.className = 'global-report-student-row';
+            var heading = document.createElement('th');
+            heading.scope = 'row';
+            heading.className = 'quest-timeline-left-column global-report-student-label';
+            var link = document.createElement('a');
+            link.href = student.profileurl;
+            link.textContent = student.fullname;
+            heading.appendChild(link);
+            var count = document.createElement('div');
+            count.className = 'small text-muted fw-normal mt-1';
+            count.textContent = student.courseids.length + ' ' + rootString(self.pageRoot, 'coursesLabel');
+            heading.appendChild(count);
+            row.appendChild(heading);
+            var timeline = document.createElement('td');
+            timeline.className = 'p-0';
+            var plot = document.createElement('div');
+            plot.className = 'quest-drops-row position-relative';
+            plot.style.width = self.trackWidthPx + 'px';
+            var canvas = document.createElement('canvas');
+            canvas.className = 'quest-drops-canvas';
+            canvas.setAttribute('aria-label', student.fullname);
+            plot.appendChild(canvas);
+            timeline.appendChild(plot);
+            row.appendChild(timeline);
+            body.appendChild(row);
+            student.canvas = canvas;
+        });
+        table.appendChild(body);
+        scroll.appendChild(table);
+        self.board.replaceChildren(scroll);
+        self.scrollContainer = scroll;
+        var aggregateController = self.createChart(aggregateCanvas, self.itemsForCourses(
+            self.report.courses.map(function(course) {
+                return course.id;
+            }), true), true);
+        // Every student row uses the aggregate report's automatically chosen
+        // vertical maximum to keep visual comparisons on the same scale.
+        self.effortScaleMax = aggregateController.effortScaleMax;
+        self.report.students.forEach(function(student) {
+            self.createChart(student.canvas, self.itemsForCourses(student.courseids, false));
+        });
+        scroll.scrollLeft = self.clampScrollLeft(previousScroll);
+        scroll.addEventListener('scroll', function() {
+            if (self.chartFramePending) {
+                return;
+            }
+            self.chartFramePending = true;
+            window.requestAnimationFrame(function() {
+                self.chartFramePending = false;
+                self.charts.forEach(function(controller) {
+                    controller.updateEffortViewport();
+                });
+            });
+        }, {passive: true});
+    };
+
+    /** Bind the shared effort dialogs. */
+    EffortReport.bindReportControls = function() {
+        var self = this;
+        var allItems = self.itemsForCourses(self.report.courses.map(function(course) {
+            return course.id;
+        }), false).map(function(item) {
+            item.title = item.reportcoursefullname + ': ' + item.title;
+            return item;
+        });
+        self.reportEffortItems = allItems;
+        self.effortTable = EffortTable.create({
+            getItems: function() {
+                return allItems;
+            },
+            canEdit: function() {
+                return true;
+            },
+            isReadWrite: function(item) {
+                return item.reportefforteditable === true;
+            },
+            locale: self.locale,
+            strings: self.strings,
+            onApply: function(updates) {
+                return self.saveReportEffortUpdates(updates);
+            }
+        });
+        self.board.addEventListener('click', function(event) {
+            if (event.target.closest('.quest-effort-table-button')) {
+                self.effortTable.open();
+            } else if (event.target.closest('.quest-effort-settings')) {
+                self.openEffortModelModal();
+            }
+        });
+        document.querySelectorAll('#effort-model-list .list-group-item').forEach(function(item) {
+            item.addEventListener('click', function() {
+                self.selectEffortModel(item.dataset.model);
+            });
+        });
+        document.querySelectorAll('[data-effort-dismiss]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                self.closeEffortModelModal();
+            });
+        });
+        var apply = document.getElementById('btn-effort-model-apply');
+        if (apply) {
+            apply.addEventListener('click', function() {
+                var selected = document.querySelector('input[name="effort_model"]:checked');
+                var model = selected && selected.value === 'ideal' ? 'ideal' : 'real';
+                apply.disabled = true;
+                self.saveEffortModel(model).then(function() {
+                    self.effortModel = model;
+                    self.renderTimeline();
+                    self.closeEffortModelModal();
+                    return model;
+                }).catch(Notification.exception).finally(function() {
+                    apply.disabled = false;
+                });
+            });
+        }
+    };
+
+    /**
+     * Persist editable estimates belonging to the report's current course.
+     *
+     * @param {Object[]} updates Namespaced report row updates.
+     * @return {Promise<Object>} AJAX result.
+     */
+    EffortReport.saveReportEffortUpdates = function(updates) {
+        var self = this;
+        var byId = Object.create(null);
+        (self.reportEffortItems || []).forEach(function(item) {
+            byId[String(item.id)] = item;
+        });
+        var allowed = updates.map(function(update) {
+            var item = byId[String(update.id)];
+            if (!item || item.reportefforteditable !== true || item.reportcurrentcourse !== true) {
+                return null;
+            }
+            return {id: String(item.reportsourceid), hours: Number(update.hours)};
+        }).filter(Boolean);
+        if (!allowed.length) {
+            return Promise.resolve({success: true, saved: 0});
+        }
+        return Ajax.call([{
+            methodname: 'local_reschedule_save_efforts',
+            args: {
+                courseid: self.config.courseid,
+                forceeditmode: true,
+                scopecmid: 0,
+                items: allowed
+            }
+        }])[0].then(function(result) {
+            var values = Object.create(null);
+            allowed.forEach(function(update) {
+                values[String(update.id)] = update.hours;
+            });
+            var applyValues = function(items) {
+                var parentSums = Object.create(null);
+                items.forEach(function(item) {
+                    if (Object.prototype.hasOwnProperty.call(values, String(item.reportsourceid))) {
+                        item.effort = values[String(item.reportsourceid)];
+                        item.effortsource = 'manual';
+                    }
+                    if (item.issubtype && !item.ismilestone && item.parentkey) {
+                        parentSums[String(item.parentkey)] = (parentSums[String(item.parentkey)] || 0) +
+                            Number(item.effort || 0);
+                    }
+                });
+                items.forEach(function(item) {
+                    if (Object.prototype.hasOwnProperty.call(parentSums, String(item.id))) {
+                        item.effort = Math.round(parentSums[String(item.id)] * 10000) / 10000;
+                        item.effortsource = 'children';
+                    }
+                });
+            };
+            self.report.courses.forEach(function(course) {
+                if (!course.current) {
+                    return;
+                }
+                applyValues(course.items);
+            });
+            applyValues(self.reportEffortItems || []);
+            self.renderTimeline();
+            return result;
+        });
+    };
+
+    /** Bind the same wheel zoom and background drag navigation as the Gantt. */
+    EffortReport.bindReportNavigation = function() {
+        var self = this;
+        self.board.addEventListener('wheel', function(event) {
+            if (!event.ctrlKey) {
+                return;
+            }
+            event.preventDefault();
+            var delta = event.deltaY * (event.deltaMode === 1 ? 16 : 1);
+            self.setZoomAt(self.zoomLevel * Math.exp(-delta * 0.002), event.clientX);
+        }, {passive: false});
+        self.board.addEventListener('pointerdown', function(event) {
+            if (event.target.closest('a, button') || (event.pointerType === 'mouse' && event.button !== 0)) {
+                return;
+            }
+            self.reportPan = {
+                pointerId: event.pointerId,
+                startX: event.clientX,
+                startScroll: self.scrollContainer.scrollLeft
+            };
+            self.board.classList.add('is-panning');
+            self.board.setPointerCapture(event.pointerId);
+        });
+        self.board.addEventListener('pointermove', function(event) {
+            if (!self.reportPan || self.reportPan.pointerId !== event.pointerId) {
+                return;
+            }
+            self.scrollContainer.scrollLeft = self.clampScrollLeft(
+                self.reportPan.startScroll - (event.clientX - self.reportPan.startX));
+        });
+        var finishPan = function(event) {
+            if (self.reportPan && self.reportPan.pointerId === event.pointerId) {
+                self.reportPan = null;
+                self.board.classList.remove('is-panning');
+            }
+        };
+        self.board.addEventListener('pointerup', finishPan);
+        self.board.addEventListener('pointercancel', finishPan);
+        if (typeof ResizeObserver !== 'undefined') {
+            self.reportResizeObserver = new ResizeObserver(function() {
+                var width = Math.max(1, self.wrapper.clientWidth - 280);
+                if (Math.abs(width - self.baseTrackWidthPx) > 2) {
+                    self.renderTimeline();
+                }
+            });
+            self.reportResizeObserver.observe(self.wrapper);
+        }
+    };
+
     return {
         init: function(cfg) {
             RescheduleCalendar.init(cfg);
+        },
+        initReport: function() {
+            EffortReport.initReport();
         }
     };
 });

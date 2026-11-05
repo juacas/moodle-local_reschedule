@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.2.5
+
+### Added
+
+- Added the `local/reschedule:viewglobalreport` course capability. It is granted
+  by default to the manager archetype; site administrators retain Moodle's
+  administrator bypass. The plugin version advances to register the new
+  capability defaults during Moodle's normal plugin upgrade.
+- Added automatic vertical scaling to the global report's aggregate effort
+  timeline. Student timelines share the aggregate maximum for comparison.
+
+### Fixed
+
+- Replaced Forum assessment date labels that referenced nonexistent core
+  strings with the Reschedule language strings.
+
 ## 1.2.4 - 2026-11-05
 
 Adapter architecture and activity-form integration release.

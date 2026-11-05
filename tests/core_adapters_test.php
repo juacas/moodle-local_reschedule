@@ -18,6 +18,7 @@ namespace local_reschedule;
 
 use local_reschedule\adapter\core\assign_adapter;
 use local_reschedule\adapter\core\choice_adapter;
+use local_reschedule\adapter\core\forum_adapter;
 use local_reschedule\adapter\core\workshop_adapter;
 
 /**
@@ -42,6 +43,10 @@ final class core_adapters_test extends \advanced_testcase {
         $fields = $adapter->get_date_fields($cm);
         $this->assertArrayHasKey('timeopen', $fields);
         $this->assertArrayHasKey('timeclose', $fields);
+        $this->assertSame([[
+            'startfield' => 'timeopen',
+            'endfield' => 'timeclose',
+        ]], $adapter->get_date_dependencies($cm, $fields));
         $this->assertSame(['timeclose' => get_string('timeclose', 'local_reschedule')],
             $adapter->validate_date_fields($cm, ['timeopen' => 200, 'timeclose' => 100]));
     }
@@ -55,6 +60,12 @@ final class core_adapters_test extends \advanced_testcase {
         $assignment = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
         $cm = get_fast_modinfo($course)->instances['assign'][$assignment->id];
         $adapter = new assign_adapter($course);
+
+        $fields = $adapter->get_date_fields($cm);
+        $this->assertSame([[
+            'startfield' => 'allowsubmissionsfromdate',
+            'endfield' => 'cutoffdate',
+        ]], $adapter->get_date_dependencies($cm, $fields));
 
         $this->assertSame(
             ['duedate' => get_string('duedateaftersubmissionvalidation', 'assign')],
@@ -74,9 +85,48 @@ final class core_adapters_test extends \advanced_testcase {
         $adapter = adapter_manager::get_adapter('workshop', $course, ['table' => 'workshop']);
 
         $this->assertInstanceOf(workshop_adapter::class, $adapter);
-        $this->assertSame(
-            ['submissionstart', 'submissionend', 'assessmentstart', 'assessmentend'],
-            array_keys($adapter->get_date_fields($cm))
-        );
+        $fields = $adapter->get_date_fields($cm);
+        $this->assertSame(['submissionstart', 'submissionend', 'assessmentstart', 'assessmentend'], array_keys($fields));
+        $this->assertSame([
+            ['startfield' => 'submissionstart', 'endfield' => 'submissionend'],
+            ['startfield' => 'assessmentstart', 'endfield' => 'assessmentend'],
+            ['startfield' => 'submissionend', 'endfield' => 'assessmentstart'],
+        ], $adapter->get_date_dependencies($cm, $fields));
+    }
+
+    /**
+     * Forum assessment labels come from Reschedule's own language strings.
+     */
+    public function test_forum_adapter_exposes_assessment_dates_without_core_to_string(): void {
+        $this->resetAfterTest(true);
+        $course = $this->getDataGenerator()->create_course();
+        $forum = $this->getDataGenerator()->create_module('forum', [
+            'course' => $course->id,
+            'assessed' => 1,
+        ]);
+        $cm = get_fast_modinfo($course)->instances['forum'][$forum->id];
+        $adapter = new forum_adapter($course);
+
+        $fields = $adapter->get_date_fields($cm);
+        $this->assertSame(get_string('assesstimefrom', 'local_reschedule'), $fields['assesstimestart']['label']);
+        $this->assertSame(get_string('assesstimeto', 'local_reschedule'), $fields['assesstimefinish']['label']);
+        $this->assertSame([[
+            'startfield' => 'assesstimestart',
+            'endfield' => 'assesstimefinish',
+        ]], $adapter->get_date_dependencies($cm, $fields));
+    }
+
+    /**
+     * The cross-course workload report is granted by default only to managers.
+     */
+    public function test_global_report_capability_defaults_to_managers(): void {
+        $capabilities = load_capability_def('local_reschedule');
+
+        $this->assertSame([
+            'riskbitmask' => RISK_PERSONAL,
+            'captype' => 'read',
+            'contextlevel' => CONTEXT_COURSE,
+            'archetypes' => ['manager' => CAP_ALLOW],
+        ], $capabilities['local/reschedule:viewglobalreport']);
     }
 }

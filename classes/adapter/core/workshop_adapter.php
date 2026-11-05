@@ -17,6 +17,7 @@
 namespace local_reschedule\adapter\core;
 
 use local_reschedule\adapter\base_adapter;
+use local_reschedule\adapter\date_dependencies_interface;
 use local_reschedule\adapter\date_fields_interface;
 
 /**
@@ -27,7 +28,7 @@ use local_reschedule\adapter\date_fields_interface;
  * @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class workshop_adapter extends base_adapter implements date_fields_interface {
+class workshop_adapter extends base_adapter implements date_fields_interface, date_dependencies_interface {
     #[\Override]
     public function supports(string $modname, array $item): bool {
         return ($modname === 'workshop');
@@ -55,6 +56,21 @@ class workshop_adapter extends base_adapter implements date_fields_interface {
             ];
         }
         return $fields;
+    }
+
+    /**
+     * Workshop defines two phases and the hand-off between them.
+     *
+     * @param \cm_info $cm Course module.
+     * @param array $settings Exposed date fields.
+     * @return array<int, array{startfield:string, endfield:string}>
+     */
+    public function get_date_dependencies(\cm_info $cm, array $settings): ?array {
+        return [
+            ['startfield' => 'submissionstart', 'endfield' => 'submissionend'],
+            ['startfield' => 'assessmentstart', 'endfield' => 'assessmentend'],
+            ['startfield' => 'submissionend', 'endfield' => 'assessmentstart'],
+        ];
     }
 
     /**
