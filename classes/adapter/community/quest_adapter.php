@@ -14,7 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-namespace local_reschedule\adapter;
+namespace local_reschedule\adapter\community;
+
+use local_reschedule\adapter\base_adapter;
 
 /**
  * Safe adapter for mod_quest and quest_submissions.

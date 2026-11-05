@@ -30,6 +30,18 @@
     vertical-align: middle;
 }
 
+.local-reschedule-date-actions {
+    align-items: center;
+    display: inline-flex;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+}
+
+.local-reschedule-date-actions > button,
+.local-reschedule-date-actions > .local-reschedule-modform-link {
+    flex: 0 0 auto;
+}
+
 .local-reschedule-modform-link img {
     height: 1.25rem;
     width: 1.25rem;

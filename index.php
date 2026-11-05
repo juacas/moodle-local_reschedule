@@ -53,9 +53,13 @@ if ($returnurl !== '' && $navigationparam !== '') {
                 continue;
             }
             $nodeurl = clean_param((string)($node['url'] ?? ''), PARAM_LOCALURL);
+            $nodeurl = $nodeurl !== '' ? new \moodle_url($nodeurl) : null;
+            if ($nodeurl && !$nodeurl->is_local_url()) {
+                continue;
+            }
             $callernavigation[] = [
                 'label' => $label,
-                'url' => $nodeurl,
+                'url' => $nodeurl ? $nodeurl->out(false) : '',
             ];
         }
     }

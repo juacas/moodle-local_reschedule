@@ -16,7 +16,7 @@
 
 namespace local_reschedule;
 
-use local_reschedule\adapter\attendance_adapter;
+use local_reschedule\adapter\community\attendance_adapter;
 
 /**
  * Attendance adapter integration tests.

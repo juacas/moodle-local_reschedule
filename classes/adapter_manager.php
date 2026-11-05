@@ -17,15 +17,27 @@
 namespace local_reschedule;
 
 use local_reschedule\adapter\adapter_interface;
-use local_reschedule\adapter\assign_adapter;
-use local_reschedule\adapter\workshop_adapter;
-use local_reschedule\adapter\quest_adapter;
-use local_reschedule\adapter\kuet_adapter;
 use local_reschedule\adapter\editdates_bridge;
 use local_reschedule\adapter\generic_adapter;
 use local_reschedule\adapter\availability_date_adapter;
 use local_reschedule\adapter\milestone_adapter;
-use local_reschedule\adapter\attendance_adapter;
+use local_reschedule\adapter\date_fields_interface;
+use local_reschedule\adapter\core\assign_adapter;
+use local_reschedule\adapter\core\chat_adapter;
+use local_reschedule\adapter\core\choice_adapter;
+use local_reschedule\adapter\core\data_adapter;
+use local_reschedule\adapter\core\feedback_adapter;
+use local_reschedule\adapter\core\forum_adapter;
+use local_reschedule\adapter\core\glossary_adapter;
+use local_reschedule\adapter\core\lesson_adapter;
+use local_reschedule\adapter\core\questionnaire_adapter;
+use local_reschedule\adapter\core\quiz_adapter;
+use local_reschedule\adapter\core\scorm_adapter;
+use local_reschedule\adapter\core\workshop_adapter;
+use local_reschedule\adapter\core\zoom_adapter;
+use local_reschedule\adapter\community\attendance_adapter;
+use local_reschedule\adapter\community\kuet_adapter;
+use local_reschedule\adapter\community\quest_adapter;
 
 /**
  * Adapter Manager for resolving the appropriate date adapter.
@@ -91,10 +103,11 @@ class adapter_manager {
      * Resolve the most appropriate adapter for the given item.
      *
      * Resolution order:
-     * 1. Adapter supplied by the activity plugin using the standard class convention.
-     * 2. Specific local_reschedule fallback adapters.
-     * 3. report_editdates discovery bridge (if report_editdates or module integration exists).
-     * 4. Generic safe fallback adapter.
+     * 1. Core adapters bundled with Reschedule.
+     * 2. Adapter supplied by the owning activity plugin.
+     * 3. Local community adapters for modules without a plugin adapter.
+     * 4. report_editdates extractor bridge.
+     * 5. Generic adapter based on the mapping configuration.
      *
      * @param string $modname Activity module name or table.
      * @param \stdClass $course Course object.
@@ -102,14 +115,31 @@ class adapter_manager {
      * @return adapter_interface
      */
     public static function get_adapter(string $modname, \stdClass $course, array $item): adapter_interface {
-        if (!empty($item['ismilestone'])) {
-            return self::get_instance(milestone_adapter::class, $course);
-        }
-        if ((!empty($item['isdateinterval']) || !empty($item['isopenended'])) && empty($item['mappedrule'])) {
-            return self::get_instance(editdates_bridge::class, $course);
+        // 1. Core adapters own native Moodle activity behavior.
+        $coreclasses = [
+            workshop_adapter::class,
+            assign_adapter::class,
+            forum_adapter::class,
+            chat_adapter::class,
+            choice_adapter::class,
+            data_adapter::class,
+            feedback_adapter::class,
+            glossary_adapter::class,
+            lesson_adapter::class,
+            questionnaire_adapter::class,
+            quiz_adapter::class,
+            scorm_adapter::class,
+            zoom_adapter::class,
+        ];
+
+        foreach ($coreclasses as $cls) {
+            $adapter = self::get_instance($cls, $course);
+            if ($adapter->supports($modname, $item)) {
+                return $adapter;
+            }
         }
 
-        // 1. Adapter owned by the activity plugin.
+        // 2. Let the activity plugin provide the integration when it has one.
         $pluginadapterclass = self::get_plugin_adapter_class($modname, $course, $item);
         if ($pluginadapterclass !== null) {
             $adapter = self::get_instance($pluginadapterclass, $course);
@@ -118,38 +148,55 @@ class adapter_manager {
             }
         }
 
-        // 2. Specific local_reschedule fallback adapters.
-        $specificclasses = [
-            kuet_adapter::class,
-            quest_adapter::class,
-            workshop_adapter::class,
-            assign_adapter::class,
-            attendance_adapter::class,
-        ];
-
-        foreach ($specificclasses as $cls) {
+        // 3. Community adapters are local integrations for modules that do
+        // not yet provide their own adapter contract.
+        foreach ([attendance_adapter::class, kuet_adapter::class, quest_adapter::class] as $cls) {
             $adapter = self::get_instance($cls, $course);
             if ($adapter->supports($modname, $item)) {
                 return $adapter;
             }
         }
 
-        // Explicit JSON rows use their declared table fields. The editdates
-        // bridge may know the module, but its inferred dependency is not the
-        // administrator's explicit open or child interval definition.
-        if (!empty($item['mappedrule']) &&
-                (!empty($item['isopenended']) || !empty($item['isdateinterval']))) {
-            return self::get_instance(generic_adapter::class, $course);
-        }
-
-        // 3. report_editdates discovery bridge.
+        // 4. Use report_editdates extractors only if no adapter owns the item.
         $bridge = self::get_instance(editdates_bridge::class, $course);
         if ($bridge->supports($modname, $item)) {
             return $bridge;
         }
 
-        // 4. Generic safe fallback.
+        // Point fields with no module-specific owner use the standard
+        // milestone saver after plugin and external date integrations decline.
+        if (!empty($item['ismilestone'])) {
+            return self::get_instance(milestone_adapter::class, $course);
+        }
+
+        // 5. The mapping-backed adapter is the final fallback.
         return self::get_instance(generic_adapter::class, $course);
+    }
+
+    /**
+     * Resolve the adapter that can describe additional date fields.
+     *
+     * Adapters with a native date-fields implementation take precedence.
+     * The editdates bridge is used only when the selected schedule adapter does
+     * not expose that optional API.
+     *
+     * @param string $modname Activity module name.
+     * @param \stdClass $course Course record.
+     * @param array $item Partial or complete item metadata.
+     * @return date_fields_interface|null Provider of additional date fields.
+     */
+    public static function get_date_fields_adapter(
+        string $modname,
+        \stdClass $course,
+        array $item
+    ): ?date_fields_interface {
+        $adapter = self::get_adapter($modname, $course, $item);
+        if ($adapter instanceof date_fields_interface) {
+            return $adapter;
+        }
+
+        $bridge = self::get_instance(editdates_bridge::class, $course);
+        return $bridge->supports($modname, $item) ? $bridge : null;
     }
 
     /**
