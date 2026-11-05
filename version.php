@@ -26,7 +26,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_reschedule';
-$plugin->version = 2026110400;
+$plugin->version = 2026110500;
 $plugin->requires = 2024100100;
 $plugin->maturity = MATURITY_RC;
-$plugin->release = '1.2.3';
+$plugin->release = '1.2.4';

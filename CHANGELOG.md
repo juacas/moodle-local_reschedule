@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.2.4 - 2026-11-05
+
+Adapter architecture and activity-form integration release.
+
+### Added
+
+- Added core adapters for the activity date integrations previously handled by
+  built-in `report_editdates`-style extractors. Core adapters are organized in
+  `classes/adapter/core/`; third-party compatibility adapters are in
+  `classes/adapter/community/`.
+- Documented adapter discovery and the resolution order from core and
+  module-provided adapters through community adapters, the optional
+  `report_editdates` bridge, and generic JSON mapping.
+- Added the shared date-field interface for adapters that expose date controls
+  in activity forms.
+
+### Fixed
+
+- Kept the injected Reschedule shortcut beside Moodle's date-picker button
+  without increasing the date control's flex width or wrapping the button onto
+  another line.
+- Corrected URL construction for activity links and caller navigation, avoiding
+  duplicated Moodle base paths.
+- Avoided requesting an optional Assignment language string that may not exist
+  on supported Moodle installations.
+
+There are no database schema changes in this release.
+
 ## 1.2.3 - 2026-11-04
 
 Maintenance release focused on correcting Assignment scheduling semantics.
