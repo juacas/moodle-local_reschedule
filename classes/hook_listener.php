@@ -65,6 +65,7 @@ class hook_listener {
         $url = new \moodle_url('/local/reschedule/index.php', [
             'id' => (int)$cm->course,
             'cmid' => (int)$cm->id,
+            'editmode' => 2,
             'returnurl' => $page->url->out(false),
         ]);
         $page->requires->js_call_amd('local_reschedule/modform_link', 'init', [

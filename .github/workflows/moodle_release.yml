@@ -12,30 +12,49 @@ on:
         type: string
 
 jobs:
-  verify-package:
+  release-notes:
     runs-on: ubuntu-latest
+    outputs:
+      content: ${{ steps.notes.outputs.content }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout release tag
+        uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
-      - name: Check Moodle plugin archive root
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - name: Read and validate release notes
+        id: notes
         run: |
-          git archive --format=zip --prefix=reschedule/ -o /tmp/local_reschedule.zip HEAD
-          unzip -Z1 /tmp/local_reschedule.zip > /tmp/reschedule-files.txt
-          test -s /tmp/reschedule-files.txt
-          if grep -v '^reschedule/' /tmp/reschedule-files.txt; then
-            echo 'Archive contains files outside reschedule/' >&2
-            exit 1
-          fi
-          grep -qx 'reschedule/version.php' /tmp/reschedule-files.txt
-          grep -qx 'reschedule/LICENSE' /tmp/reschedule-files.txt
+          python3 - <<'PY'
+          import os
+          import uuid
+          from pathlib import Path
+
+          path = Path('RELEASE.md')
+          if not path.is_file():
+              raise SystemExit('RELEASE.md is required for Moodle Marketplace publication')
+
+          notes = path.read_text(encoding='utf-8').strip()
+          if not notes:
+              raise SystemExit('RELEASE.md is empty')
+          if len(notes) > 10000:
+              raise SystemExit(f'RELEASE.md has {len(notes)} characters; the Marketplace limit is 10000')
+
+          delimiter = f'RELEASE_NOTES_{uuid.uuid4().hex}'
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write(f'content<<{delimiter}\n{notes}\n{delimiter}\n')
+          print(f'Using {len(notes)} characters from RELEASE.md')
+          PY
+
   release-to-marketplace:
-    needs: verify-package
+    needs: release-notes
     uses: moodlehq/moodle-plugin-release/.github/workflows/moodle-release.yml@main
     with:
-      tag: ${{ inputs.tag }}
+      tag: ${{ inputs.tag || github.ref_name }}
+      release_notes: ${{ needs.release-notes.outputs.content }}
     secrets:
       MOODLE_MARKETPLACE_TOKEN: ${{ secrets.MOODLE_MARKETPLACE_TOKEN }}
+
   release-on-github:
     name: Create GitHub Release
     needs: release-notes
