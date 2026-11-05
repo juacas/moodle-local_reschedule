@@ -131,6 +131,18 @@ class manager {
     public static function get_course_items(int $courseid, int $onlycmid = 0): array {
         global $OUTPUT;
 
+        $mappingraw = get_config('local_reschedule', 'mapping');
+        $cachevariant = course_items_cache::get_variant_key($mappingraw);
+        $cacheditems = course_items_cache::get($courseid, $cachevariant);
+        if ($cacheditems !== null) {
+            if ($onlycmid <= 0) {
+                return $cacheditems;
+            }
+            return array_values(array_filter($cacheditems, static function(array $item) use ($onlycmid): bool {
+                return (int)($item['cmid'] ?? 0) === $onlycmid;
+            }));
+        }
+
         // Adapters and legacy extractors may cache module records. Reset all
         // schedule providers before a read so previous dates cannot leak in.
         adapter_manager::reset_cache();
@@ -616,6 +628,9 @@ class manager {
         }
         unset($ordereditem);
 
+        if ($onlycmid <= 0) {
+            course_items_cache::set($courseid, $cachevariant, $ordereditems);
+        }
         return $ordereditems;
     }
 
@@ -917,6 +932,7 @@ class manager {
         adapter_manager::reset_cache();
         \local_reschedule\adapter\editdates_bridge::reset_cache();
         \local_reschedule\extractor\extractor_factory::reset_cache();
+        course_items_cache::invalidate($courseid);
 
         // Phase 3: Course cache rebuild.
         rebuild_course_cache($courseid, true);

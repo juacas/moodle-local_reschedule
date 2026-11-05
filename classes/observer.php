@@ -25,11 +25,39 @@ namespace local_reschedule;
  */
 class observer {
     /**
+     * Invalidate extracted course activities after a module or section changes.
+     *
+     * @param \core\event\base $event Course structure event.
+     */
+    public static function course_structure_changed(\core\event\base $event): void {
+        course_items_cache::invalidate((int)$event->courseid);
+    }
+
+    /**
+     * Invalidate extracted activities when course settings change.
+     *
+     * @param \core\event\course_updated $event Course update event.
+     */
+    public static function course_updated(\core\event\course_updated $event): void {
+        course_items_cache::invalidate((int)$event->courseid);
+    }
+
+    /**
+     * Invalidate cached permission-dependent activity metadata.
+     *
+     * @param \core\event\base $event Role or enrolment change event.
+     */
+    public static function access_changed(\core\event\base $event): void {
+        course_items_cache::invalidate_all();
+    }
+
+    /**
      * Remove metadata for a deleted module.
      *
      * @param \core\event\course_module_deleted $event Deletion event.
      */
     public static function course_module_deleted(\core\event\course_module_deleted $event): void {
+        course_items_cache::invalidate((int)$event->courseid);
         effort_store::delete_course_module((int)$event->courseid, (int)$event->objectid);
     }
 
@@ -39,6 +67,7 @@ class observer {
      * @param \core\event\course_deleted $event Deletion event.
      */
     public static function course_deleted(\core\event\course_deleted $event): void {
+        course_items_cache::invalidate((int)$event->objectid);
         effort_store::delete_course((int)$event->objectid);
     }
 }

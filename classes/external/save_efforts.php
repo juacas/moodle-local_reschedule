@@ -125,6 +125,9 @@ class save_efforts extends external_api {
         if ($params['model'] !== '') {
             effort_store::save_model((int)$course->id, $params['model']);
         }
+        if ($params['items'] || $params['model'] !== '') {
+            course_items_cache::invalidate((int)$course->id);
+        }
         return ['success' => true, 'saved' => $saved, 'model' => effort_store::get_model((int)$course->id)];
     }
 

@@ -26,8 +26,56 @@ defined('MOODLE_INTERNAL') || die();
 
 $observers = [
     [
+        'eventname' => '\core\event\course_module_created',
+        'callback' => '\local_reschedule\observer::course_structure_changed',
+    ],
+    [
+        'eventname' => '\core\event\course_module_updated',
+        'callback' => '\local_reschedule\observer::course_structure_changed',
+    ],
+    [
         'eventname' => '\core\event\course_module_deleted',
         'callback' => '\local_reschedule\observer::course_module_deleted',
+    ],
+    [
+        'eventname' => '\core\event\course_updated',
+        'callback' => '\local_reschedule\observer::course_updated',
+    ],
+    [
+        'eventname' => '\core\event\course_section_created',
+        'callback' => '\local_reschedule\observer::course_structure_changed',
+    ],
+    [
+        'eventname' => '\core\event\course_section_updated',
+        'callback' => '\local_reschedule\observer::course_structure_changed',
+    ],
+    [
+        'eventname' => '\core\event\course_section_deleted',
+        'callback' => '\local_reschedule\observer::course_structure_changed',
+    ],
+    [
+        'eventname' => '\core\event\role_assigned',
+        'callback' => '\local_reschedule\observer::access_changed',
+    ],
+    [
+        'eventname' => '\core\event\role_unassigned',
+        'callback' => '\local_reschedule\observer::access_changed',
+    ],
+    [
+        'eventname' => '\core\event\role_capabilities_updated',
+        'callback' => '\local_reschedule\observer::access_changed',
+    ],
+    [
+        'eventname' => '\core\event\user_enrolment_created',
+        'callback' => '\local_reschedule\observer::access_changed',
+    ],
+    [
+        'eventname' => '\core\event\user_enrolment_updated',
+        'callback' => '\local_reschedule\observer::access_changed',
+    ],
+    [
+        'eventname' => '\core\event\user_enrolment_deleted',
+        'callback' => '\local_reschedule\observer::access_changed',
     ],
     [
         'eventname' => '\core\event\course_deleted',
