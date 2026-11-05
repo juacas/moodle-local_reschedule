@@ -136,10 +136,9 @@ $timeframe = \local_reschedule\manager::get_course_timeframe($course, $items);
 $coursestart = $timeframe['start'];
 $courseend = $timeframe['end'];
 
+// cmid controls initial focus (and editmode=2 scope); only cmids is an explicit
+// list filter for selecting which activities to display.
 $cmids = array_filter(array_map('intval', preg_split('/,/', $cmidsparam, -1, PREG_SPLIT_NO_EMPTY)));
-if ($singlecmid > 0) {
-    $cmids[] = $singlecmid;
-}
 $cmids = array_values(array_unique($cmids));
 $instances = [];
 foreach (preg_split('/,/', $instancesparam, -1, PREG_SPLIT_NO_EMPTY) as $instancevalue) {

@@ -34,12 +34,21 @@
     align-items: center;
     display: inline-flex;
     flex-wrap: nowrap;
+    position: relative;
     white-space: nowrap;
 }
 
-.local-reschedule-date-actions > button,
-.local-reschedule-date-actions > .local-reschedule-modform-link {
+.local-reschedule-date-actions > button {
     flex: 0 0 auto;
+}
+
+.local-reschedule-date-actions > .local-reschedule-modform-link {
+    left: 100%;
+    margin-left: 0.2rem;
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 1;
 }
 
 .local-reschedule-modform-link img {
@@ -881,6 +890,14 @@
     border-radius: 3px 3px 0 0;
     height: calc(var(--quest-bar-height) / 2);
     top: 9px;
+}
+
+.quest-calendar-bar.is-derived.is-readonly:not(.is-milestone) {
+    --quest-bar-end-color: #9ca3af;
+    --quest-bar-start-color: #9ca3af;
+    background: #9ca3af;
+    color: #f8fafc;
+    cursor: default;
 }
 
 .quest-calendar-bar.is-derived:not(.is-milestone) .quest-bar-content {
