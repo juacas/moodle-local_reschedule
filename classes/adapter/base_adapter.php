@@ -24,7 +24,7 @@ namespace local_reschedule\adapter;
  * @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-abstract class base_adapter implements adapter_interface {
+abstract class base_adapter implements adapter_interface, date_schedule_interface {
     /** @var \stdClass Course record. */
     protected \stdClass $course;
 
@@ -35,6 +35,50 @@ abstract class base_adapter implements adapter_interface {
      */
     public function __construct(\stdClass $course) {
         $this->course = $course;
+    }
+
+    /**
+     * Check date availability through this adapter's own date-field provider.
+     *
+     * @param \cm_info $cm Course module.
+     * @return bool True when the adapter exposes date fields.
+     */
+    public function has_date_fields(\cm_info $cm): bool {
+        return $this instanceof date_fields_interface && (bool)$this->get_date_fields($cm);
+    }
+
+    /**
+     * Build date rows from the explicit date metadata exposed by this adapter.
+     *
+     * The legacy bridge overrides this method to validate unknown module
+     * fields against the installed database schema before applying heuristics.
+     *
+     * @param \cm_info $cm Course module.
+     * @param array $parent Existing Gantt parent row.
+     * @param array<string, bool> $rangedatefields Fields already described by mapping rules.
+     * @param int $coursestart Course Gantt start timestamp.
+     * @param int $courseend Course Gantt end timestamp.
+     * @return array{parent:array, children:array}
+     */
+    public function build_date_schedule(
+        \cm_info $cm,
+        array $parent,
+        array $rangedatefields,
+        int $coursestart,
+        int $courseend
+    ): array {
+        if (!$this instanceof date_fields_interface) {
+            return ['parent' => $parent, 'children' => []];
+        }
+
+        return date_schedule_builder::build_from_adapter(
+            $cm,
+            $this,
+            $parent,
+            $rangedatefields,
+            $coursestart,
+            $courseend
+        );
     }
 
     /**

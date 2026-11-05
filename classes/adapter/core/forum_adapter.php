@@ -17,6 +17,7 @@
 namespace local_reschedule\adapter\core;
 
 use local_reschedule\adapter\base_adapter;
+use local_reschedule\adapter\date_dependencies_interface;
 use local_reschedule\adapter\date_fields_interface;
 
 /**
@@ -26,7 +27,7 @@ use local_reschedule\adapter\date_fields_interface;
  * @copyright  2026 Juan Pablo de Castro
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class forum_adapter extends base_adapter implements date_fields_interface {
+class forum_adapter extends base_adapter implements date_fields_interface, date_dependencies_interface {
     #[\Override]
     public function supports(string $modname, array $item): bool {
         return $modname === 'forum' || ($item['table'] ?? '') === 'forum';
@@ -60,13 +61,13 @@ class forum_adapter extends base_adapter implements date_fields_interface {
         ];
         if (!empty($forum->assessed)) {
             $fields['assesstimestart'] = [
-                'label' => get_string('from'),
+                'label' => get_string('assesstimefrom', 'local_reschedule'),
                 'value' => (int)$forum->assesstimestart,
                 'type' => 'datetime',
                 'optional' => true,
             ];
             $fields['assesstimefinish'] = [
-                'label' => get_string('to'),
+                'label' => get_string('assesstimeto', 'local_reschedule'),
                 'value' => (int)$forum->assesstimefinish,
                 'type' => 'datetime',
                 'optional' => true,
@@ -83,6 +84,23 @@ class forum_adapter extends base_adapter implements date_fields_interface {
      */
     public function get_point_date_fields(\cm_info $cm): array {
         return ['duedate'];
+    }
+
+    /**
+     * Forum assessment dates form an interval when ratings are enabled.
+     *
+     * @param \cm_info $cm Course module.
+     * @param array $settings Exposed date fields.
+     * @return array<int, array{startfield:string, endfield:string}>
+     */
+    public function get_date_dependencies(\cm_info $cm, array $settings): ?array {
+        if (!isset($settings['assesstimestart'], $settings['assesstimefinish'])) {
+            return [];
+        }
+        return [[
+            'startfield' => 'assesstimestart',
+            'endfield' => 'assesstimefinish',
+        ]];
     }
 
     /**

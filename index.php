@@ -245,6 +245,13 @@ $effortsourcelabels = [
 
 foreach ($items as &$item) {
     $inscope = !$scopededitmode || (int)($item['cmid'] ?? 0) === $scopecmid;
+    $cmid = (int)($item['cmid'] ?? 0);
+    $canmanageactivity = $cmid > 0 && has_capability(
+        'moodle/course:manageactivities',
+        \context_module::instance($cmid)
+    );
+    $item['efforteditable'] = $editing && $inscope && $canmanageactivity && empty($item['ismilestone']) &&
+        !in_array($item['effortsource'] ?? '', ['adapter', 'children'], true);
     if ($scopededitmode) {
         $item['scopedreadwrite'] = $inscope;
     }
@@ -299,8 +306,7 @@ foreach ($items as &$item) {
         'startformatted' => !empty($item['startenabled']) ? userdate($item['datestart'], $dateformat) : '',
         'endformatted' => !empty($item['endenabled']) ? userdate($item['dateend'], $dateformat) : '',
         'durationformatted' => $durstr,
-        'efforteditable' => $editing && $inscope && empty($item['ismilestone']) &&
-            !in_array($item['effortsource'] ?? '', ['adapter', 'children'], true),
+        'efforteditable' => $item['efforteditable'],
         'effortformatted' => number_format($effortvalue, 1, '.', ''),
         'effortdescription' => $effortdescription,
     ]);

@@ -42,6 +42,19 @@ function local_reschedule_extend_navigation_course(\navigation_node $parentnode,
             new \pix_icon('i/calendar', '')
         );
         $parentnode->add_node($node);
+
+        if (has_capability('moodle/course:viewparticipants', $context)) {
+            $reporturl = new \moodle_url('/local/reschedule/globalreport.php', ['id' => $course->id]);
+            $reportnode = \navigation_node::create(
+                get_string('globalreporttitle', 'local_reschedule'),
+                $reporturl,
+                \navigation_node::TYPE_CUSTOM,
+                null,
+                'local_reschedule_globalreport',
+                new \pix_icon('i/report', '')
+            );
+            $parentnode->add_node($reportnode);
+        }
     }
 }
 

@@ -1,0 +1,128 @@
+{{! Cross-course workload report. @template local_reschedule/globalreport }}
+<div id="reschedule-global-report" class="local-reschedule-global-report"
+    data-language="{{language}}" data-user-timezone="{{usertimezone}}"
+    data-datetime-format="{{datetimeformat}}" data-dateonly-format="{{dateonlyformat}}"
+    data-effort-drops="{{#str}}effortdrops, local_reschedule{{/str}}"
+    data-effort-scale="{{#str}}effortscale, local_reschedule{{/str}}"
+    data-effort-weekly-unit="{{#str}}effortweeklyunit, local_reschedule{{/str}}"
+    data-effort-scale-max="{{effortscalemax}}"
+    data-effort-settings="{{#str}}effortsettings, local_reschedule{{/str}}"
+    data-effort-table-title="{{#str}}efforttabletitle, local_reschedule{{/str}}"
+    data-effort-table-hours="{{#str}}efforttablehours, local_reschedule{{/str}}"
+    data-effort-table-adapter="{{#str}}efforttableadapter, local_reschedule{{/str}}"
+    data-effort-table-children="{{#str}}efforttablechildren, local_reschedule{{/str}}"
+    data-effort-table-default="{{#str}}efforttabledefault, local_reschedule{{/str}}"
+    data-effort-table-manual="{{#str}}efforttablemanual, local_reschedule{{/str}}"
+    data-effort-table-mapping="{{#str}}efforttablemapping, local_reschedule{{/str}}"
+    data-effort-table-milestone="{{#str}}efforttablemilestone, local_reschedule{{/str}}"
+    data-effort-table-invalid="{{#str}}efforttableinvalid, local_reschedule{{/str}}"
+    data-effort-hours-abbr="{{#str}}efforthoursabbr, local_reschedule{{/str}}"
+    data-current-course-effort="{{#str}}globalreportcurrentcourse, local_reschedule{{/str}}"
+    data-weighted-title="{{#str}}globalreportweightedtitle, local_reschedule{{/str}}"
+    data-weighted-desc="{{#str}}globalreportweighteddesc, local_reschedule{{/str}}"
+    data-courses-label="{{#str}}globalreportcourses, local_reschedule{{/str}}"
+    data-error-saving="{{#str}}error_saving, local_reschedule{{/str}}">
+    <script type="application/json" id="reschedule-global-report-data">{{{reportjson}}}</script>
+
+    <div class="card shadow-sm border-0 mb-4"><div class="card-body p-4">
+        <div class="d-flex flex-wrap justify-content-between gap-3 align-items-start">
+            <div>
+                <h2 class="h3 mb-1">{{#str}}globalreporttitle, local_reschedule{{/str}}</h2>
+                <p class="text-muted mb-2">{{#str}}globalreportdesc, local_reschedule, {{coursename}}{{/str}}</p>
+                <p class="small mb-0"><strong>{{studentcount}}</strong> {{#str}}globalreportstudents, local_reschedule{{/str}}
+                    · <strong>{{coursecount}}</strong> {{#str}}globalreportcourses, local_reschedule{{/str}}
+                    · {{rangestartstr}} – {{rangeendstr}}</p>
+            </div>
+            <a class="btn btn-outline-secondary" href="{{rescheduleurl}}"><i class="fa fa-calendar me-1" aria-hidden="true"></i>
+                {{#str}}reschedule, local_reschedule{{/str}}</a>
+        </div>
+    </div></div>
+
+    {{^hasstudents}}<div class="alert alert-info">{{#str}}globalreportnostudents, local_reschedule{{/str}}</div>{{/hasstudents}}
+    {{#hasstudents}}
+    <div class="card shadow-sm border-0 mb-3"><div class="card-body p-0">
+        <div id="global-report-timeline-app" class="quest-timeline-wrapper global-report-timeline-app"></div>
+    </div></div>
+    <div class="d-flex flex-wrap gap-3 small mb-4 global-report-legend">
+        <span><span class="global-report-legend-line"></span>{{#str}}globalreportstudenttotal, local_reschedule{{/str}}</span>
+        <span><span class="global-report-legend-line is-course"></span>{{#str}}globalreportcurrentcourse, local_reschedule{{/str}}</span>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-4"><div class="card-body p-4">
+        <h3 class="h5 mb-3">{{#str}}globalreportcoursecoverage, local_reschedule{{/str}}</h3>
+        <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+            <thead><tr><th scope="col">{{#str}}course, local_reschedule{{/str}}</th>
+                <th scope="col" class="text-end">{{#str}}globalreportassociatedstudents, local_reschedule{{/str}}</th>
+                <th scope="col" class="text-end">{{#str}}activities, local_reschedule{{/str}}</th></tr></thead>
+            <tbody>{{#courses}}<tr{{#current}} class="table-primary"{{/current}}>
+                <td>{{fullname}}{{#current}} <span class="badge bg-primary ms-1">{{#str}}globalreportcurrent, local_reschedule{{/str}}</span>{{/current}}</td>
+                <td class="text-end">{{studentcount}}</td><td class="text-end">{{itemcount}}</td>
+            </tr>{{/courses}}</tbody>
+        </table></div>
+    </div></div>
+
+    <div class="modal fade" id="reschedule-effort-table-modal" tabindex="-1" aria-labelledby="effortTableModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content shadow border-0">
+            <div class="modal-header bg-light border-bottom"><h5 class="modal-title fw-bold" id="effortTableModalLabel">
+                <i class="fa fa-table text-primary me-2" aria-hidden="true"></i>{{#str}}efforttabletitle, local_reschedule{{/str}}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" data-effort-table-dismiss aria-label="{{#str}}closebuttontitle, moodle{{/str}}"></button></div>
+            <div class="modal-body"><div id="reschedule-effort-table-error" class="alert alert-danger d-none" role="alert"></div>
+                <div class="table-responsive quest-effort-table-scroll"><table class="table table-sm table-striped align-middle mb-0">
+                    <thead class="table-light"><tr><th scope="col">{{#str}}activities, local_reschedule{{/str}}</th>
+                        <th scope="col">{{#str}}efforttablehours, local_reschedule{{/str}}</th>
+                        <th scope="col">{{#str}}efforttablesource, local_reschedule{{/str}}</th></tr></thead>
+                    <tbody id="reschedule-effort-table-body"></tbody>
+                </table></div></div>
+            <div class="modal-footer bg-light border-top"><button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal" data-effort-table-dismiss>
+                {{#str}}close, local_reschedule{{/str}}</button><button type="button" class="btn btn-primary btn-sm" id="btn-effort-table-apply" disabled>
+                {{#str}}efforttableapply, local_reschedule{{/str}}</button></div>
+        </div></div>
+    </div>
+
+    <div class="modal fade" id="reschedule-effort-model-modal" tabindex="-1" aria-labelledby="effortModelModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content shadow border-0">
+            <div class="modal-header bg-light border-bottom"><h5 class="modal-title fw-bold" id="effortModelModalLabel">
+                <i class="fa fa-cog text-primary me-2" aria-hidden="true"></i>{{#str}}effortmodeltitle, local_reschedule{{/str}}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" data-effort-dismiss aria-label="{{#str}}closebuttontitle, moodle{{/str}}"></button></div>
+            <div class="modal-body p-0"><div class="row g-0">
+                <div class="col-md-5 border-end bg-light p-3"><div class="text-uppercase small fw-bold text-dark mb-2 px-1">
+                    {{#str}}effortmodelchoose, local_reschedule{{/str}}</div><div class="list-group" id="effort-model-list">
+                    <label class="list-group-item list-group-item-action active p-3 border rounded mb-2 d-flex align-items-center" data-model="real">
+                        <input class="form-check-input me-3 flex-shrink-0" type="radio" name="effort_model" value="real" checked>
+                        <span><strong>{{#str}}effortmodelreal, local_reschedule{{/str}}</strong><br><small>{{#str}}effortmodelrealshort, local_reschedule{{/str}}</small></span></label>
+                    <label class="list-group-item list-group-item-action p-3 border rounded d-flex align-items-center" data-model="ideal">
+                        <input class="form-check-input me-3 flex-shrink-0" type="radio" name="effort_model" value="ideal">
+                        <span><strong>{{#str}}effortmodelideal, local_reschedule{{/str}}</strong><br><small>{{#str}}effortmodelidealshort, local_reschedule{{/str}}</small></span></label>
+                </div></div>
+                <div class="col-md-7 p-4"><div id="effort-model-desc-real" class="effort-model-desc">
+                    <h5 class="fw-bold text-dark">{{#str}}effortmodelreal, local_reschedule{{/str}}</h5><p class="text-dark mb-2">{{#str}}effortmodelrealdesc, local_reschedule{{/str}}</p></div>
+                    <div id="effort-model-desc-ideal" class="effort-model-desc d-none"><h5 class="fw-bold text-primary">{{#str}}effortmodelideal, local_reschedule{{/str}}</h5>
+                        <p class="text-dark mb-2">{{#str}}effortmodelidealdesc, local_reschedule{{/str}}</p></div>
+                    <div class="alert alert-info small mb-0" role="note">{{#str}}effortmodelnote, local_reschedule{{/str}}</div>
+                </div>
+            </div>
+            <details class="quest-effort-academic border-top bg-light">
+                <summary class="quest-effort-academic-summary d-flex align-items-center justify-content-between px-4 py-3 text-dark">
+                    <span class="h6 fw-bold mb-0">{{#str}}effortchallengeheading, local_reschedule{{/str}}</span>
+                    <i class="fa fa-chevron-down quest-effort-academic-chevron ms-2" aria-hidden="true"></i>
+                </summary>
+                <div class="px-4 pb-3 text-dark">
+                    <blockquote class="border-start border-3 border-primary ps-3 mb-0 small">
+                        <p class="mb-2">{{#str}}effortchallengeintro, local_reschedule{{/str}}</p>
+                        <p class="mb-2">{{#str}}effortchallengeevidence, local_reschedule{{/str}}</p>
+                        <p class="mb-0">{{#str}}effortchallengeaction, local_reschedule{{/str}}</p>
+                    </blockquote>
+                    <div class="small mt-2">{{#str}}effortchallengerefs, local_reschedule{{/str}}:
+                        <a href="https://books.google.com/books/about/Parkinson_s_Law_and_Other_Studies_in_Adm.html?id=_PAaAAAAMAAJ" target="_blank" rel="noopener noreferrer">Parkinson (1957)</a>,
+                        <a href="https://www.routledge.com/Critical-Chain-A-Business-Novel/Goldratt/p/book/9781138461079" target="_blank" rel="noopener noreferrer">Goldratt (1997)</a>,
+                        <a href="https://pubmed.ncbi.nlm.nih.gov/17201571/" target="_blank" rel="noopener noreferrer">Steel (2007)</a>.
+                    </div>
+                </div>
+            </details>
+            </div>
+            <div class="modal-footer bg-light border-top"><button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal" data-effort-dismiss>
+                {{#str}}cancel, moodle{{/str}}</button><button type="button" class="btn btn-primary btn-sm" id="btn-effort-model-apply">{{#str}}apply, local_reschedule{{/str}}</button></div>
+        </div></div>
+    </div>
+    {{/hasstudents}}
+</div>

@@ -17,6 +17,7 @@
 namespace local_reschedule\adapter\core;
 
 use local_reschedule\adapter\base_adapter;
+use local_reschedule\adapter\date_dependencies_interface;
 use local_reschedule\adapter\date_fields_interface;
 
 /**
@@ -29,7 +30,7 @@ use local_reschedule\adapter\date_fields_interface;
  * @copyright  2026 Juan Pablo de Castro
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-abstract class base_date_adapter extends base_adapter implements date_fields_interface {
+abstract class base_date_adapter extends base_adapter implements date_fields_interface, date_dependencies_interface {
     /**
      * Get the activity module name handled by this adapter.
      *
@@ -54,6 +55,24 @@ abstract class base_date_adapter extends base_adapter implements date_fields_int
      */
     protected function get_date_relationships(): array {
         return [];
+    }
+
+    /**
+     * Return the interval relationships explicitly declared by this adapter.
+     *
+     * @param \cm_info $cm Course module.
+     * @param array $settings Exposed date fields.
+     * @return array<int, array{startfield:string, endfield:string}>
+     */
+    public function get_date_dependencies(\cm_info $cm, array $settings): ?array {
+        $dependencies = [];
+        foreach ($this->get_date_relationships() as $relationship) {
+            $dependencies[] = [
+                'startfield' => $relationship[0],
+                'endfield' => $relationship[1],
+            ];
+        }
+        return $dependencies;
     }
 
     /**

@@ -17,6 +17,7 @@
 namespace local_reschedule\adapter\core;
 
 use local_reschedule\adapter\base_adapter;
+use local_reschedule\adapter\date_dependencies_interface;
 use local_reschedule\adapter\date_fields_interface;
 
 /**
@@ -27,7 +28,7 @@ use local_reschedule\adapter\date_fields_interface;
  * @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class assign_adapter extends base_adapter implements date_fields_interface {
+class assign_adapter extends base_adapter implements date_fields_interface, date_dependencies_interface {
     #[\Override]
     public function supports(string $modname, array $item): bool {
         return $modname === 'assign' || ($item['table'] ?? '') === 'assign';
@@ -81,6 +82,21 @@ class assign_adapter extends base_adapter implements date_fields_interface {
      */
     public function get_point_date_fields(\cm_info $cm): array {
         return ['duedate', 'gradingduedate'];
+    }
+
+    /**
+     * Assignment work runs from the submission opening to its cut-off date.
+     * Due and grading dates are separate milestones.
+     *
+     * @param \cm_info $cm Course module.
+     * @param array $settings Exposed date fields.
+     * @return array<int, array{startfield:string, endfield:string}>
+     */
+    public function get_date_dependencies(\cm_info $cm, array $settings): ?array {
+        return [[
+            'startfield' => 'allowsubmissionsfromdate',
+            'endfield' => 'cutoffdate',
+        ]];
     }
 
     /**

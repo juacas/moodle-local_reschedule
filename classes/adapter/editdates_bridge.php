@@ -86,6 +86,117 @@ class editdates_bridge extends base_adapter implements date_fields_interface {
     }
 
     /**
+     * Build date rows using schema checks and legacy extraction heuristics.
+     *
+     * @param \cm_info $cm Course module.
+     * @param array $parent Existing Gantt parent row.
+     * @param array<string, bool> $rangedatefields Fields already described by mapping rules.
+     * @param int $coursestart Course Gantt start timestamp.
+     * @param int $courseend Course Gantt end timestamp.
+     * @return array{parent:array, children:array}
+     */
+    public function build_date_schedule(
+        \cm_info $cm,
+        array $parent,
+        array $rangedatefields,
+        int $coursestart,
+        int $courseend
+    ): array {
+        return date_schedule_builder::build_from_fallback(
+            $cm,
+            $this,
+            $parent,
+            $rangedatefields,
+            $coursestart,
+            $courseend
+        );
+    }
+
+    /**
+     * Validate date values using the legacy extractor contract.
+     *
+     * @param \cm_info $cm Course module.
+     * @param array<string, int> $dates Proposed date values.
+     * @return array<string, string> Errors keyed by date field.
+     */
+    public function validate_date_fields(\cm_info $cm, array $dates): array {
+        $extractor = self::get_extractor($cm->modname, $this->course);
+        if (!$extractor || !method_exists($extractor, 'validate_dates')) {
+            return [];
+        }
+        return $extractor->validate_dates($cm, $dates);
+    }
+
+    /**
+     * Persist the proposed dates through the legacy extractor contract.
+     *
+     * @param \cm_info $cm Course module.
+     * @param array<string, int> $dates Final date values.
+     */
+    public function save_date_fields(\cm_info $cm, array $dates): void {
+        $extractor = self::get_extractor($cm->modname, $this->course);
+        if (!$extractor) {
+            throw new \moodle_exception('invalidrecord', 'error');
+        }
+        $extractor->save_dates($cm, $dates);
+    }
+
+    /**
+     * Get extractor fields explicitly identified as milestones.
+     *
+     * @return string[]
+     */
+    public function get_point_date_fields(\cm_info $cm): array {
+        $extractor = self::get_extractor($cm->modname, $this->course);
+        return $extractor && method_exists($extractor, 'get_reschedule_point_fields') ?
+            $extractor->get_reschedule_point_fields() : [];
+    }
+
+    /**
+     * Get extractor fields that end an open-start interval.
+     *
+     * @return string[]
+     */
+    public function get_open_start_end_fields(\cm_info $cm): array {
+        $extractor = self::get_extractor($cm->modname, $this->course);
+        return $extractor && method_exists($extractor, 'get_reschedule_end_fields') ?
+            $extractor->get_reschedule_end_fields() : [];
+    }
+
+    /**
+     * Expose extractor settings through the optional adapter date-field API.
+     *
+     * @param \cm_info $cm Course module.
+     * @return array<string, array{label:string, value:int, type:string, optional:bool}>
+     */
+    public function get_date_fields(\cm_info $cm): array {
+        $extractor = self::get_extractor($cm->modname, $this->course);
+        if (!$extractor) {
+            return [];
+        }
+        $settings = $extractor->get_settings($cm);
+        if (!is_array($settings)) {
+            return [];
+        }
+        $fields = [];
+        foreach ($settings as $name => $setting) {
+            if (!isset($setting->currentvalue, $setting->type)) {
+                continue;
+            }
+            if (!in_array($setting->type, ['date_selector', 'date_time_selector'], true)) {
+                continue;
+            }
+            $fields[(string)$name] = [
+                'label' => (string)($setting->label ?? $name),
+                'value' => (int)$setting->currentvalue,
+                'type' => $setting->type === 'date_selector' ? 'date' : 'datetime',
+                'optional' => (bool)($setting->isoptional ?? false),
+            ];
+        }
+        return $fields;
+    }
+
+    /**
      * Validate date values using the legacy extractor contract.
      *
      * @param \cm_info $cm Course module.

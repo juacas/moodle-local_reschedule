@@ -129,7 +129,19 @@ class manager {
      * @return array Array of item objects ready for timeline and JSON output.
      */
     public static function get_course_items(int $courseid, int $onlycmid = 0): array {
-        global $DB, $OUTPUT;
+        global $OUTPUT;
+
+        $mappingraw = get_config('local_reschedule', 'mapping');
+        $cachevariant = course_items_cache::get_variant_key($mappingraw);
+        $cacheditems = course_items_cache::get($courseid, $cachevariant);
+        if ($cacheditems !== null) {
+            if ($onlycmid <= 0) {
+                return $cacheditems;
+            }
+            return array_values(array_filter($cacheditems, static function(array $item) use ($onlycmid): bool {
+                return (int)($item['cmid'] ?? 0) === $onlycmid;
+            }));
+        }
 
         // Adapters and legacy extractors may cache module records. Reset all
         // schedule providers before a read so previous dates cannot leak in.
@@ -138,8 +150,7 @@ class manager {
         \local_reschedule\extractor\extractor_factory::reset_cache();
 
         $rules = self::get_mapping_rules();
-        $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
-        $dbman = $DB->get_manager();
+        $course = get_course($courseid);
         $timeframe = self::get_course_timeframe($course);
         $coursestart = $timeframe['start'];
         $courseend = $timeframe['end'];
@@ -395,12 +406,14 @@ class manager {
                 continue;
             }
             try {
-                $settings = $dateprovider->get_date_fields($cm);
+                $hasdatefields = $dateprovider instanceof \local_reschedule\adapter\date_schedule_interface ?
+                    $dateprovider->has_date_fields($cm) :
+                    \local_reschedule\adapter\date_schedule_builder::provider_has_date_fields($cm, $dateprovider);
             } catch (\Throwable $e) {
                 debugging('Could not read activity date settings: ' . $e->getMessage(), DEBUG_DEVELOPER);
                 continue;
             }
-            if (!is_array($settings) || !$settings) {
+            if (!$hasdatefields) {
                 continue;
             }
             $items[$parentkey] = [
@@ -438,9 +451,7 @@ class manager {
             }
         }
 
-        // Infer interval dependencies in report_editdates settings by probing
-        // validate_dates() with opposite timestamp extremes. Retain unpaired
-        // dates as point milestones.
+        // Additional intervals and milestones are delegated to the selected date adapter.
         foreach ($items as $parentkey => &$parentitem) {
             $cmid = (int)($parentitem['cmid'] ?? 0);
             if ($cmid <= 0) {
@@ -452,231 +463,34 @@ class manager {
                 continue;
             }
             try {
-                $settings = $dateprovider->get_date_fields($cm);
+                $rangedatefieldmap = $rangedatefields[$cm->modname] ?? [];
+                if ($dateprovider instanceof \local_reschedule\adapter\date_schedule_interface) {
+                    $result = $dateprovider->build_date_schedule(
+                        $cm,
+                        $parentitem,
+                        $rangedatefieldmap,
+                        $coursestart,
+                        $courseend
+                    );
+                } else {
+                    // External date-fields providers may opt into the schedule
+                    // contract; their declared field list remains authoritative.
+                    $result = \local_reschedule\adapter\date_schedule_builder::build_from_adapter(
+                        $cm,
+                        $dateprovider,
+                        $parentitem,
+                        $rangedatefieldmap,
+                        $coursestart,
+                        $courseend
+                    );
+                }
             } catch (\Throwable $e) {
                 debugging('Could not read activity date settings: ' . $e->getMessage(), DEBUG_DEVELOPER);
                 continue;
             }
-            if (!is_array($settings)) {
-                continue;
-            }
-
-            $datefields = [];
-            foreach ($settings as $field => $setting) {
-                if (preg_match('/^[a-z][a-z0-9_]*$/i', (string)$field) &&
-                        $dbman->field_exists($cm->modname, $field) &&
-                        isset($setting['value'], $setting['type']) &&
-                        in_array($setting['type'], ['date', 'datetime'], true)) {
-                    $datefields[] = $field;
-                }
-            }
-            if (!$datefields) {
-                continue;
-            }
-
-            $dependencies = \local_reschedule\adapter\editdates_bridge::discover_date_dependencies(
-                $cm, $dateprovider, $settings);
-            $datefieldmap = array_fill_keys($datefields, true);
-            // An ordering rule does not necessarily describe a work interval.
-            // Adapters may identify point dates that must remain milestones.
-            $pointfields = array_fill_keys($dateprovider->get_point_date_fields($cm), true);
-            $dependencies = array_values(array_filter($dependencies,
-                static function(array $dependency) use ($datefieldmap, $pointfields): bool {
-                    return isset($datefieldmap[$dependency['startfield']]) &&
-                        isset($datefieldmap[$dependency['endfield']]) &&
-                        !isset($pointfields[$dependency['startfield']]) &&
-                        !isset($pointfields[$dependency['endfield']]);
-                }));
-            usort($dependencies, static function(array $left, array $right): int {
-                return $left['declarationstart'] <=> $right['declarationstart'] ?:
-                    $left['declarationend'] <=> $right['declarationend'];
-            });
-
-            $record = $DB->get_record($cm->modname, ['id' => $cm->instance]);
-            if (!$record) {
-                continue;
-            }
-            $getdate = static function(string $field) use ($record, $settings): int {
-                return isset($record->{$field}) ? (int)$record->{$field} :
-                    (int)($settings[$field]['value'] ?? 0);
-            };
-
-            // A date-fields adapter may identify an end date whose interval has no
-            // stored start. Keep the start unset instead of inventing a date.
-            if (empty($parentitem['mappedrule']) && empty($parentitem['startcol']) &&
-                    empty($parentitem['endcol'])) {
-                foreach ($dateprovider->get_open_start_end_fields($cm) as $endfield) {
-                    if (!isset($datefieldmap[$endfield])) {
-                        continue;
-                    }
-                    $endvalue = $getdate($endfield);
-                    $parentitem['endcol'] = $endfield;
-                    $parentitem['startenabled'] = false;
-                    $parentitem['endenabled'] = $endvalue > 0;
-                    $parentitem['datestart'] = $coursestart;
-                    $parentitem['dateend'] = $endvalue > 0 ? $endvalue : $courseend;
-                    $parentitem['isopenstart'] = true;
-                    $parentitem['isdateinterval'] = true;
-                    $parentitem['editable'] = true;
-                    $parentitem['interactive'] = true;
-                    break;
-                }
-            }
-
-            $mappedrange = !empty($parentitem['mappedrule']) ||
-                (!empty($parentitem['startcol']) && !empty($parentitem['endcol'])) ||
-                !empty($parentitem['isopenstart']);
-            $usedfields = [];
-            if (!empty($parentitem['isopenstart'])) {
-                $usedfields[$parentitem['endcol']] = true;
-            }
-
-            // For an unmapped activity, the earliest dependency pair defines
-            // the activity interval. If earlier declarations are independent,
-            // the first such date is the activity opening and is open-ended.
-            // Later dependent pairs become child intervals.
-            if (!$mappedrange && !empty($dependencies)) {
-                $firstfield = $datefields[0];
-                $firstdependencyindex = min(array_column($dependencies, 'declarationstart'));
-                $firstfieldispaired = false;
-                foreach ($dependencies as $dependency) {
-                    if ($dependency['startfield'] === $firstfield || $dependency['endfield'] === $firstfield) {
-                        $firstfieldispaired = true;
-                        break;
-                    }
-                }
-
-                if (!$firstfieldispaired && array_search($firstfield, $datefields, true) < $firstdependencyindex) {
-                    $startfield = $firstfield;
-                    $startvalue = $getdate($startfield);
-                    $parentitem['startcol'] = $startfield;
-                    $parentitem['endcol'] = '';
-                    $parentitem['startenabled'] = $startvalue > 0;
-                    $parentitem['endenabled'] = false;
-                    $parentitem['datestart'] = $startvalue > 0 ? $startvalue : $coursestart;
-                    $parentitem['dateend'] = $courseend;
-                    $parentitem['isopenended'] = true;
-                    $parentitem['editable'] = true;
-                    $parentitem['interactive'] = true;
-                    $parentitem['derived'] = false;
-                    $usedfields[$startfield] = true;
-                } else {
-                    $primary = $dependencies[0];
-                    $startfield = $primary['startfield'];
-                    $endfield = $primary['endfield'];
-                    $startvalue = $getdate($startfield);
-                    $endvalue = $getdate($endfield);
-                    $parentitem['startcol'] = $startfield;
-                    $parentitem['endcol'] = $endfield;
-                    $parentitem['startenabled'] = $startvalue > 0;
-                    $parentitem['endenabled'] = $endvalue > 0;
-                    $parentitem['datestart'] = $startvalue > 0 ? $startvalue : $coursestart;
-                    $parentitem['dateend'] = $endvalue > 0 ? $endvalue : $courseend;
-                    if ($parentitem['dateend'] <= $parentitem['datestart']) {
-                        $parentitem['dateend'] = min($courseend, $parentitem['datestart'] + 3600);
-                    }
-                    $parentitem['editable'] = true;
-                    $parentitem['interactive'] = true;
-                    $parentitem['derived'] = false;
-                    $usedfields[$startfield] = true;
-                    $usedfields[$endfield] = true;
-                    $parentitem['title'] = (string)$cm->name;
-                }
-            }
-
-            foreach ($dependencies as $dependency) {
-                $startfield = $dependency['startfield'];
-                $endfield = $dependency['endfield'];
-                if (isset($usedfields[$startfield]) || isset($usedfields[$endfield]) ||
-                        isset($rangedatefields[$cm->modname][$startfield]) ||
-                        isset($rangedatefields[$cm->modname][$endfield])) {
-                    continue;
-                }
-                $startvalue = $getdate($startfield);
-                $endvalue = $getdate($endfield);
-                $parentbounds = \local_reschedule\adapter\editdates_bridge::discover_parent_interval_bounds(
-                    $cm, $dateprovider, $settings, $parentitem, [
-                        'startcol' => $startfield,
-                        'endcol' => $endfield,
-                    ]);
-                $startlabel = (string)($settings[$startfield]['label'] ?? $startfield);
-                $endlabel = (string)($settings[$endfield]['label'] ?? $endfield);
-                $itemid = 'interval_' . $cm->modname . '_' . $cm->instance . '_' . $startfield . '_' . $endfield;
-                $childrenbyparent[$parentkey][] = [
-                    'id' => $itemid,
-                    'recordid' => (int)$cm->instance,
-                    'cmid' => $cmid,
-                    'table' => (string)$cm->modname,
-                    'parentkey' => $parentkey,
-                    'parenttitle' => $parentitem['title'],
-                    'issubtype' => true,
-                    'isdateinterval' => true,
-                    'boundtoparentstart' => $parentbounds['start'],
-                    'boundtoparentend' => $parentbounds['end'],
-                    'haschildren' => false,
-                    'childrencount' => 0,
-                    'iconurl' => $parentitem['iconurl'],
-                    'viewurl' => $parentitem['viewurl'],
-                    'editable' => true,
-                    'derived' => false,
-                    'interactive' => true,
-                    'title' => $startlabel . ' - ' . $endlabel,
-                    'typelabel' => get_string('dateinterval', 'local_reschedule'),
-                    'startcol' => $startfield,
-                    'endcol' => $endfield,
-                    'startenabled' => $startvalue > 0,
-                    'endenabled' => $endvalue > 0,
-                    'datestart' => $startvalue > 0 ? $startvalue : (int)$parentitem['datestart'],
-                    'dateend' => $endvalue > 0 ? $endvalue : (int)$parentitem['dateend'],
-                ];
-                $usedfields[$startfield] = true;
-                $usedfields[$endfield] = true;
-                $parentitem['haschildren'] = true;
-                $parentitem['childrencount']++;
-            }
-
-            foreach ($settings as $field => $setting) {
-                if (isset($usedfields[$field]) || isset($rangedatefields[$cm->modname][$field]) ||
-                        !preg_match('/^[a-z][a-z0-9_]*$/i', $field) ||
-                        !$dbman->field_exists($cm->modname, $field) ||
-                        !isset($setting['value'], $setting['type']) ||
-                        !in_array($setting['type'], ['date', 'datetime'], true)) {
-                    continue;
-                }
-
-                $timestamp = (int)$setting['value'];
-                $enabled = $timestamp > 0;
-                $drawtime = $enabled ? $timestamp : (int)$parentitem['datestart'];
-                $itemid = 'milestone_' . $cm->modname . '_' . $cm->instance . '_' . $field;
-                $childrenbyparent[$parentkey][] = [
-                    'id' => $itemid,
-                    'recordid' => (int)$cm->instance,
-                    'cmid' => $cmid,
-                    'table' => (string)$cm->modname,
-                    'parentkey' => $parentkey,
-                    'parenttitle' => $parentitem['title'],
-                    'issubtype' => true,
-                    'ismilestone' => true,
-                    'haschildren' => false,
-                    'childrencount' => 0,
-                    'iconurl' => $parentitem['iconurl'],
-                    'viewurl' => $parentitem['viewurl'],
-                    'editable' => true,
-                    'derived' => false,
-                    'interactive' => true,
-                    'title' => (string)$setting['label'],
-                    'typelabel' => get_string('milestone', 'local_reschedule'),
-                    'startcol' => $field,
-                    'endcol' => $field,
-                    'startenabled' => $enabled,
-                    'endenabled' => $enabled,
-                    'optional' => (bool)$setting['optional'],
-                    'dateonly' => $setting['type'] === 'date',
-                    'datestart' => $drawtime,
-                    'dateend' => $drawtime,
-                ];
-                $parentitem['haschildren'] = true;
-                $parentitem['childrencount']++;
+            $parentitem = $result['parent'];
+            foreach ($result['children'] as $child) {
+                $childrenbyparent[$parentkey][] = $child;
             }
         }
         unset($parentitem);
@@ -814,6 +628,9 @@ class manager {
         }
         unset($ordereditem);
 
+        if ($onlycmid <= 0) {
+            course_items_cache::set($courseid, $cachevariant, $ordereditems);
+        }
         return $ordereditems;
     }
 
@@ -1115,6 +932,7 @@ class manager {
         adapter_manager::reset_cache();
         \local_reschedule\adapter\editdates_bridge::reset_cache();
         \local_reschedule\extractor\extractor_factory::reset_cache();
+        course_items_cache::invalidate($courseid);
 
         // Phase 3: Course cache rebuild.
         rebuild_course_cache($courseid, true);
