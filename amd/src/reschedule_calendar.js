@@ -643,6 +643,7 @@ define(['core/notification', 'core/chartjs', 'local_reschedule/effort_table', 'c
         effortChart: null,
         effortTable: null,
         effortModel: 'real',
+        effortAutoScale: true,
         hoveredEffortItemId: null,
         effortUpdatePending: false,
         absoluteLimitTooltipCounter: 0,
@@ -1672,6 +1673,38 @@ b3 = [];
         },
 
         /**
+         * Calculate a readable vertical maximum from an effort curve.
+         *
+         * Keep ten percent of headroom above the peak and use a readable tick
+         * interval. The plot has four intervals, so its maximum is four times
+         * that rounded interval.
+         *
+         * @param {Object} data Effort line and marker data.
+         * @return {number} Suggested vertical axis maximum.
+         */
+        calculateEffortScaleMax: function(data) {
+            var peak = (data.line || []).reduce(function(maximum, point) {
+                var value = Number(point.y);
+                return isFinite(value) ? Math.max(maximum, value) : maximum;
+            }, 0);
+            var requiredMaximum = peak * 1.1;
+            if (requiredMaximum <= 1) {
+                return 1;
+            }
+
+            var requiredStep = requiredMaximum / 4;
+            var magnitude = Math.pow(10, Math.floor(Math.log10(requiredStep)));
+            var roundedSteps = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
+            var roundedStep = roundedSteps.find(function(candidate) {
+                return candidate * magnitude >= requiredStep;
+            });
+            if (typeof roundedStep === 'undefined') {
+                roundedStep = 10;
+            }
+            return Number((roundedStep * magnitude * 4).toPrecision(12));
+        },
+
+        /**
          * Give each hovered subactivity its own labelled effort line.
          * @param {*} curves
          */
@@ -1735,7 +1768,15 @@ b3 = [];
             canvas.style.left = range.left + 'px';
             self.effortViewportWidth = range.width;
             self.effortCanvas = canvas;
-            var data = self.getEffortDropsData(range.start, range.end);
+            // The report's aggregate line sets a shared scale across the full
+            // report interval, even when the initial viewport shows only part.
+            var data = self.effortAutoScale ? self.getEffortDropsData(
+                self.getTimelineStart(), self.getTimelineEnd()) :
+                self.getEffortDropsData(range.start, range.end);
+            if (self.effortAutoScale) {
+                self.effortScaleMax = self.calculateEffortScaleMax(data);
+            }
+            var scaleMax = Number(self.effortScaleMax) || EFFORT_SCALE_MAX;
             var colors = self.getEffortColors();
             var datasets = [{
                 label: self.strings.effortscale,
@@ -1792,10 +1833,10 @@ b3 = [];
                         x: {type: 'linear', display: false, min: range.start, max: range.end},
                         y: {
                             type: 'linear', display: true, min: 0,
-                            max: Number(self.effortScaleMax) || EFFORT_SCALE_MAX,
+                            max: scaleMax,
                             grid: {display: true, color: 'rgba(30, 64, 175, 0.28)', z: 1},
                             ticks: {
-                                stepSize: (Number(self.effortScaleMax) || EFFORT_SCALE_MAX) / 4,
+                                stepSize: scaleMax / 4,
                                 autoSkip: false,
                                 color: '#334155',
                                 font: {size: 10},
@@ -1816,7 +1857,7 @@ b3 = [];
             if (!this.effortChart) {
                 return;
             }
-            this.updateEffortViewport();
+            this.updateEffortViewport(true);
         },
 
         /** Recalculate JSON rule estimates from current dates and update parent totals. */
@@ -1897,8 +1938,12 @@ b3 = [];
                 end: start + seconds * (left + width) / this.trackWidthPx};
         },
 
-        /** Redraw the fixed-width effort plot for the visible timeline window. */
-        updateEffortViewport: function() {
+        /**
+         * Redraw the fixed-width effort plot for the visible timeline window.
+         *
+         * @param {boolean} recalculateScale Recalculate an automatic scale after data changes.
+         */
+        updateEffortViewport: function(recalculateScale) {
             if (!this.effortChart || !this.effortCanvas) {
                 return;
             }
@@ -1916,7 +1961,13 @@ b3 = [];
             this.effortChart.data.datasets[1].backgroundColor = colors.marker;
             this.effortChart.options.scales.x.min = range.start;
             this.effortChart.options.scales.x.max = range.end;
-            this.effortChart.options.scales.y.max = Number(this.effortScaleMax) || EFFORT_SCALE_MAX;
+            if (this.effortAutoScale && recalculateScale === true) {
+                var fullData = this.getEffortDropsData(this.getTimelineStart(), this.getTimelineEnd());
+                this.effortScaleMax = this.calculateEffortScaleMax(fullData);
+            }
+            var scaleMax = Number(this.effortScaleMax) || EFFORT_SCALE_MAX;
+            this.effortChart.options.scales.y.max = scaleMax;
+            this.effortChart.options.scales.y.ticks.stepSize = scaleMax / 4;
             this.effortChart.update('none');
         },
 
@@ -1996,7 +2047,8 @@ b3 = [];
                 (item.derived ? ' is-derived' : '') +
                 (item.ismilestone ? ' is-milestone' : '') +
                 (this.isItemInteractive(item) ? '' : ' is-disabled') +
-                (this.canEditSchedule() ? '' : ' is-readonly');
+                (!this.canEditSchedule() ||
+                    (this.config.scopedEditMode && item.scopedreadwrite !== true) ? ' is-readonly' : '');
             if (!this.canEditSchedule() || !this.isItemInteractive(item)) {
                 bar.setAttribute('aria-disabled', 'true');
             }
@@ -2629,8 +2681,15 @@ b3 = [];
             guide.className = 'quest-snap-guide';
             guide.setAttribute('aria-hidden', 'true');
             guide.style.left = ((target.time - timelineStart) / totalSec * 100) + '%';
-            var header = area.querySelector('.quest-bands-header');
-            guide.style.top = (header ? header.offsetHeight : 0) + 'px';
+            var sourceLane = source.closest('.quest-timeline-lane');
+            var targetLane = target.element.closest('.quest-timeline-lane');
+            var sourceRow = sourceLane || source;
+            var targetRow = targetLane || target.element;
+            var sourceY = sourceRow.offsetTop + sourceRow.offsetHeight / 2;
+            var targetY = targetRow.offsetTop + targetRow.offsetHeight / 2;
+            guide.style.top = Math.min(sourceY, targetY) + 'px';
+            guide.style.height = Math.max(1, Math.abs(targetY - sourceY)) + 'px';
+            guide.classList.add(targetY >= sourceY ? 'is-target-below' : 'is-target-above');
             area.appendChild(guide);
             source.classList.add('is-snapped-' + edge);
             target.element.classList.add('is-snap-target-' + target.edge);
@@ -4517,14 +4576,23 @@ b3 = [];
          * @return {number} Number of changed activity items.
          */
         refreshPendingRows: function() {
-            var pending = new Set(this.getPendingItems().map(function(item) {
+            var pendingItems = this.getPendingItems();
+            var pending = new Set(pendingItems.map(function(item) {
                 return String(item.id);
             }));
+            var highlighted = new Set(pending);
+            var self = this;
+            pendingItems.forEach(function(item) {
+                var parentkey = String(item.parentkey || '');
+                if (parentkey && !self.expandedParents[parentkey]) {
+                    highlighted.add(parentkey);
+                }
+            });
             var pendingTooltip = this.strings.pendingchanges || '';
             document.querySelectorAll('#reschedule-table tr[data-itemid], ' +
                 '#reschedule-timeline-app .quest-left-row[data-itemid], ' +
                 '#reschedule-timeline-app .quest-timeline-lane[data-itemid]').forEach(function(row) {
-                var changed = pending.has(row.getAttribute('data-itemid'));
+                var changed = highlighted.has(row.getAttribute('data-itemid'));
                 row.classList.toggle('has-pending-changes', changed);
                 if (!row.hasAttribute('data-pending-base-title')) {
                     row.setAttribute('data-pending-base-title', row.getAttribute('title') || '');
@@ -6238,6 +6306,7 @@ b3 = [];
                     icon.className = isNowExpanded ? 'fa fa-minus' : 'fa fa-plus';
                 }
             });
+            self.refreshPendingRows();
             self.updateSectionDecorations(true);
         },
 
@@ -7339,8 +7408,9 @@ b3 = [];
      *
      * @param {HTMLCanvasElement} canvas Row canvas.
      * @param {Object[]} items Row activities.
+     * @param {boolean} autoScale Calculate an automatic scale from the full interval.
      */
-    EffortReport.createChart = function(canvas, items) {
+    EffortReport.createChart = function(canvas, items, autoScale) {
         var controller = Object.create(RescheduleCalendar);
         var palette = ['#7c3aed', '#0369a1', '#15803d', '#b45309', '#be123c', '#0f766e', '#6d28d9'];
         controller.config = this.config;
@@ -7360,6 +7430,7 @@ b3 = [];
         controller.locale = this.locale;
         controller.effortModel = this.effortModel;
         controller.effortScaleMax = this.effortScaleMax;
+        controller.effortAutoScale = autoScale === true;
         controller.trackWidthPx = this.trackWidthPx;
         controller.effortViewportWidth = Math.max(1, this.scrollContainer.clientWidth - 280);
         controller.scrollContainer = this.scrollContainer;
@@ -7368,6 +7439,7 @@ b3 = [];
         controller.refreshMappedEfforts();
         controller.renderEffortDrops(canvas);
         this.charts.push(controller);
+        return controller;
     };
 
     /** Render the aggregate and one student row on one synchronized timeline. */
@@ -7446,10 +7518,13 @@ b3 = [];
         scroll.appendChild(table);
         self.board.replaceChildren(scroll);
         self.scrollContainer = scroll;
-        self.createChart(aggregateCanvas, self.itemsForCourses(
+        var aggregateController = self.createChart(aggregateCanvas, self.itemsForCourses(
             self.report.courses.map(function(course) {
                 return course.id;
-            }), true));
+            }), true), true);
+        // Every student row uses the aggregate report's automatically chosen
+        // vertical maximum to keep visual comparisons on the same scale.
+        self.effortScaleMax = aggregateController.effortScaleMax;
         self.report.students.forEach(function(student) {
             self.createChart(student.canvas, self.itemsForCourses(student.courseids, false));
         });

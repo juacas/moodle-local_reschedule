@@ -39,7 +39,18 @@ define([], function() {
             icon.alt = '';
             icon.setAttribute('aria-hidden', 'true');
             link.appendChild(icon);
-            selector.appendChild(link);
+
+            // Keep the shortcut beside Moodle's calendar button. Appending it
+            // to the flex-wrapped selector makes it wrap onto a new line.
+            const calendarButton = selector.querySelector('button[id$="_calendar"]');
+            if (calendarButton) {
+                // Moodle wraps the calendar button in a field item. Keep the
+                // injected shortcut in that same non-wrapping button group.
+                calendarButton.parentElement.classList.add('local-reschedule-date-actions');
+                calendarButton.insertAdjacentElement('afterend', link);
+            } else {
+                selector.appendChild(link);
+            }
             selector.dataset.rescheduleLinkAdded = 'true';
         });
     };

@@ -24,7 +24,7 @@ namespace local_reschedule\adapter;
  * @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class editdates_bridge extends base_adapter {
+class editdates_bridge extends base_adapter implements date_fields_interface {
     /** @var array Cache of inferred date dependencies keyed by CM and field list. */
     private static array $dependencycache = [];
 
@@ -53,6 +53,117 @@ class editdates_bridge extends base_adapter {
     }
 
     /**
+     * Expose extractor settings through the optional adapter date-field API.
+     *
+     * @param \cm_info $cm Course module.
+     * @return array<string, array{label:string, value:int, type:string, optional:bool}>
+     */
+    public function get_date_fields(\cm_info $cm): array {
+        $extractor = self::get_extractor($cm->modname, $this->course);
+        if (!$extractor) {
+            return [];
+        }
+        $settings = $extractor->get_settings($cm);
+        if (!is_array($settings)) {
+            return [];
+        }
+        $fields = [];
+        foreach ($settings as $name => $setting) {
+            if (!isset($setting->currentvalue, $setting->type)) {
+                continue;
+            }
+            if (!in_array($setting->type, ['date_selector', 'date_time_selector'], true)) {
+                continue;
+            }
+            $fields[(string)$name] = [
+                'label' => (string)($setting->label ?? $name),
+                'value' => (int)$setting->currentvalue,
+                'type' => $setting->type === 'date_selector' ? 'date' : 'datetime',
+                'optional' => (bool)($setting->isoptional ?? false),
+            ];
+        }
+        return $fields;
+    }
+
+    /**
+     * Build date rows using schema checks and legacy extraction heuristics.
+     *
+     * @param \cm_info $cm Course module.
+     * @param array $parent Existing Gantt parent row.
+     * @param array<string, bool> $rangedatefields Fields already described by mapping rules.
+     * @param int $coursestart Course Gantt start timestamp.
+     * @param int $courseend Course Gantt end timestamp.
+     * @return array{parent:array, children:array}
+     */
+    public function build_date_schedule(
+        \cm_info $cm,
+        array $parent,
+        array $rangedatefields,
+        int $coursestart,
+        int $courseend
+    ): array {
+        return date_schedule_builder::build_from_fallback(
+            $cm,
+            $this,
+            $parent,
+            $rangedatefields,
+            $coursestart,
+            $courseend
+        );
+    }
+
+    /**
+     * Validate date values using the legacy extractor contract.
+     *
+     * @param \cm_info $cm Course module.
+     * @param array<string, int> $dates Proposed date values.
+     * @return array<string, string> Errors keyed by date field.
+     */
+    public function validate_date_fields(\cm_info $cm, array $dates): array {
+        $extractor = self::get_extractor($cm->modname, $this->course);
+        if (!$extractor || !method_exists($extractor, 'validate_dates')) {
+            return [];
+        }
+        return $extractor->validate_dates($cm, $dates);
+    }
+
+    /**
+     * Persist the proposed dates through the legacy extractor contract.
+     *
+     * @param \cm_info $cm Course module.
+     * @param array<string, int> $dates Final date values.
+     */
+    public function save_date_fields(\cm_info $cm, array $dates): void {
+        $extractor = self::get_extractor($cm->modname, $this->course);
+        if (!$extractor) {
+            throw new \moodle_exception('invalidrecord', 'error');
+        }
+        $extractor->save_dates($cm, $dates);
+    }
+
+    /**
+     * Get extractor fields explicitly identified as milestones.
+     *
+     * @return string[]
+     */
+    public function get_point_date_fields(\cm_info $cm): array {
+        $extractor = self::get_extractor($cm->modname, $this->course);
+        return $extractor && method_exists($extractor, 'get_reschedule_point_fields') ?
+            $extractor->get_reschedule_point_fields() : [];
+    }
+
+    /**
+     * Get extractor fields that end an open-start interval.
+     *
+     * @return string[]
+     */
+    public function get_open_start_end_fields(\cm_info $cm): array {
+        $extractor = self::get_extractor($cm->modname, $this->course);
+        return $extractor && method_exists($extractor, 'get_reschedule_end_fields') ?
+            $extractor->get_reschedule_end_fields() : [];
+    }
+
+    /**
      * Discover directed date dependencies by probing opposite timestamp extremes.
      *
      * All other date fields are set to zero so optional, unrelated dates do not
@@ -61,16 +172,20 @@ class editdates_bridge extends base_adapter {
      * always in chronological start/end order, regardless of declaration order.
      *
      * @param \cm_info $cm Course module.
-     * @param object $extractor Editdates extractor.
-     * @param array $settings Extractor date settings in declaration order.
+     * @param date_fields_interface $extractor Date-field adapter.
+     * @param array $settings Date fields in declaration order.
      * @return array Directed field pairs with startfield and endfield.
      */
-    public static function discover_date_dependencies(\cm_info $cm, object $extractor, array $settings): array {
+    public static function discover_date_dependencies(
+        \cm_info $cm,
+        date_fields_interface $extractor,
+        array $settings
+    ): array {
         $fieldnames = [];
         foreach ($settings as $field => $setting) {
             if (is_string($field) && preg_match('/^[a-z][a-z0-9_]*$/i', $field) &&
-                    isset($setting->currentvalue, $setting->type) &&
-                    in_array($setting->type, ['date_selector', 'date_time_selector'], true)) {
+                    isset($setting['value'], $setting['type']) &&
+                    in_array($setting['type'], ['date', 'datetime'], true)) {
                 $fieldnames[] = $field;
             }
         }
@@ -78,7 +193,7 @@ class editdates_bridge extends base_adapter {
         if (isset(self::$dependencycache[$cachekey])) {
             return self::$dependencycache[$cachekey];
         }
-        if (count($fieldnames) < 2 || !method_exists($extractor, 'validate_dates')) {
+        if (count($fieldnames) < 2) {
             self::$dependencycache[$cachekey] = [];
             return [];
         }
@@ -90,7 +205,7 @@ class editdates_bridge extends base_adapter {
         $late = 4102444800; // 2100-01-01.
         $emptydates = array_fill_keys($fieldnames, 0);
         try {
-            if (!empty($extractor->validate_dates($cm, $emptydates))) {
+            if (!empty($extractor->validate_date_fields($cm, $emptydates))) {
                 self::$dependencycache[$cachekey] = [];
                 return [];
             }
@@ -110,10 +225,10 @@ class editdates_bridge extends base_adapter {
                 $dates[$left] = $early;
                 $dates[$right] = $late;
                 try {
-                    $forwarderrors = $extractor->validate_dates($cm, $dates);
+                    $forwarderrors = $extractor->validate_date_fields($cm, $dates);
                     $dates[$left] = $late;
                     $dates[$right] = $early;
-                    $reverseerrors = $extractor->validate_dates($cm, $dates);
+                    $reverseerrors = $extractor->validate_date_fields($cm, $dates);
                 } catch (\Throwable $e) {
                     debugging('Could not probe date-field dependency: ' . $e->getMessage(), DEBUG_DEVELOPER);
                     continue;
@@ -145,21 +260,20 @@ class editdates_bridge extends base_adapter {
      * becomes invalid when the child is moved across that edge.
      *
      * @param \cm_info $cm Course module.
-     * @param object $extractor Date extractor.
-     * @param array $settings Extractor date settings.
+     * @param date_fields_interface $extractor Date-field adapter.
+     * @param array $settings Date fields.
      * @param array $parent Parent interval fields (startcol, endcol, isopenended).
      * @param array $child Child interval fields (startcol, endcol).
      * @return array{start: bool, end: bool} Whether the child is bounded by each parent edge.
      */
     public static function discover_parent_interval_bounds(
-            \cm_info $cm, object $extractor, array $settings, array $parent, array $child): array {
+            \cm_info $cm, date_fields_interface $extractor, array $settings, array $parent, array $child): array {
         $bounds = ['start' => false, 'end' => false];
         $parentstart = (string)($parent['startcol'] ?? '');
         $parentend = (string)($parent['endcol'] ?? '');
         $childstart = (string)($child['startcol'] ?? '');
         $childend = (string)($child['endcol'] ?? '');
-        if ($parentstart === '' || $childstart === '' || $childend === '' ||
-                !method_exists($extractor, 'validate_dates')) {
+        if ($parentstart === '' || $childstart === '' || $childend === '') {
             return $bounds;
         }
         $cachekey = implode(':', [$cm->modname, (int)$cm->id, $parentstart, $parentend,
@@ -171,8 +285,8 @@ class editdates_bridge extends base_adapter {
         $fieldnames = [];
         foreach ($settings as $field => $setting) {
             if (is_string($field) && preg_match('/^[a-z][a-z0-9_]*$/i', $field) &&
-                    isset($setting->currentvalue, $setting->type) &&
-                    in_array($setting->type, ['date_selector', 'date_time_selector'], true)) {
+                    isset($setting['value'], $setting['type']) &&
+                    in_array($setting['type'], ['date', 'datetime'], true)) {
                 $fieldnames[] = $field;
             }
         }
@@ -196,7 +310,7 @@ class editdates_bridge extends base_adapter {
         $dates[$childstart] = $middle;
         $dates[$childend] = $middlelate;
         try {
-            if (!empty($extractor->validate_dates($cm, $dates))) {
+            if (!empty($extractor->validate_date_fields($cm, $dates))) {
                 $bounds = ['start' => true, 'end' => $parentend !== '' && empty($parent['isopenended'])];
                 return self::$parentboundscache[$cachekey] = $bounds;
             }
@@ -204,14 +318,14 @@ class editdates_bridge extends base_adapter {
             $startviolation = $dates;
             $startviolation[$parentstart] = 3786912000; // 2090-01-01.
             $startviolation[$childstart] = $early;
-            $bounds['start'] = !empty($extractor->validate_dates($cm, $startviolation));
+            $bounds['start'] = !empty($extractor->validate_date_fields($cm, $startviolation));
 
             if ($parentend !== '' && empty($parent['isopenended'])) {
                 $endviolation = $dates;
                 $endviolation[$parentend] = $middle;
                 $endviolation[$childstart] = $early + 86400;
                 $endviolation[$childend] = $late;
-                $bounds['end'] = !empty($extractor->validate_dates($cm, $endviolation));
+                $bounds['end'] = !empty($extractor->validate_date_fields($cm, $endviolation));
             }
         } catch (\Throwable $e) {
             debugging('Could not probe parent interval boundaries: ' . $e->getMessage(), DEBUG_DEVELOPER);
@@ -289,17 +403,6 @@ class editdates_bridge extends base_adapter {
                 $dates[$endcol] = !empty($item['endenabled']) ? $newend : 0;
             }
 
-            // Handle dependent fields for assign (e.g. cutoffdate / gradingduedate).
-            if ($modname === 'assign') {
-                $storedend = $endcol !== '' ? (int)($dates[$endcol] ?? 0) : 0;
-                if ($storedend > 0 && !empty($dates['cutoffdate']) && $dates['cutoffdate'] < $storedend) {
-                    $dates['cutoffdate'] = $storedend;
-                }
-                if ($storedend > 0 && !empty($dates['gradingduedate']) && $dates['gradingduedate'] < $storedend) {
-                    $dates['gradingduedate'] = $storedend + (7 * 86400);
-                }
-            }
-
             $moderrors = $extractor->validate_dates($cm, $dates);
             if (!empty($moderrors)) {
                 $title = $item['title'] ?? $cm->name;
@@ -351,16 +454,6 @@ class editdates_bridge extends base_adapter {
         }
         if ($endcol !== '' && empty($item['isopenended'])) {
             $dates[$endcol] = $newend;
-        }
-
-        // Auto-adjust dependent dates for assignment to prevent database validation conflicts.
-        if ($modname === 'assign') {
-            if (!empty($dates['cutoffdate']) && $dates['cutoffdate'] < $newend) {
-                $dates['cutoffdate'] = $newend;
-            }
-            if (!empty($dates['gradingduedate']) && $dates['gradingduedate'] < $newend) {
-                $dates['gradingduedate'] = $newend + (7 * 86400);
-            }
         }
 
         $extractor->save_dates($cm, $dates);

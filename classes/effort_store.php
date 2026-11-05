@@ -47,7 +47,7 @@ class effort_store {
         }
         $categoryid = $handler->create_category('Activity Rescheduler');
         $categories = $handler->get_categories_with_fields();
-        // get_category_from_array() was added after Moodle 4.5. In 4.5 the
+        // Get_category_from_array() was added after Moodle 4.5. In 4.5 the
         // category list is keyed by category ID and scoped to this handler.
         if (method_exists($handler, 'get_category_from_array')) {
             $category = $handler->get_category_from_array(

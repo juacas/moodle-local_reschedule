@@ -19,10 +19,9 @@ namespace local_reschedule\extractor;
 /**
  * Universal date extractor factory for local_reschedule.
  *
- * Implements full autonomous discovery of date extractors:
- * 1. Checks module's own mod_{modname}_report_editdates_integration (guaranteed to load via our compat shim).
- * 2. Checks local_reschedule's built-in replicated extractors.
- * 3. Falls back to report/editdates/mod/{modname}dates.php if report_editdates happens to be installed.
+ * Discovers only legacy third-party extractor integrations. Built-in activity
+ * date handling is implemented by adapters and resolved before this factory.
+ * The factory first checks a module integration class, then report_editdates.
  *
  * @package    local_reschedule
  * @copyright  2026 Juan Pablo de Castro
@@ -66,23 +65,7 @@ class extractor_factory {
             }
         }
 
-        // 2. Check local_reschedule replicated built-in extractors.
-        $builtinclass = '\\local_reschedule\\extractor\\builtin\\' . $modname . '_extractor';
-        if (class_exists($builtinclass)) {
-            try {
-                $instance = new $builtinclass($course);
-                self::$extractors[$cachekey] = $instance;
-                return $instance;
-            } catch (\Throwable $e) {
-                debugging(
-                    'Built-in extractor could not be instantiated: ' . $e->getMessage(),
-                    DEBUG_DEVELOPER
-                );
-            }
-        }
-
-        // Keep the fallback deliberately boring: only discover an external extractor here.
-        // 3. Check the report_editdates folder if it is installed on the system.
+        // 2. Check the report_editdates folder if it is installed on the system.
         $editdatesfile = $CFG->dirroot . '/report/editdates/mod/' . $modname . 'dates.php';
         if (file_exists($editdatesfile)) {
             include_once($editdatesfile);

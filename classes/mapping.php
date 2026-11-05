@@ -25,7 +25,7 @@ namespace local_reschedule;
  */
 final class mapping {
     /** Modules whose rows belong to code adapters. */
-    public const OWNED_MODULES = ['assign', 'quiz', 'workshop', 'quest', 'quest_submissions',
+    public const OWNED_MODULES = ['assign', 'forum', 'quiz', 'workshop', 'quest', 'quest_submissions',
         'kuet', 'kuet_sessions', 'attendance', 'attendance_sessions'];
 
     /** Default rules that an administrator may edit. */
@@ -51,7 +51,7 @@ JSON;
     private const BUILTIN_JSON = <<<'JSON'
 [
   {"module":"assign","title":"name","label":"Assignment","kind":"range",
-   "start":"allowsubmissionsfromdate","end":"duedate"},
+   "start":"allowsubmissionsfromdate","end":"cutoffdate"},
   {"module":"quiz","title":"name","label":"Quiz","kind":"range","start":"timeopen","end":"timeclose"},
   {"module":"workshop","title":"name","label":"Workshop","kind":"range","start":"submissionstart","end":"assessmentend"},
   {"module":"workshop","title":"name","label":"Workshop - Submission Phase","kind":"range",

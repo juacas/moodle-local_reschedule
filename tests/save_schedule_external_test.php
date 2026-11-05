@@ -25,8 +25,8 @@ use local_reschedule\external\save_schedule;
  * @package    local_reschedule
  * @copyright  2026 Juan Pablo de Castro
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @coversDefaultClass \local_reschedule\external\save_schedule
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(save_schedule::class)]
 final class save_schedule_external_test extends \advanced_testcase {
     /**
      * The core availability end operator must survive external validation.
@@ -34,7 +34,6 @@ final class save_schedule_external_test extends \advanced_testcase {
      * PARAM_TEXT treats the less-than operator as malformed HTML, even though
      * it is the value emitted by availability_date for an upper date bound.
      *
-     * @covers ::execute_parameters
      */
     public function test_less_than_availability_direction_is_accepted(): void {
         $params = external_api::validate_parameters(save_schedule::execute_parameters(), [

@@ -1,5 +1,67 @@
 # Changelog
 
+## 1.2.5
+
+### Added
+
+- Added the `local/reschedule:viewglobalreport` course capability. It is granted
+  by default to the manager archetype; site administrators retain Moodle's
+  administrator bypass. The plugin version advances to register the new
+  capability defaults during Moodle's normal plugin upgrade.
+- Added automatic vertical scaling to the global report's aggregate effort
+  timeline. Student timelines share the aggregate maximum for comparison.
+
+### Fixed
+
+- Replaced Forum assessment date labels that referenced nonexistent core
+  strings with the Reschedule language strings.
+
+## 1.2.4 - 2026-11-05
+
+Adapter architecture and activity-form integration release.
+
+### Added
+
+- Added core adapters for the activity date integrations previously handled by
+  built-in `report_editdates`-style extractors. Core adapters are organized in
+  `classes/adapter/core/`; third-party compatibility adapters are in
+  `classes/adapter/community/`.
+- Documented adapter discovery and the resolution order from core and
+  module-provided adapters through community adapters, the optional
+  `report_editdates` bridge, and generic JSON mapping.
+- Added the shared date-field interface for adapters that expose date controls
+  in activity forms.
+
+### Fixed
+
+- Kept the injected Reschedule shortcut beside Moodle's date-picker button
+  without increasing the date control's flex width or wrapping the button onto
+  another line.
+- Corrected URL construction for activity links and caller navigation, avoiding
+  duplicated Moodle base paths.
+- Avoided requesting an optional Assignment language string that may not exist
+  on supported Moodle installations.
+
+There are no database schema changes in this release.
+
+## 1.2.3 - 2026-11-04
+
+Maintenance release focused on correcting Assignment scheduling semantics.
+
+### Fixed
+
+- Assignment activities now span from **Allow submissions from** to **Cut-off
+  date**. **Due date** and **Remind me to grade by** are separate milestones.
+- Moving the Assignment interval no longer treats the due date as its end or
+  shifts cutoff and grading milestones implicitly. The complete proposed date
+  set is checked against Moodle's Assignment validation rules before saving.
+- Assignment date errors now identify the affected milestone and its parent
+  activity, and use Moodle's specific cutoff validation messages.
+- Corrected the Gantt snap guide so it points from the dragged row to the target
+  row. A collapsed parent row also shows pending changes from its subactivities.
+
+There are no database schema changes in this release.
+
 ## 1.2.2 - 2026-11-03
 
 Integration, persistence and compatibility release. This version keeps the

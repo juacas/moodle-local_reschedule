@@ -36,6 +36,7 @@ $course = get_course($courseid);
 require_login($course);
 
 $context = \context_course::instance($courseid);
+require_capability('local/reschedule:viewglobalreport', $context);
 require_capability('moodle/course:manageactivities', $context);
 require_capability('moodle/course:viewparticipants', $context);
 
@@ -88,7 +89,7 @@ $templatecontext = [
     'datetimeformat' => $datetimeformat,
     'dateonlyformat' => $dateformat,
     'usertimezone' => \core_date::get_user_timezone(),
-    'effortscalemax' => 20,
+    'effortscalemax' => 0,
     'rescheduleurl' => (new \moodle_url('/local/reschedule/index.php', ['id' => $courseid]))->out(false),
 ];
 

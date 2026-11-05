@@ -83,9 +83,20 @@ class milestone_adapter extends base_adapter {
         if (!$errors) {
             return [];
         }
+        // Extractors decide which cross-field validation errors relate to this
+        // milestone, so module-specific rules stay with the module integration.
+        $relevantfields = method_exists($extractor, 'get_reschedule_validation_fields') ?
+            $extractor->get_reschedule_validation_fields($field) : [$field];
+        $relevanterrors = array_intersect_key($errors, array_fill_keys($relevantfields, true));
+        if (!$relevanterrors) {
+            return [];
+        }
         $messages = [];
-        foreach ($errors as $message) {
-            $messages[] = ($item['title'] ?? $field) . ': ' . $message;
+        $parenttitle = trim((string)($item['parenttitle'] ?? ''));
+        $title = trim((string)($item['title'] ?? $field));
+        $context = $parenttitle !== '' ? $parenttitle . ' > ' . $title : $title;
+        foreach ($relevanterrors as $message) {
+            $messages[] = $context . ': ' . $message;
         }
         return $messages;
     }

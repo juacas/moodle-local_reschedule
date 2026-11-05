@@ -34,10 +34,10 @@ namespace local_reschedule\extractor;
  * This class loads the original base classes when report_editdates is installed
  * and otherwise aliases Reschedule's local shims to the same class names.
  *
- * The aliases let module-provided mod_{$modname}_report_editdates_integration
- * classes and Reschedule's replicated extractors run without making
- * report_editdates a required dependency. The extractor factory still gives a
- * module-provided integration priority over every replicated implementation.
+ * The aliases let external module-provided
+ * mod_{$modname}_report_editdates_integration classes run without making
+ * report_editdates a required dependency. Built-in activity behavior is now
+ * implemented through adapters and does not use these compatibility classes.
  *
  * @package    local_reschedule
  * @copyright  2011 The Open University (based on report_editdates)

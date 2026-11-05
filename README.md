@@ -6,7 +6,7 @@
 
 **Activity Rescheduler & Interactive Timeline for Moodle**
 A local plugin for Moodle 4.x and 5.x that provides an interactive timeline (GANTT chart) and advanced tools for visual rescheduling, automated sequencing, and precise date editing of course activities with atomic, safe subsystem synchronization.
-The extractor subsystem is adapted from [report_editdates](https://marketplace.moodle.com/plugins/report_editdates) by The Open University. Activity Rescheduler extends it with a modern, touch-friendly interface and separate scheduling adapters. The original copyright notices are retained in the adapted classes.
+The legacy extractor compatibility layer follows the [report_editdates](https://marketplace.moodle.com/plugins/report_editdates) API by The Open University. Built-in activity date behavior now uses the Reschedule adapter contract; the legacy layer remains a fallback for modules without an adapter.
 
 - **Author:** Juan Pablo de Castro <[juan.pablo.de.castro@gmail.com](mailto:juan.pablo.de.castro@gmail.com)>
 - **License:** GNU General Public License v3 or later (GPLv3+)
@@ -30,7 +30,7 @@ The extractor subsystem is adapted from [report_editdates](https://marketplace.m
 6. [ANNEX: Software design notes](#annex-software-design-notes)
    - [The Pitfall of Direct Database Modification](#the-pitfall-of-direct-database-modification)
    - [Cascade Safe Adapter Engine](#cascade-safe-adapter-engine)
-   - [Autonomous Extractor Subsystem (Independence from `report_editdates`)](#autonomous-extractor-subsystem-independence-from-report_editdates)
+   - [Adapter and compatibility resolution](#adapter-and-compatibility-resolution)
    - [Safe Modification Lifecycle (Atomic Transaction)](#safe-modification-lifecycle-atomic-transaction)
    - [Project Structure](#project-structure)
 
@@ -63,7 +63,7 @@ In university and corporate training courses, Moodle courses often comprise doze
   - *Bounded proportional*: Distributes time according to the relative weights of each activity while capping outsized values.
   - *Relative scaling*: Applies one common shift and scale to the existing timeline, preserving its gaps and relative positions while fitting it to the course timeframe.
 - **Weekify for weekly courses**: Previews and moves displayed activities into the existing week containing their saved start date, without changing activity dates. If the parent has no start, the earliest dated subactivity determines the week; if none has a start, the activity goes to the first weekly section. Save pending timeline changes first; modules with a start outside the existing weeks and the course Announcements forum are skipped.
-- **Total autonomy**: Does not require the `report_editdates` plugin to be installed; its adapted extractor subsystem is bundled with the plugin.
+- **No report_editdates dependency**: Built-in and module-owned adapters work independently; report_editdates is consulted only as an optional legacy fallback.
 
 ---
 
@@ -83,7 +83,7 @@ The timeline also accepts optional startup parameters for embedding or focused s
 - `datestart=UNIX_TIMESTAMP&dateend=UNIX_TIMESTAMP`: use a concrete visible GANTT window. The real course timeframe remains the validation boundary when dates are saved.
 
 For example: `/local/reschedule/index.php?id=6&instances=quest:55,quiz:123&datestart=1764547200&dateend=1767225600`.
-- **Top time header**: Displays summed effort in hours per week above one to three date rows. The date grid shows only the relevant year, month, numbered day and hour units for the available pixels, and recalculates on zoom or viewport resize. When individual days are too narrow, the day row groups seven days aligned to natural locale weeks; there is no separate week row. Hour cells use 6, 3 or 1-hour intervals aligned to each local day, with short labels such as `6h`. Zoom can expand one complete day across the visible track. The effort graph has a fixed vertical scale from 0 to 4 h/week, with horizontal grid lines every 1 h/week. Its vertical fill is green through effort 1, yellow at 2, and red from 3 upward. Hovering an activity in the Gantt or date table overlays its effort curve, or a separately coloured and labelled curve for each contributing subactivity. Each activity without duration subactivities, and each duration subactivity, contributes its assigned work hours. A missing start uses the beginning of the Gantt range and a missing end uses its end; with both missing, the work is distributed across the complete Gantt range. The Gantt activity column shows the value rounded to one decimal before the duration badge, including `0.0 h` for types without development work. Milestones contribute no effort and do not suppress their parent's effort. The gear button switches between realistic deadline pressure (a slow exponential rise peaking at the activity end) and an ideal bell-shaped daily workload derived from a cumulative S curve. Both have a short exponential residual after the end and keep the same total effort. The selected model is saved with the course effort metadata in Moodle custom fields. The graph uses Moodle's bundled Chart.js and updates as dates move.
+- **Top time header**: Displays summed effort in hours per week above one to three date rows. The date grid shows only the relevant year, month, numbered day and hour units for the available pixels, and recalculates on zoom or viewport resize. When individual days are too narrow, the day row groups seven days aligned to natural locale weeks; there is no separate week row. Hour cells use 6, 3 or 1-hour intervals aligned to each local day, with short labels such as `6h`. Zoom can expand one complete day across the visible track. The effort graph automatically scales its vertical axis to the peak over the full Gantt range, with 10% headroom and four evenly spaced horizontal grid intervals. It rounds the interval and axis maximum to readable values. The global report uses the aggregate timeline's scale for all student timelines. Its vertical fill is green through effort 1, yellow at 2, and red from 3 upward. Hovering an activity in the Gantt or date table overlays its effort curve, or a separately coloured and labelled curve for each contributing subactivity. Each activity without duration subactivities, and each duration subactivity, contributes its assigned work hours. A missing start uses the beginning of the Gantt range and a missing end uses its end; with both missing, the work is distributed across the complete Gantt range. The Gantt activity column shows the value rounded to one decimal before the duration badge, including `0.0 h` for types without development work. Milestones contribute no effort and do not suppress their parent's effort. The gear button switches between realistic deadline pressure (a slow exponential rise peaking at the activity end) and an ideal bell-shaped daily workload derived from a cumulative S curve. Both have a short exponential residual after the end and keep the same total effort. The selected model is saved with the course effort metadata in Moodle custom fields. The graph uses Moodle's bundled Chart.js and updates as dates move.
 
   Estimated work by activity type: Choice, Feedback, Questionnaire and Quest **1 hour**; Forum, Chat and Zoom **2 hours**; Quiz, Lesson, SCORM, Glossary, Database and KUET **3 hours**; Assignment and Workshop **10 hours**; Offline Quiz **0 hours**. Other module types use **5 hours**. A Quest challenge with an estimated answer time uses **minutes ÷ 60 × difficulty multiplier** instead: Easy **0.7**, Attainable **1**, Hard **1.3**. Missing difficulty uses the neutral multiplier; a challenge without an estimated answer time uses **1 hour** and remains editable in the effort table. These are planning estimates for a dated interval. Other subactivities use their parent module's value. Every parent with duration subactivities displays the sum of their efforts; its own curve is excluded from the chart to avoid counting the same work twice. Milestones do not enter the sum. Weekly rate heights vary with duration because each curve integrates to its activity's assigned hours.
 
@@ -236,110 +236,23 @@ To enable the landing page deployment, go to the repository's **Settings > Pages
 In Moodle, an activity is never just an isolated row in a table. Modifying date columns directly via SQL (`$DB->update_record()`) causes severe inconsistencies:
 - **Orphan events in `{event}`**: Students continue seeing outdated dates in their timeline, Moodle calendar, and upcoming deadline alerts.
 - **Desynchronization in `{grade_items}`**: The gradebook retains outdated due dates.
-- **Relative inconsistencies**: In modules like `assign`, if `duedate` exceeds `cutoffdate` or `gradingduedate`, the activity enters an invalid or uneditable state.
+- **Relative inconsistencies**: In `assign`, the submission interval runs from `allowsubmissionsfromdate` to `cutoffdate`; `duedate` and `gradingduedate` are separate milestones. Moodle requires the due date to follow the opening date and the cutoff date to be no earlier than either the due date or opening date.
 
 ### Cascade Safe Adapter Engine
 
-To preserve module invariants, `local_reschedule` uses a four-level resolution factory (`classes/adapter_manager.php`):
+To preserve module invariants, `local_reschedule` resolves date ownership in this order:
 
 ```
-Activity-owned adapter -> bundled adapter -> extractor bridge -> generic adapter
+core adapter -> activity-plugin adapter -> community adapter -> report_editdates extractor -> milestone adapter -> generic mapping adapter
 ```
 
-#### 1. Activity-owned adapters
+1. **Core adapters** in `classes/adapter/core/` own native Moodle integrations, including Assign, Forum, Workshop and the other core activity date adapters. They take precedence over extensions.
+2. **Activity-plugin adapters** are discovered by Moodle's class loader as `\mod_<plugin>\local\reschedule\adapter` in `mod/<plugin>/classes/local/reschedule/adapter.php`. The class must implement `adapter_interface`. This lets a module ship its integration without depending on Reschedule.
+3. **Community adapters** in `classes/adapter/community/` provide local integrations for third-party modules that do not yet expose the adapter contract. They are fallbacks after the module-owned adapter.
+4. **The `report_editdates` extractor bridge** is consulted only when no core, module-owned or community adapter supports the item.
+5. **The milestone adapter** handles remaining point-date rows. **The generic mapping adapter** is the final fallback for mapped ranges and uses validated mapping JSON with standard Moodle update hooks.
 
-An activity plugin can own its integration by exposing the autoloadable class
-`\mod_<plugin>\local\reschedule\adapter` in
-`mod/<plugin>/classes/local/reschedule/adapter.php`. Reschedule resolves the
-owning module from the course-module id, asks Moodle's class loader for that
-single class, and verifies that it implements
-`\local_reschedule\adapter\adapter_interface`. No plugin directory is scanned.
-
-The adapter class must implement `adapter_interface`. The complete minimum
-shape of a directly implemented adapter is:
-
-```php
-namespace mod_example\local\reschedule;
-
-use local_reschedule\adapter\adapter_interface;
-
-class adapter implements adapter_interface {
-    public function __construct(private \stdClass $course) {
-    }
-
-    public function supports(string $modname, array $item): bool {
-        return $modname === 'example' || ($item['table'] ?? '') === 'example_steps';
-    }
-
-    public function get_activity_records(array $rule): array {
-        return []; // Load parent records through the activity API.
-    }
-
-    public function get_activity_attributes(\stdClass $record, array $rule): array {
-        return [];
-    }
-
-    public function get_subitems(array $rule, array $parentids): array {
-        return []; // Load child records through the activity API.
-    }
-
-    public function get_subitem_attributes(\stdClass $record, array $rule): array {
-        return [];
-    }
-
-    public function is_derived_item(array $item): bool {
-        return false;
-    }
-
-    public function get_absolute_limits(array $item, array $children = []): array {
-        return [];
-    }
-
-    public function validate(array $item, int $newstart, int $newend): array {
-        return [];
-    }
-
-    public function save(array $item, int $newstart, int $newend): void {
-        // Validate and update dates through mod_example's public API.
-    }
-
-    public function save_batch(array $tasks): void {
-        foreach ($tasks as $task) {
-            $this->save($task['item'], $task['newstart'], $task['newend']);
-        }
-    }
-}
-```
-
-Keep this reference to Reschedule in the dedicated adapter class. Moodle
-registers an autoloader at startup but does not load every class file. The
-adapter is therefore loaded only when Reschedule calls `class_exists()` for
-it. The activity remains usable when `local_reschedule` is absent and does not
-need a hard dependency in `version.php`. An implementation may extend
-`base_adapter`, which already implements the same interface and supplies the
-course-aware constructor and shared defaults. Direct implementations must
-provide the constructor and every method shown above.
-
-If the class is absent, does not implement the interface, or its `supports()`
-method declines the item, resolution continues through the fallbacks below.
-This lets newer versions of an activity own their integration while older
-versions continue to work with a bundled adapter. `mod_quest` uses this model.
-
-For every third-party activity item, autodiscovery follows these steps before
-the bundled adapter list is inspected:
-
-1. Resolve the owning activity module from the item's `cmid`. This also maps
-   child rows such as sessions or phases back to their parent module.
-2. Build the conventional class name
-   `\mod_<plugin>\local\reschedule\adapter`.
-3. Call `class_exists()` so Moodle's autoloader checks only
-   `classes/local/reschedule/adapter.php`; Reschedule does not scan plugin
-   directories.
-4. Require the loaded class to implement
-   `\local_reschedule\adapter\adapter_interface` and ask its `supports()`
-   method about the current item.
-5. Use the plugin-owned adapter when accepted. Otherwise continue with the
-   bundled adapter, extractor bridge and generic fallback levels.
+For every item, the adapter manager asks the adapters at each stage whether they support it. If none does, it tries the external extractor and then the mapping fallback.
 
 ##### `adapter_interface` PHPDoc reference
 
@@ -619,22 +532,23 @@ for each task in order. Override the method for a module bulk API, grouping by
 `parentrecordid` when the API is scoped to one parent. Throw when any batch
 operation fails so the outer transaction rolls back.
 
-#### 2. Bundled fallback adapters (`local_reschedule\adapter\*`)
+#### Native adapters (`local_reschedule\adapter\*`)
 
-These integrations support complex modules and older module releases that do
-not yet ship their own adapter:
+These implementations own the listed activities and are selected before an
+activity plugin adapter, except `quest_adapter`, which is a compatibility
+fallback selected after the plugin has had an opportunity to provide its own:
 
-- **`assign_adapter`**: Harmoniously adjusts dependent dates (`cutoffdate`, `gradingduedate`), invoking `$assign->update_calendar()` and `$assign->update_gradebook()`.
+- **`assign_adapter`**: Saves the submission opening-to-cutoff interval while preserving the independent due and grading due milestones. It validates the complete Assignment date set and refreshes calendar and gradebook data through the Assign API.
 - **`workshop_adapter`**: Handles workshops and submission/assessment subphases (`submissionstart/end`, `assessmentstart/end`), synchronizing events via `workshop_calendar_update()`.
 - **`quest_adapter`**: Fallback for Quest versions without `\mod_quest\local\reschedule\adapter`.
 - **`kuet_adapter`**: Handles `mod_kuet` and its scheduled sessions (`kuet_sessions`), managing automated session start flags (`automaticstart = 1`), programmed session modes, reactivation of rescheduled sessions, and course module cache synchronization.
 - **`attendance_adapter`**: Uses the `mod_attendance` library API to expose each attendance session as a child range. The activity range is derived from its sessions, sessions with recorded attendance receive absolute date limits, and saves are delegated to `mod_attendance_structure::update_session_from_form_data()` without direct Attendance table access.
 
-#### 3. Extractor Bridge (`local_reschedule\adapter\editdates_bridge`)
-Delegates to the extractor subsystem (`extractor_factory`), supporting any Moodle module that has a registered extractor (builtin to `local_reschedule`, in-module integration, or from `report_editdates`).
+#### 4. Extractor Bridge (`local_reschedule\adapter\editdates_bridge`)
+Delegates only to an external module integration or an installed `report_editdates` extractor. It does not discover local built-in extractors.
 
-#### 4. Safe Generic Adapter (`local_reschedule\adapter\generic_adapter`)
-Fallback for third-party modules without a dedicated adapter or extractor:
+#### 5. Safe Generic Adapter (`local_reschedule\adapter\generic_adapter`)
+Fallback for items without a native adapter or external extractor:
 - Updates dates with `timemodified = time()`.
 - Dynamically invokes standard Moodle hooks if present in `mod/{table}/lib.php`:
   - `{$modname}_update_events($record)`
@@ -692,23 +606,16 @@ and no partial schedule is committed.
 
 ---
 
-### Autonomous Extractor Subsystem (Independence from `report_editdates`)
+### Recommended implementation sequence
 
-The plugin implements a complete infrastructure in `classes/extractor/` that **does not require `report_editdates` to be installed**:
+For new activity integrations or future migrations, follow this order:
 
-1. **Compatibility Shim (`classes/extractor/compat.php`)**:
-   - Declares `report_editdates_date_setting` and `report_editdates_mod_date_extractor` if `report_editdates` is absent.
-   - Allows autoloaded classes such as `mod_offlinequiz_report_editdates_integration` to execute without triggering `Class not found`.
-2. **Replicated Builtin Extractor Catalog (`classes/extractor/builtin/`)**:
-   - Complete implementations for: `choice`, `data`, `feedback`, `forum`, `lesson`, `scorm`, `chat`, `glossary`, `questionnaire`, `zoom`, `assign`, `quiz`, `workshop`.
-   - Each extractor validates semantic business rules (e.g., open before close, graded forum dependencies) and invokes official post-save routines (`lesson_process_post_save`, `chat_update_instance`, etc.).
-3. **Universal Factory (`classes/extractor/extractor_factory.php`)**:
-   - Orchestrates resolution in order:
-     1. In-module integration class (`mod_{$modname}_report_editdates_integration`).
-     2. Replicated builtin extractor in `local_reschedule\extractor\builtin\*`.
-     3. Extractor in `report/editdates/mod/` (if the plugin is installed).
-
----
+1. Extend `adapter_interface` only when the complete schedule lifecycle needs a new capability; keep optional date-field details in `date_fields_interface`.
+2. Implement native module behavior in an adapter: date declarations, cross-field validation, module API persistence and absolute constraints.
+3. Add adapter tests for field shape, relationships, disabled dates and persistence side effects.
+4. Add internal display rules only for activities whose Gantt structure is fully owned by code; retain configurable mapping rules when admins need to choose the main range or effort model.
+5. Resolve the local native adapter first, then a module-owned adapter, followed by local compatibility adapters, the external report_editdates bridge and finally the generic mapping adapter.
+6. Document the adapter and its data formats in README and module integration guides.
 
 ### Safe Modification Lifecycle (Atomic Transaction)
 
@@ -780,36 +687,37 @@ local/reschedule/
 │   └── src/
 │       └── reschedule_calendar.js          # ES5/AMD module with interactive timeline logic
 ├── classes/
-│   ├── adapter/                            # Cascade adapter engine
-│   │   ├── adapter_interface.php          # Canonical interface contract (supports, validate, save)
-│   │   ├── base_adapter.php               # Base class with helpers (get_cm, modinfo, DB)
-│   │   ├── assign_adapter.php             # Safe handler for mod_assign
-│   │   ├── workshop_adapter.php           # Safe handler for mod_workshop and phases
-│   │   ├── quest_adapter.php              # Safe handler for mod_quest and challenges
-│   │   ├── kuet_adapter.php               # Safe handler for mod_kuet and scheduled sessions
-│   │   ├── attendance_adapter.php          # API-backed handler for mod_attendance sessions
-│   │   ├── editdates_bridge.php           # Bridge to extractor subsystem
-│   │   └── generic_adapter.php            # Safe reflective fallback for third-party modules
-│   ├── extractor/                         # Autonomous extractor subsystem
-│   │   ├── compat.php                     # Shim for report_editdates_mod_date_extractor
-│   │   ├── base_builtin_extractor.php     # Base class with translation helpers
-│   │   ├── extractor_factory.php          # Universal discovery factory
-│   │   └── builtin/                       # Catalog of replicated extractors
-│   │       ├── assign_extractor.php
-│   │       ├── chat_extractor.php
-│   │       ├── choice_extractor.php
-│   │       ├── data_extractor.php
-│   │       ├── feedback_extractor.php
-│   │       ├── forum_extractor.php
-│   │       ├── glossary_extractor.php
-│   │       ├── lesson_extractor.php
-│   │       ├── questionnaire_extractor.php
-│   │       ├── quiz_extractor.php
-│   │       ├── scorm_extractor.php
-│   │       ├── workshop_extractor.php
-│   │       └── zoom_extractor.php
-│   ├── adapter_manager.php                # Adapter factory and resolution
-│   └── manager.php                        # Business logic for schedule loading and saving
+│   ├── adapter/                            # Primary integration contract
+│   │   ├── adapter_interface.php          # Full schedule adapter API
+│   │   ├── date_fields_interface.php      # Optional secondary date API
+│   │   ├── base_adapter.php               # Shared SQL and validation helpers
+│   │   ├── core/                          # Native Moodle activity integrations
+│   │   │   ├── base_date_adapter.php      # Shared date-field behavior
+│   │   │   ├── assign_adapter.php         # Assignment ranges, milestones and limits
+│   │   │   ├── chat_adapter.php           # Chat meeting time
+│   │   │   ├── choice_adapter.php         # Choice open/close
+│   │   │   ├── data_adapter.php           # Database dates
+│   │   │   ├── feedback_adapter.php       # Feedback open/close
+│   │   │   ├── forum_adapter.php          # Forum dates and rating periods
+│   │   │   ├── glossary_adapter.php       # Rating dates
+│   │   │   ├── lesson_adapter.php         # Availability and post-save hook
+│   │   │   ├── questionnaire_adapter.php  # Availability and update API
+│   │   │   ├── quiz_adapter.php           # Availability and gradebook hooks
+│   │   │   ├── scorm_adapter.php          # Availability dates
+│   │   │   ├── workshop_adapter.php       # Workshop phases and date fields
+│   │   │   └── zoom_adapter.php           # Meeting time and past-date rule
+│   │   ├── community/                     # Local integrations for community plugins
+│   │   │   ├── attendance_adapter.php     # Attendance sessions via module API
+│   │   │   ├── kuet_adapter.php           # Kuet sessions
+│   │   │   └── quest_adapter.php          # Quest challenges
+│   │   ├── editdates_bridge.php           # Legacy external extractor fallback
+│   │   └── generic_adapter.php             # Mapping-based final fallback
+│   ├── extractor/                         # Compatibility with report_editdates modules
+│   │   ├── compat.php                     # Legacy extractor class shim
+│   │   ├── extractor_factory.php          # External-only extractor discovery
+│   │   └── shim_mod_date_extractor.php    # Fallback contract for legacy integrations
+│   ├── adapter_manager.php                # Adapter resolution and caching
+│   └── manager.php                        # Schedule loading and saving
 ├── lang/
 │   ├── en/local_reschedule.php            # English language strings
 │   └── es/local_reschedule.php            # Spanish language strings

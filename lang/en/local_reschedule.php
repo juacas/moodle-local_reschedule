@@ -284,3 +284,5 @@ $string['globalreportassociatedstudents'] = 'Associated students';
 $string['globalreportcurrent'] = 'Current course';
 $string['globalreportstudenttimelines'] = 'Workload by student';
 $string['globalreportstudentchart'] = 'Aggregate workload for {$a}';
+$string['viewglobalreport'] = 'View the cross-course student workload report';
+$string['viewglobalreport_desc'] = 'View workload timelines for students enrolled in this course and their other courses.';

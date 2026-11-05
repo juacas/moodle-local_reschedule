@@ -285,3 +285,5 @@ $string['globalreportassociatedstudents'] = 'Estudiantes asociados';
 $string['globalreportcurrent'] = 'Curso actual';
 $string['globalreportstudenttimelines'] = 'Carga por estudiante';
 $string['globalreportstudentchart'] = 'Carga agregada de {$a}';
+$string['viewglobalreport'] = 'Ver el informe de carga de trabajo entre cursos';
+$string['viewglobalreport_desc'] = 'Ver los cronogramas de carga del alumnado matriculado en este curso y en sus otros cursos.';
