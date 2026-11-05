@@ -1,38 +1,41 @@
-Reschedule (local_reschedule) 1.2.3
+Reschedule (local_reschedule) 1.2.4
 ===================================
 
 Summary
 -------
-Version 1.2.3 corrects how Assignment dates are represented and changed in the
-Gantt. It also includes small improvements to snap feedback and pending-change
-visibility.
+Version 1.2.4 completes the move of Moodle activity date handling into the
+Reschedule adapter contract. It organizes native and community integrations,
+clarifies adapter discovery and fallback order, and improves the injected
+Reschedule shortcut on activity date forms.
 
 Highlights
 ----------
 
-### Assignment scheduling
+### Adapter integrations
 
-- The Assignment activity range now runs from **Allow submissions from** to
-  **Cut-off date**.
-- **Due date** and **Remind me to grade by** are displayed as independent
-  milestones.
-- Moving the activity range no longer moves either milestone implicitly.
-- Assignment changes are checked together against Moodle's date rules before
-  saving, with contextual validation messages for invalid dates.
+- Moved bundled activity date integrations from the legacy built-in extractor
+  layer to the common adapter contract.
+- Organized Moodle activity integrations under `adapter/core/` and third-party
+  integrations under `adapter/community/`.
+- Documented adapter discovery and resolution precedence, including the
+  `report_editdates` compatibility fallback and generic JSON mapping fallback.
+- Kept module-owned adapters discoverable through Moodle's class loader, with
+  bundled adapters available for modules that do not provide one.
 
-### Gantt feedback
+### Activity date forms and URLs
 
-- The snap guide now runs from the dragged activity toward the target activity
-  and points at the target row.
-- A collapsed activity row indicates when one of its subactivities has
-  unsaved changes. Expanding the parent returns the highlight to the changed
-  subactivity rows.
+- The injected Reschedule shortcut stays beside Moodle's calendar button
+  without forcing the date controls onto another line.
+- Normalized URL handling for Reschedule links and navigation breadcrumbs.
+- Corrected activity date-field labels and compatibility handling for Moodle
+  versions that do not define optional Assignment date strings.
 
 Upgrade notes
 -------------
 
 This release does not add database tables or require a schema migration. Update
-the plugin files and purge Moodle caches:
+the plugin files and purge Moodle caches so Moodle loads the updated AMD and
+style assets:
 
 ```bash
 php admin/cli/purge_caches.php
