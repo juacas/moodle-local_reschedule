@@ -1988,7 +1988,8 @@ b3 = [];
                 (item.derived ? ' is-derived' : '') +
                 (item.ismilestone ? ' is-milestone' : '') +
                 (this.isItemInteractive(item) ? '' : ' is-disabled') +
-                (this.canEditSchedule() ? '' : ' is-readonly');
+                (!this.canEditSchedule() ||
+                    (this.config.scopedEditMode && item.scopedreadwrite !== true) ? ' is-readonly' : '');
             if (!this.canEditSchedule() || !this.isItemInteractive(item)) {
                 bar.setAttribute('aria-disabled', 'true');
             }

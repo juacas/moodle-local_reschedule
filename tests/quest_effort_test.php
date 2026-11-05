@@ -17,7 +17,7 @@
 namespace local_reschedule;
 
 use advanced_testcase;
-use local_reschedule\adapter\quest_adapter;
+use local_reschedule\adapter\community\quest_adapter;
 
 /**
  * Challenge effort comes from the estimated answer time and perceived difficulty.

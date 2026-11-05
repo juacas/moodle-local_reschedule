@@ -28,7 +28,7 @@ define([], function() {
             }
 
             const destination = new URL(link.href, window.location.href);
-            const returnUrl = window.location.pathname + window.location.search + window.location.hash;
+            const returnUrl = window.location.href;
             destination.searchParams.set('returnurl', returnUrl);
 
             const breadcrumb = document.querySelector('nav[aria-label="breadcrumb"] ol.breadcrumb') ||
@@ -44,11 +44,11 @@ define([], function() {
 
                     let url = '';
                     if (index === list.length - 1) {
-                        url = returnUrl;
+                        url = window.location.href;
                     } else if (anchor) {
                         const nodeUrl = new URL(anchor.href, window.location.href);
                         if (nodeUrl.origin === window.location.origin) {
-                            url = nodeUrl.pathname + nodeUrl.search + nodeUrl.hash;
+                            url = nodeUrl.href;
                         }
                     }
                     nodes.push({label: label, url: url});

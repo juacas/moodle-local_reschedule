@@ -18,7 +18,7 @@ namespace local_reschedule;
 
 use advanced_testcase;
 use stdClass;
-use local_reschedule\adapter\kuet_adapter;
+use local_reschedule\adapter\community\kuet_adapter;
 
 /**
  * Unit tests for Kuet scheduled sessions adapter.

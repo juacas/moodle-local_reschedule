@@ -25,7 +25,7 @@ namespace local_reschedule;
  */
 final class mapping {
     /** Modules whose rows belong to code adapters. */
-    public const OWNED_MODULES = ['assign', 'quiz', 'workshop', 'quest', 'quest_submissions',
+    public const OWNED_MODULES = ['assign', 'forum', 'quiz', 'workshop', 'quest', 'quest_submissions',
         'kuet', 'kuet_sessions', 'attendance', 'attendance_sessions'];
 
     /** Default rules that an administrator may edit. */

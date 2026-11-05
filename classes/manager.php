@@ -51,7 +51,7 @@ class manager {
      * Whether a course module is represented as a parent activity in Reschedule.
      *
      * The schedule item list includes native adapters, configured mappings and
-     * generic extractors, and is the source of truth for supported activities.
+     * generic mapping adapters, and is the source of truth for supported activities.
      *
      * @param int $courseid Course ID.
      * @param int $cmid Course module ID.
@@ -120,9 +120,9 @@ class manager {
      * Retrieve activities and subtypes to schedule for a course.
      *
      * A course module scope is used by lightweight support checks in Moodle
-     * navigation and module forms. Filtering happens before adapters and
-     * extractors are invoked, so inspecting one module never loads scheduling
-     * data from unrelated activity types.
+     * navigation and module forms. Filtering happens before adapters or legacy
+     * compatibility providers are invoked, so inspecting one module never
+     * loads scheduling data from unrelated activity types.
      *
      * @param int $courseid Course ID.
      * @param int $onlycmid Optional course module ID to retrieve exclusively.
@@ -131,9 +131,8 @@ class manager {
     public static function get_course_items(int $courseid, int $onlycmid = 0): array {
         global $DB, $OUTPUT;
 
-        // Extractors load module records at construction. Begin each schedule
-        // read with fresh instances so dates changed since the previous read
-        // cannot leak into this one, including when PHPUnit reuses IDs.
+        // Adapters and legacy extractors may cache module records. Reset all
+        // schedule providers before a read so previous dates cannot leak in.
         adapter_manager::reset_cache();
         \local_reschedule\adapter\editdates_bridge::reset_cache();
         \local_reschedule\extractor\extractor_factory::reset_cache();
@@ -387,12 +386,16 @@ class manager {
             if (isset($items[$parentkey])) {
                 continue;
             }
-            $extractor = \local_reschedule\adapter\editdates_bridge::get_extractor($cm->modname, $course);
-            if (!$extractor) {
+            $dateprovider = adapter_manager::get_date_fields_adapter($cm->modname, $course, [
+                'table' => $cm->modname,
+                'cmid' => (int)$cm->id,
+                'mappedrule' => false,
+            ]);
+            if (!$dateprovider) {
                 continue;
             }
             try {
-                $settings = $extractor->get_settings($cm);
+                $settings = $dateprovider->get_date_fields($cm);
             } catch (\Throwable $e) {
                 debugging('Could not read activity date settings: ' . $e->getMessage(), DEBUG_DEVELOPER);
                 continue;
@@ -444,12 +447,12 @@ class manager {
                 continue;
             }
             $cm = $modinfo->get_cm($cmid);
-            $extractor = \local_reschedule\adapter\editdates_bridge::get_extractor($cm->modname, $course);
-            if (!$extractor) {
+            $dateprovider = adapter_manager::get_date_fields_adapter($cm->modname, $course, $parentitem);
+            if (!$dateprovider) {
                 continue;
             }
             try {
-                $settings = $extractor->get_settings($cm);
+                $settings = $dateprovider->get_date_fields($cm);
             } catch (\Throwable $e) {
                 debugging('Could not read activity date settings: ' . $e->getMessage(), DEBUG_DEVELOPER);
                 continue;
@@ -462,8 +465,8 @@ class manager {
             foreach ($settings as $field => $setting) {
                 if (preg_match('/^[a-z][a-z0-9_]*$/i', (string)$field) &&
                         $dbman->field_exists($cm->modname, $field) &&
-                        isset($setting->currentvalue, $setting->type) &&
-                        in_array($setting->type, ['date_selector', 'date_time_selector'], true)) {
+                        isset($setting['value'], $setting['type']) &&
+                        in_array($setting['type'], ['date', 'datetime'], true)) {
                     $datefields[] = $field;
                 }
             }
@@ -472,12 +475,11 @@ class manager {
             }
 
             $dependencies = \local_reschedule\adapter\editdates_bridge::discover_date_dependencies(
-                $cm, $extractor, $settings);
+                $cm, $dateprovider, $settings);
             $datefieldmap = array_fill_keys($datefields, true);
             // An ordering rule does not necessarily describe a work interval.
-            // Extractors may identify point dates that must remain milestones.
-            $pointfields = method_exists($extractor, 'get_reschedule_point_fields') ?
-                array_fill_keys($extractor->get_reschedule_point_fields(), true) : [];
+            // Adapters may identify point dates that must remain milestones.
+            $pointfields = array_fill_keys($dateprovider->get_point_date_fields($cm), true);
             $dependencies = array_values(array_filter($dependencies,
                 static function(array $dependency) use ($datefieldmap, $pointfields): bool {
                     return isset($datefieldmap[$dependency['startfield']]) &&
@@ -496,14 +498,14 @@ class manager {
             }
             $getdate = static function(string $field) use ($record, $settings): int {
                 return isset($record->{$field}) ? (int)$record->{$field} :
-                    (int)($settings[$field]->currentvalue ?? 0);
+                    (int)($settings[$field]['value'] ?? 0);
             };
 
-            // An extractor may identify an end date whose interval has no
+            // A date-fields adapter may identify an end date whose interval has no
             // stored start. Keep the start unset instead of inventing a date.
             if (empty($parentitem['mappedrule']) && empty($parentitem['startcol']) &&
-                    empty($parentitem['endcol']) && method_exists($extractor, 'get_reschedule_end_fields')) {
-                foreach ($extractor->get_reschedule_end_fields() as $endfield) {
+                    empty($parentitem['endcol'])) {
+                foreach ($dateprovider->get_open_start_end_fields($cm) as $endfield) {
                     if (!isset($datefieldmap[$endfield])) {
                         continue;
                     }
@@ -593,12 +595,12 @@ class manager {
                 $startvalue = $getdate($startfield);
                 $endvalue = $getdate($endfield);
                 $parentbounds = \local_reschedule\adapter\editdates_bridge::discover_parent_interval_bounds(
-                    $cm, $extractor, $settings, $parentitem, [
+                    $cm, $dateprovider, $settings, $parentitem, [
                         'startcol' => $startfield,
                         'endcol' => $endfield,
                     ]);
-                $startlabel = (string)($settings[$startfield]->label ?? $startfield);
-                $endlabel = (string)($settings[$endfield]->label ?? $endfield);
+                $startlabel = (string)($settings[$startfield]['label'] ?? $startfield);
+                $endlabel = (string)($settings[$endfield]['label'] ?? $endfield);
                 $itemid = 'interval_' . $cm->modname . '_' . $cm->instance . '_' . $startfield . '_' . $endfield;
                 $childrenbyparent[$parentkey][] = [
                     'id' => $itemid,
@@ -637,12 +639,12 @@ class manager {
                 if (isset($usedfields[$field]) || isset($rangedatefields[$cm->modname][$field]) ||
                         !preg_match('/^[a-z][a-z0-9_]*$/i', $field) ||
                         !$dbman->field_exists($cm->modname, $field) ||
-                        !isset($setting->currentvalue, $setting->type) ||
-                        !in_array($setting->type, ['date_selector', 'date_time_selector'], true)) {
+                        !isset($setting['value'], $setting['type']) ||
+                        !in_array($setting['type'], ['date', 'datetime'], true)) {
                     continue;
                 }
 
-                $timestamp = (int)$setting->currentvalue;
+                $timestamp = (int)$setting['value'];
                 $enabled = $timestamp > 0;
                 $drawtime = $enabled ? $timestamp : (int)$parentitem['datestart'];
                 $itemid = 'milestone_' . $cm->modname . '_' . $cm->instance . '_' . $field;
@@ -662,14 +664,14 @@ class manager {
                     'editable' => true,
                     'derived' => false,
                     'interactive' => true,
-                    'title' => (string)$setting->label,
+                    'title' => (string)$setting['label'],
                     'typelabel' => get_string('milestone', 'local_reschedule'),
                     'startcol' => $field,
                     'endcol' => $field,
                     'startenabled' => $enabled,
                     'endenabled' => $enabled,
-                    'optional' => (bool)$setting->isoptional,
-                    'dateonly' => $setting->type === 'date_selector',
+                    'optional' => (bool)$setting['optional'],
+                    'dateonly' => $setting['type'] === 'date',
                     'datestart' => $drawtime,
                     'dateend' => $drawtime,
                 ];
@@ -843,7 +845,7 @@ class manager {
         $skippeditemerrors = [];
         $availabilityadapter = adapter_manager::get_availability_adapter($course);
 
-        // The extractor validates related dates together, so prepare the final
+        // Date-fields adapters validate related dates together, so prepare the final
         // values of every editable module date before checking individual rows.
         $proposeddates = [];
         foreach ($updates as $up) {
@@ -1108,7 +1110,7 @@ class manager {
 
         $transaction->allow_commit();
 
-        // Adapters and extractors keep course and module records in memory.
+        // Adapters and legacy extractors can keep course and module records in memory.
         // The next read or adapter use must see the committed dates.
         adapter_manager::reset_cache();
         \local_reschedule\adapter\editdates_bridge::reset_cache();
