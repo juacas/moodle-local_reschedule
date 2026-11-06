@@ -43,7 +43,10 @@ function local_reschedule_extend_navigation_course(\navigation_node $parentnode,
         );
         $parentnode->add_node($node);
 
-        if (has_capability('moodle/course:viewparticipants', $context)) {
+        if (
+            has_capability('local/reschedule:viewglobalreport', $context) &&
+                has_capability('moodle/course:viewparticipants', $context)
+        ) {
             $reporturl = new \moodle_url('/local/reschedule/globalreport.php', ['id' => $course->id]);
             $reportnode = \navigation_node::create(
                 get_string('globalreporttitle', 'local_reschedule'),

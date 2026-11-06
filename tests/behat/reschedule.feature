@@ -48,8 +48,9 @@ Feature: Access the course rescheduler and workload report
 
   Scenario: A student cannot open the rescheduler
     Given I log in as "student1"
-    When I open the rescheduler for course "C1"
-    Then I should see "Sorry, but you do not currently have permissions to do that"
+    When I am on "Reschedule course" course homepage
+    Then I should not see "Reschedule activities"
+    And I try to open the rescheduler for course "C1" and a permission exception is returned
 
   Scenario: An administrator can open the cross-course workload report
     Given I log in as "admin"
@@ -60,5 +61,7 @@ Feature: Access the course rescheduler and workload report
 
   Scenario: A teacher without the restricted report capability cannot open it
     Given I log in as "teacher1"
-    When I open the workload report for course "C1"
-    Then I should see "Sorry, but you do not currently have permissions to do that"
+    When I am on "Reschedule course" course homepage
+    Then I should see "Reschedule activities"
+    And I should not see "Student workload report"
+    And I try to open the workload report for course "C1" and a permission exception is returned

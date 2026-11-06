@@ -101,6 +101,32 @@ class behat_local_reschedule extends behat_base {
     }
 
     /**
+     * Verifies that opening the rescheduler directly raises a permission exception.
+     *
+     * The error page is inspected and then replaced before the step finishes. Moodle's
+     * after-step exception detector therefore sees the safe course page while this step
+     * still verifies the original exception and its error code.
+     *
+     * @When /^I try to open the rescheduler for course "([^"]*)" and a permission exception is returned$/
+     * @param string $shortname Course short name.
+     */
+    public function i_try_to_open_the_rescheduler_and_a_permission_exception_is_returned(string $shortname): void {
+        $course = $this->get_course($shortname);
+        $this->assert_permission_exception('/local/reschedule/index.php', ['id' => $course->id], $course);
+    }
+
+    /**
+     * Verifies that opening the workload report directly raises a permission exception.
+     *
+     * @When /^I try to open the workload report for course "([^"]*)" and a permission exception is returned$/
+     * @param string $shortname Course short name.
+     */
+    public function i_try_to_open_the_workload_report_and_a_permission_exception_is_returned(string $shortname): void {
+        $course = $this->get_course($shortname);
+        $this->assert_permission_exception('/local/reschedule/globalreport.php', ['id' => $course->id], $course);
+    }
+
+    /**
      * Finds a generated course by short name.
      *
      * @param string $shortname Course short name.
@@ -138,5 +164,29 @@ class behat_local_reschedule extends behat_base {
     private function visit_local_page(string $path, array $params): void {
         $query = http_build_query($params, '', '&', PHP_QUERY_RFC3986);
         $this->getSession()->visit($this->locate_path($path . '?' . $query));
+    }
+
+    /**
+     * Opens an endpoint, asserts its Moodle permission exception, and leaves a safe page loaded.
+     *
+     * @param string $path Site-relative endpoint.
+     * @param array $params Query parameters.
+     * @param stdClass $course Course record used for the safe destination.
+     */
+    private function assert_permission_exception(string $path, array $params, stdClass $course): void {
+        $this->visit_local_page($path, $params);
+
+        $page = $this->getSession()->getPage();
+        $fatalerror = $page->find('xpath', "//div[@data-rel='fatalerror']");
+        $pagetext = $page->getText();
+        $haspermissionmessage = strpos($pagetext, 'Sorry, but you do not currently have permissions to do that') !== false;
+        $haserrorcode = strpos($pagetext, 'nopermissions') !== false;
+
+        // Leave the exception page before Moodle's automatic after-step check runs.
+        $this->visit_local_page('/course/view.php', ['id' => $course->id]);
+
+        if (!$fatalerror || !$haspermissionmessage || !$haserrorcode) {
+            throw new RuntimeException('Expected a Moodle nopermissions exception, but the endpoint did not return it.');
+        }
     }
 }
