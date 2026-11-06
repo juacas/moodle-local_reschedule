@@ -23,6 +23,7 @@ namespace local_reschedule;
  * @copyright  2026 Juan Pablo de Castro
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(\local_reschedule\external\save_efforts::class)]
 final class save_efforts_external_test extends \advanced_testcase {
     /**
      * An effort update requires manage-activities permission on its module.

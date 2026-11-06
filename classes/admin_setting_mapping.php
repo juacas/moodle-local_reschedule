@@ -170,8 +170,16 @@ class admin_setting_mapping extends \admin_setting_configtextarea {
         $element = $OUTPUT->render_from_template('core_admin/setting_configtextarea', $context);
         // Passing null as default info prevents Moodle from printing the full
         // default JSON below the setting. It remains available in the raw editor.
-        $settinghtml = \format_admin_setting($this, $this->visiblename, $element, $this->description,
-            true, '', null, $query);
+        $settinghtml = \format_admin_setting(
+            $this,
+            $this->visiblename,
+            $element,
+            $this->description,
+            true,
+            '',
+            null,
+            $query
+        );
         return $settinghtml .
             '<script type="application/json" id="' . s($this->get_id()) . '-editor-config">' . $json . '</script>';
     }

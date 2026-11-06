@@ -113,14 +113,18 @@ class quest_adapter extends base_adapter {
             $challenge->answerstartvalidationmessage = $challenge->firstanswerdate > 0 ?
                 get_string('scheduleerroranswerbeforestart', 'quest', (object)[
                     'title' => format_string($challenge->title),
-                    'date' => userdate($challenge->firstanswerdate,
-                        get_string('strftimedatetimeshort', 'langconfig')),
+                    'date' => userdate(
+                        $challenge->firstanswerdate,
+                        get_string('strftimedatetimeshort', 'langconfig')
+                    ),
                 ]) : '';
             $challenge->answerendvalidationmessage = $challenge->lastanswerdate > 0 ?
                 get_string('scheduleerroranswerafterend', 'quest', (object)[
                     'title' => format_string($challenge->title),
-                    'date' => userdate($challenge->lastanswerdate,
-                        get_string('strftimedatetimeshort', 'langconfig')),
+                    'date' => userdate(
+                        $challenge->lastanswerdate,
+                        get_string('strftimedatetimeshort', 'langconfig')
+                    ),
                 ]) : '';
             $challenge->absolutelimits = self::get_answer_absolute_limits($challenge);
         }
@@ -265,7 +269,7 @@ class quest_adapter extends base_adapter {
     #[\Override]
     public function save_batch(array $tasks): void {
         $challenges = [];
-        $flush = function() use (&$challenges): void {
+        $flush = function () use (&$challenges): void {
             if ($challenges) {
                 $this->save_challenge_schedules($challenges);
                 $challenges = [];

@@ -47,8 +47,10 @@ class backup_local_reschedule_plugin extends backup_local_plugin {
             $rows[] = (object)[
                 'id' => $index + 1,
                 'cmid' => (int)$locator['cmid'],
-                'locator' => json_encode(\local_reschedule\effort_item_mapper::portable($locator),
-                    JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                'locator' => json_encode(
+                    \local_reschedule\effort_item_mapper::portable($locator),
+                    JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+                ),
                 'hours' => (float)$entry['hours'],
             ];
         }

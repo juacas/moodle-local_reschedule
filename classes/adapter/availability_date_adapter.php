@@ -157,8 +157,10 @@ class availability_date_adapter {
             }
             $id = (string)$update['id'];
             $time = (int)($update['time'] ?? 0);
-            if ($time <= 0 || (isset($update['direction']) &&
-                    (string)$update['direction'] !== $current[$id]['direction'])) {
+            if (
+                $time <= 0 || (isset($update['direction']) &&
+                    (string)$update['direction'] !== $current[$id]['direction'])
+            ) {
                 return ["{$title}: " . get_string('availabilityinvalid', 'local_reschedule')];
             }
             $proposed[$id]['time'] = $time;
@@ -205,7 +207,7 @@ class availability_date_adapter {
         // The date condition class has no public setter. Mutating the decoded
         // API node through a bound closure keeps the mutation scoped to the
         // core class and lets tree::save() serialise the complete tree.
-        $settime = \Closure::bind(static function($condition, int $time): void {
+        $settime = \Closure::bind(static function ($condition, int $time): void {
             $condition->time = $time;
         }, null, 'availability_date\\condition');
         foreach ($times as $index => $time) {
@@ -299,8 +301,10 @@ class availability_date_adapter {
             return false;
         }
         foreach ($node->c as $block) {
-            if (!is_object($block) || ($block->op ?? '') !== '&' ||
-                    empty($block->c) || !is_array($block->c)) {
+            if (
+                !is_object($block) || ($block->op ?? '') !== '&' ||
+                    empty($block->c) || !is_array($block->c)
+            ) {
                 return false;
             }
             $hasdate = false;

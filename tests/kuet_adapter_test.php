@@ -143,6 +143,7 @@ final class kuet_adapter_test extends advanced_testcase {
      */
     public function test_save_kuet_session(): void {
         $this->resetAfterTest(true);
+        $this->setAdminUser();
         global $DB;
 
         if (!$DB->get_manager()->table_exists('kuet') || !$DB->get_manager()->table_exists('kuet_sessions')) {

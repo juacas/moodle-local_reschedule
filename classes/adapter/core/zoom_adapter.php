@@ -64,8 +64,10 @@ class zoom_adapter extends base_date_adapter {
             return $errors;
         }
         $record = $DB->get_record('zoom', ['id' => $cm->instance]);
-        if ($record && (int)$dates['start_time'] !== (int)$record->start_time &&
-                (int)$dates['start_time'] < strtotime('today')) {
+        if (
+            $record && (int)$dates['start_time'] !== (int)$record->start_time &&
+                (int)$dates['start_time'] < strtotime('today')
+        ) {
             $errors['start_time'] = get_string_manager()->string_exists('err_start_time_past', 'zoom') ?
                 get_string('err_start_time_past', 'zoom') : get_string('zoomstarttimepast', 'local_reschedule');
         }

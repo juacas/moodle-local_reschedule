@@ -27,7 +27,7 @@ use local_reschedule\adapter\date_fields_interface;
  * @copyright  2026 Juan Pablo de Castro
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class forum_adapter extends base_adapter implements date_fields_interface, date_dependencies_interface {
+class forum_adapter extends base_adapter implements date_dependencies_interface, date_fields_interface {
     #[\Override]
     public function supports(string $modname, array $item): bool {
         return $modname === 'forum' || ($item['table'] ?? '') === 'forum';
@@ -128,8 +128,10 @@ class forum_adapter extends base_adapter implements date_fields_interface, date_
         }
         $errors = [];
         if (!empty($forum->assessed)) {
-            if (!empty($dates['assesstimestart']) && !empty($dates['assesstimefinish']) &&
-                    $dates['assesstimefinish'] < $dates['assesstimestart']) {
+            if (
+                !empty($dates['assesstimestart']) && !empty($dates['assesstimefinish']) &&
+                    $dates['assesstimefinish'] < $dates['assesstimestart']
+            ) {
                 $errors['assesstimefinish'] = get_string('assesstimefinish', 'local_reschedule');
             }
             if (empty($dates['assesstimestart']) && !empty($dates['assesstimefinish'])) {
@@ -139,8 +141,10 @@ class forum_adapter extends base_adapter implements date_fields_interface, date_
                 $errors['assesstimefinish'] = get_string('dependentdate', 'local_reschedule');
             }
         }
-        if (!empty($dates['cutoffdate']) && !empty($dates['duedate']) &&
-                $dates['cutoffdate'] < $dates['duedate']) {
+        if (
+            !empty($dates['cutoffdate']) && !empty($dates['duedate']) &&
+                $dates['cutoffdate'] < $dates['duedate']
+        ) {
             $errors['cutoffdate'] = get_string('cutoffdatevalidation', 'forum');
         }
         return $errors;
@@ -181,8 +185,10 @@ class forum_adapter extends base_adapter implements date_fields_interface, date_
         global $DB;
         $ismilestone = !empty($item['ismilestone']);
         $errors = $ismilestone ? [] : parent::validate($item, $newstart, $newend);
-        if ($ismilestone && ($newstart !== $newend || $newstart < 0 ||
-                ($newstart === 0 && empty($item['optional'])))) {
+        if (
+            $ismilestone && ($newstart !== $newend || $newstart < 0 ||
+                ($newstart === 0 && empty($item['optional'])))
+        ) {
             return [get_string('errorinvaliddate', 'calendar')];
         }
         $cm = $this->get_cm('forum', (int)$item['recordid']);

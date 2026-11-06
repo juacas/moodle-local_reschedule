@@ -183,9 +183,11 @@ class editdates_bridge extends base_adapter implements date_fields_interface {
     ): array {
         $fieldnames = [];
         foreach ($settings as $field => $setting) {
-            if (is_string($field) && preg_match('/^[a-z][a-z0-9_]*$/i', $field) &&
+            if (
+                is_string($field) && preg_match('/^[a-z][a-z0-9_]*$/i', $field) &&
                     isset($setting['value'], $setting['type']) &&
-                    in_array($setting['type'], ['date', 'datetime'], true)) {
+                    in_array($setting['type'], ['date', 'datetime'], true)
+            ) {
                 $fieldnames[] = $field;
             }
         }
@@ -267,7 +269,12 @@ class editdates_bridge extends base_adapter implements date_fields_interface {
      * @return array{start: bool, end: bool} Whether the child is bounded by each parent edge.
      */
     public static function discover_parent_interval_bounds(
-            \cm_info $cm, date_fields_interface $extractor, array $settings, array $parent, array $child): array {
+        \cm_info $cm,
+        date_fields_interface $extractor,
+        array $settings,
+        array $parent,
+        array $child
+    ): array {
         $bounds = ['start' => false, 'end' => false];
         $parentstart = (string)($parent['startcol'] ?? '');
         $parentend = (string)($parent['endcol'] ?? '');
@@ -284,15 +291,19 @@ class editdates_bridge extends base_adapter implements date_fields_interface {
 
         $fieldnames = [];
         foreach ($settings as $field => $setting) {
-            if (is_string($field) && preg_match('/^[a-z][a-z0-9_]*$/i', $field) &&
+            if (
+                is_string($field) && preg_match('/^[a-z][a-z0-9_]*$/i', $field) &&
                     isset($setting['value'], $setting['type']) &&
-                    in_array($setting['type'], ['date', 'datetime'], true)) {
+                    in_array($setting['type'], ['date', 'datetime'], true)
+            ) {
                 $fieldnames[] = $field;
             }
         }
-        if (!in_array($parentstart, $fieldnames, true) || !in_array($childstart, $fieldnames, true) ||
+        if (
+            !in_array($parentstart, $fieldnames, true) || !in_array($childstart, $fieldnames, true) ||
                 !in_array($childend, $fieldnames, true) ||
-                ($parentend !== '' && !in_array($parentend, $fieldnames, true))) {
+                ($parentend !== '' && !in_array($parentend, $fieldnames, true))
+        ) {
             return self::$parentboundscache[$cachekey] = $bounds;
         }
 

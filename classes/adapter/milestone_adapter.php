@@ -62,8 +62,10 @@ class milestone_adapter extends base_adapter {
         }
 
         $settings = $extractor->get_settings($cm);
-        if (!isset($settings[$field]) || $newstart < 0 ||
-                ($newstart === 0 && empty($settings[$field]->isoptional))) {
+        if (
+            !isset($settings[$field]) || $newstart < 0 ||
+                ($newstart === 0 && empty($settings[$field]->isoptional))
+        ) {
             return [get_string('errorinvaliddate', 'calendar')];
         }
 
@@ -114,8 +116,14 @@ class milestone_adapter extends base_adapter {
         $extractor = editdates_bridge::get_extractor($item['table'], $this->course);
         $cm = $this->get_cm($item['table'], (int)$item['recordid']);
         if (!empty($item['mappedrule']) && (!$extractor || !$cm)) {
-            $this->raw_update_record($item['table'], (int)$item['recordid'],
-                $item['startcol'], $item['startcol'], $newstart, $newstart);
+            $this->raw_update_record(
+                $item['table'],
+                (int)$item['recordid'],
+                $item['startcol'],
+                $item['startcol'],
+                $newstart,
+                $newstart
+            );
             if (!empty($item['cmid'])) {
                 $parentcm = get_fast_modinfo($this->course->id)->get_cm((int)$item['cmid']);
                 $this->trigger_cm_updated($parentcm);

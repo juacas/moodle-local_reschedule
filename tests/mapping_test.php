@@ -25,6 +25,7 @@ use advanced_testcase;
  * @copyright  2026 Juan Pablo de Castro
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(mapping::class)]
 final class mapping_test extends advanced_testcase {
     public function test_json_rules_cover_hierarchy_milestones_and_constraints(): void {
         $raw = json_encode([
@@ -71,14 +72,18 @@ final class mapping_test extends advanced_testcase {
         $modules = mapping_discovery::modules();
         $this->assertArrayHasKey('choice', $modules);
         $this->assertContains(['start' => 'timeopen', 'end' => 'timeclose'], $modules['choice']['pairs']);
-        $this->assertContains(['name' => 'timeopen', 'dateonly' => false, 'origin' => 'mod_form'],
-            $modules['choice']['fields']);
+        $this->assertContains(
+            ['name' => 'timeopen', 'dateonly' => false, 'origin' => 'mod_form'],
+            $modules['choice']['fields']
+        );
     }
 
     public function test_default_mapping_includes_optional_treasurehunt_range(): void {
         $rules = mapping::effective_rules(null);
-        $treasurehunt = array_values(array_filter($rules,
-            static fn(array $rule): bool => $rule['table'] === 'treasurehunt'));
+        $treasurehunt = array_values(array_filter(
+            $rules,
+            static fn(array $rule): bool => $rule['table'] === 'treasurehunt'
+        ));
 
         $this->assertCount(1, $treasurehunt);
         $this->assertSame('allowattemptsfromdate', $treasurehunt[0]['startcol']);

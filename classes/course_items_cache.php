@@ -56,8 +56,10 @@ class course_items_cache {
     public static function get(int $courseid, string $variant): ?array {
         $cache = \cache::make('local_reschedule', 'course_items');
         $variants = $cache->get((string)$courseid);
-        if (!is_array($variants) || !array_key_exists($variant, $variants) ||
-                !is_array($variants[$variant])) {
+        if (
+            !is_array($variants) || !array_key_exists($variant, $variants) ||
+                !is_array($variants[$variant])
+        ) {
             return null;
         }
         return $variants[$variant];

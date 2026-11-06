@@ -81,11 +81,13 @@ class weekifier {
         foreach ($parents as $cmid => $item) {
             // Moodle marks the course's special Announcements forum with
             // type=news. Its position is managed by the course, not Weekify.
-            if ($item['table'] === 'forum' && $DB->record_exists('forum', [
+            if (
+                $item['table'] === 'forum' && $DB->record_exists('forum', [
                     'id' => (int)$item['recordid'],
                     'course' => (int)$course->id,
                     'type' => 'news',
-                ])) {
+                ])
+            ) {
                 $result['skipped']['unsupported']++;
                 continue;
             }
@@ -110,7 +112,10 @@ class weekifier {
             }
 
             $cm = $modinfo->get_cm($cmid);
-            if (!\course_modinfo::is_mod_type_visible_on_course($cm->modname)) {
+            if (
+                method_exists(\course_modinfo::class, 'is_mod_type_visible_on_course') &&
+                    !\course_modinfo::is_mod_type_visible_on_course($cm->modname)
+            ) {
                 $result['skipped']['unsupported']++;
                 continue;
             }
@@ -140,6 +145,8 @@ class weekifier {
      * @return array Outcome counts.
      */
     public static function apply(\stdClass $course, array $selectedcmids): array {
+        global $CFG;
+
         $plan = self::plan($course, $selectedcmids);
         $actions = \core_courseformat\formatactions::cm($course);
         $moved = 0;
@@ -159,7 +166,18 @@ class weekifier {
         }
         foreach ($plan['moves'] as $move) {
             try {
-                if ($actions->move_end_section($move['cmid'], $move['targetsectionid'])) {
+                // This course format API may not be available in Moodle versions older than 5.0.
+                if (method_exists($actions, 'move_end_section')) {
+                    $success = $actions->move_end_section($move['cmid'], $move['targetsectionid']);
+                } else {
+                    require_once($CFG->dirroot . '/course/lib.php');
+                    $modinfo = get_fast_modinfo($course);
+                    $cm = $modinfo->get_cm((int)$move['cmid']);
+                    $section = $modinfo->get_section_info_by_id((int)$move['targetsectionid'], MUST_EXIST);
+                    moveto_module($cm, $section);
+                    $success = true;
+                }
+                if ($success) {
                     $moved++;
                 } else {
                     $failed++;
@@ -168,6 +186,9 @@ class weekifier {
                 debugging('Could not weekify course module ' . $move['cmid'] . ': ' . $e->getMessage(), DEBUG_DEVELOPER);
                 $failed++;
             }
+        }
+        if ($moved > 0) {
+            course_items_cache::invalidate((int)$course->id);
         }
         return ['moved' => $moved, 'failed' => $failed, 'skipped' => $plan['skipped']];
     }

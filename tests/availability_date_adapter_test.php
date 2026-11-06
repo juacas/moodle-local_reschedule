@@ -128,7 +128,10 @@ final class availability_date_adapter_test extends advanced_testcase {
             \availability_date\condition::get_json('<', $end2),
         ]);
         $availability = \core_availability\tree::get_root_json(
-            [$block1, $block2], \core_availability\tree::OP_OR, true);
+            [$block1, $block2],
+            \core_availability\tree::OP_OR,
+            true
+        );
         $DB->set_field('course_modules', 'availability', json_encode($availability), ['id' => $module->cmid]);
         \course_modinfo::purge_course_module_cache($course->id, $module->cmid);
 

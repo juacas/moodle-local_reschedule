@@ -167,6 +167,55 @@ class kuet_adapter extends base_adapter {
     }
 
     /**
+     * Update a session through the newest KUET API available.
+     *
+     * KUET releases bundled with Moodle 4.5 expose the session model service
+     * but predate the narrower update_session_schedule() facade. Preserve the
+     * existing form values when using that older public service.
+     *
+     * @param object $kuetapi KUET module API.
+     * @param object $session KUET session returned by the module API.
+     * @param int $newstart New start timestamp.
+     * @param int $newend New end timestamp.
+     */
+    private function update_session_schedule(object $kuetapi, object $session, int $newstart, int $newend): void {
+        if (method_exists($kuetapi, 'update_session_schedule')) {
+            $kuetapi->update_session_schedule((int)$session->get('id'), $newstart, $newend);
+            return;
+        }
+
+        $fields = [
+            'name',
+            'anonymousanswer',
+            'sessionmode',
+            'sgrade',
+            'mandatoryattendance',
+            'countdown',
+            'showgraderanking',
+            'randomquestions',
+            'randomanswers',
+            'showfeedback',
+            'showfinalgrade',
+            'timemode',
+            'sessiontime',
+            'questiontime',
+            'groupings',
+        ];
+        $data = (object)['sessionid' => (int)$session->get('id')];
+        foreach ($fields as $field) {
+            $data->{$field} = $session->get($field);
+        }
+        $data->startdate = $newstart;
+        $data->enddate = $newend;
+        $data->automaticstart = $newstart > 0 && $newend > 0 ? 1 : 0;
+        $data->status = (int)$session->get('status');
+        if ($data->status === 0 && $newstart > time()) {
+            $data->status = 1;
+        }
+        \mod_kuet\models\sessions::save_session($data);
+    }
+
+    /**
      * Build the derived date range of each KUET activity in a course.
      *
      * KUET stores dates on its sessions rather than on the activity record.
@@ -282,7 +331,7 @@ class kuet_adapter extends base_adapter {
                 return;
             }
 
-            $kuetapi->update_session_schedule((int)$session->get('id'), $newstart, $newend);
+            $this->update_session_schedule($kuetapi, $session, $newstart, $newend);
 
             // Trigger core cm update so caches and completion reflect the change.
             $cm = $this->get_cm('kuet', (int)$session->get('kuetid'));

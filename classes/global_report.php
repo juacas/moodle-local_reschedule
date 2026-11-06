@@ -106,13 +106,13 @@ final class global_report {
                 'fullname' => $coursefullname,
                 'studentcount' => $participantcount,
                 'current' => $courseid === $currentcourseid,
-                'activitycount' => count(array_filter($items, static function(array $item): bool {
+                'activitycount' => count(array_filter($items, static function (array $item): bool {
                     return empty($item['issubtype']);
                 })),
                 'items' => self::namespace_items($items, $courseid, $coursefullname, $courseid === $currentcourseid),
             ];
         }
-        usort($reportcourses, static function(array $left, array $right): int {
+        usort($reportcourses, static function (array $left, array $right): int {
             if ($left['current'] !== $right['current']) {
                 return $left['current'] ? -1 : 1;
             }

@@ -23,6 +23,7 @@ namespace local_reschedule;
  * @copyright  2026 Juan Pablo de Castro
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(global_report::class)]
 final class global_report_test extends \advanced_testcase {
     /**
      * Courses are associated through the active students of the source course.

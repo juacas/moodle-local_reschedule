@@ -95,10 +95,12 @@ abstract class base_adapter implements adapter_interface, date_schedule_interfac
         $startcol = (string)$rule['startcol'];
         $endcol = (string)$rule['endcol'];
         $dbman = $DB->get_manager();
-        if (!$dbman->table_exists($table) || !$dbman->field_exists($table, 'course') ||
+        if (
+            !$dbman->table_exists($table) || !$dbman->field_exists($table, 'course') ||
                 !$dbman->field_exists($table, 'id') || !$dbman->field_exists($table, $titlecol) ||
                 !$dbman->field_exists($table, $startcol) ||
-                ($endcol !== '' && !$dbman->field_exists($table, $endcol))) {
+                ($endcol !== '' && !$dbman->field_exists($table, $endcol))
+        ) {
             return [];
         }
 
@@ -147,9 +149,11 @@ abstract class base_adapter implements adapter_interface, date_schedule_interfac
         $startcol = (string)$rule['startcol'];
         $endcol = (string)$rule['endcol'];
         $dbman = $DB->get_manager();
-        if (!$dbman->table_exists($table) || !$dbman->field_exists($table, 'id') ||
+        if (
+            !$dbman->table_exists($table) || !$dbman->field_exists($table, 'id') ||
                 !$dbman->field_exists($table, $titlecol) || !$dbman->field_exists($table, $startcol) ||
-                ($endcol !== '' && !$dbman->field_exists($table, $endcol))) {
+                ($endcol !== '' && !$dbman->field_exists($table, $endcol))
+        ) {
             return [];
         }
 

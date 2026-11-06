@@ -109,10 +109,12 @@ final class date_schedule_builder {
         $dbman = $DB->get_manager();
         $datefields = [];
         foreach ($settings as $field => $setting) {
-            if (preg_match('/^[a-z][a-z0-9_]*$/i', (string)$field) &&
+            if (
+                preg_match('/^[a-z][a-z0-9_]*$/i', (string)$field) &&
                     $dbman->field_exists($cm->modname, $field) &&
                     isset($setting['value'], $setting['type']) &&
-                    in_array($setting['type'], ['date', 'datetime'], true)) {
+                    in_array($setting['type'], ['date', 'datetime'], true)
+            ) {
                 $datefields[] = (string)$field;
             }
         }
@@ -161,7 +163,7 @@ final class date_schedule_builder {
     ): array {
         global $DB;
 
-        usort($dependencies, static function(array $left, array $right): int {
+        usort($dependencies, static function (array $left, array $right): int {
             return $left['declarationstart'] <=> $right['declarationstart'] ?:
                 $left['declarationend'] <=> $right['declarationend'];
         });
@@ -170,7 +172,7 @@ final class date_schedule_builder {
         if (!$record) {
             return ['parent' => $parent, 'children' => []];
         }
-        $getdate = static function(string $field) use ($record, $settings): int {
+        $getdate = static function (string $field) use ($record, $settings): int {
             return isset($record->{$field}) ? (int)$record->{$field} : (int)($settings[$field]['value'] ?? 0);
         };
 
@@ -252,8 +254,10 @@ final class date_schedule_builder {
         foreach ($dependencies as $dependency) {
             $startfield = $dependency['startfield'];
             $endfield = $dependency['endfield'];
-            if (isset($usedfields[$startfield]) || isset($usedfields[$endfield]) ||
-                    isset($rangedatefields[$startfield]) || isset($rangedatefields[$endfield])) {
+            if (
+                isset($usedfields[$startfield]) || isset($usedfields[$endfield]) ||
+                    isset($rangedatefields[$startfield]) || isset($rangedatefields[$endfield])
+            ) {
                 continue;
             }
             $parentbounds = editdates_bridge::discover_parent_interval_bounds(
@@ -298,8 +302,10 @@ final class date_schedule_builder {
         }
 
         foreach ($settings as $field => $setting) {
-            if (isset($usedfields[$field]) || isset($rangedatefields[$field]) ||
-                    !isset($datefieldmap[$field])) {
+            if (
+                isset($usedfields[$field]) || isset($rangedatefields[$field]) ||
+                    !isset($datefieldmap[$field])
+            ) {
                 continue;
             }
             $timestamp = (int)$setting['value'];
@@ -371,8 +377,10 @@ final class date_schedule_builder {
         foreach ($dependencies as $dependency) {
             $start = (string)($dependency['startfield'] ?? '');
             $end = (string)($dependency['endfield'] ?? '');
-            if (!isset($fieldindexes[$start], $fieldindexes[$end]) ||
-                    isset($pointfields[$start]) || isset($pointfields[$end])) {
+            if (
+                !isset($fieldindexes[$start], $fieldindexes[$end]) ||
+                    isset($pointfields[$start]) || isset($pointfields[$end])
+            ) {
                 continue;
             }
             $normalised[] = [

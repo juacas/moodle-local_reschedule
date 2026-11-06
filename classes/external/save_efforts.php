@@ -21,6 +21,7 @@ use core_external\external_function_parameters;
 use core_external\external_multiple_structure;
 use core_external\external_single_structure;
 use core_external\external_value;
+use local_reschedule\course_items_cache;
 use local_reschedule\effort_store;
 use local_reschedule\manager;
 
@@ -73,8 +74,10 @@ class save_efforts extends external_api {
         int $scopecmid = 0
     ): array {
         global $DB, $PAGE;
-        $params = self::validate_parameters(self::execute_parameters(),
-            compact('courseid', 'forceeditmode', 'items', 'model', 'scopecmid'));
+        $params = self::validate_parameters(
+            self::execute_parameters(),
+            compact('courseid', 'forceeditmode', 'items', 'model', 'scopecmid')
+        );
         $course = $DB->get_record('course', ['id' => $params['courseid']], '*', MUST_EXIST);
         require_login($course);
         $context = \context_course::instance((int)$course->id);

@@ -22,6 +22,7 @@ namespace local_reschedule;
  * @copyright 2026 Juan Pablo de Castro
  * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(effort_store::class)]
 final class effort_store_test extends \advanced_testcase {
     public function test_applies_current_rows_and_ignores_deleted_rows(): void {
         $this->resetAfterTest();

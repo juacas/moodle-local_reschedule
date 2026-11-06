@@ -25,6 +25,7 @@ use advanced_testcase;
  * @copyright  2026 Juan Pablo de Castro
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(manager::class)]
 final class manager_timeframe_test extends advanced_testcase {
     /**
      * A missing course end uses the latest enabled date from schedule rows.

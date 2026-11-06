@@ -224,8 +224,10 @@ class attendance_adapter extends base_adapter {
     private function load_api(): bool {
         global $CFG;
 
-        if (!file_exists($CFG->dirroot . '/mod/attendance/classes/structure.php') ||
-                !file_exists($CFG->dirroot . '/mod/attendance/classes/attendance_webservices_handler.php')) {
+        if (
+            !file_exists($CFG->dirroot . '/mod/attendance/classes/structure.php') ||
+                !file_exists($CFG->dirroot . '/mod/attendance/classes/attendance_webservices_handler.php')
+        ) {
             return false;
         }
         require_once($CFG->dirroot . '/mod/attendance/classes/structure.php');

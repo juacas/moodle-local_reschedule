@@ -28,6 +28,7 @@ use local_reschedule\adapter\core\workshop_adapter;
  * @copyright  2026 Juan Pablo de Castro
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(choice_adapter::class)]
 final class core_adapters_test extends \advanced_testcase {
     /**
      * The local adapter owns date fields and semantic validation for migrated modules.
@@ -47,8 +48,10 @@ final class core_adapters_test extends \advanced_testcase {
             'startfield' => 'timeopen',
             'endfield' => 'timeclose',
         ]], $adapter->get_date_dependencies($cm, $fields));
-        $this->assertSame(['timeclose' => get_string('timeclose', 'local_reschedule')],
-            $adapter->validate_date_fields($cm, ['timeopen' => 200, 'timeclose' => 100]));
+        $this->assertSame(
+            ['timeclose' => get_string('timeclose', 'local_reschedule')],
+            $adapter->validate_date_fields($cm, ['timeopen' => 200, 'timeclose' => 100])
+        );
     }
 
     /**

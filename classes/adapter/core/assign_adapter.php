@@ -28,7 +28,7 @@ use local_reschedule\adapter\date_fields_interface;
  * @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class assign_adapter extends base_adapter implements date_fields_interface, date_dependencies_interface {
+class assign_adapter extends base_adapter implements date_dependencies_interface, date_fields_interface {
     #[\Override]
     public function supports(string $modname, array $item): bool {
         return $modname === 'assign' || ($item['table'] ?? '') === 'assign';
@@ -118,15 +118,21 @@ class assign_adapter extends base_adapter implements date_fields_interface, date
      */
     public function validate_date_fields(\cm_info $cm, array $dates): array {
         $errors = [];
-        if (!empty($dates['duedate']) && !empty($dates['allowsubmissionsfromdate']) &&
-                $dates['duedate'] <= $dates['allowsubmissionsfromdate']) {
+        if (
+            !empty($dates['duedate']) && !empty($dates['allowsubmissionsfromdate']) &&
+                $dates['duedate'] <= $dates['allowsubmissionsfromdate']
+        ) {
             $errors['duedate'] = get_string('duedateaftersubmissionvalidation', 'assign');
         }
-        if (!empty($dates['cutoffdate']) && !empty($dates['allowsubmissionsfromdate']) &&
-                $dates['cutoffdate'] < $dates['allowsubmissionsfromdate']) {
+        if (
+            !empty($dates['cutoffdate']) && !empty($dates['allowsubmissionsfromdate']) &&
+                $dates['cutoffdate'] < $dates['allowsubmissionsfromdate']
+        ) {
             $errors['cutoffdate'] = get_string('cutoffdatefromdatevalidation', 'assign');
-        } else if (!empty($dates['cutoffdate']) && !empty($dates['duedate']) &&
-                $dates['cutoffdate'] < $dates['duedate']) {
+        } else if (
+            !empty($dates['cutoffdate']) && !empty($dates['duedate']) &&
+                $dates['cutoffdate'] < $dates['duedate']
+        ) {
             $errors['cutoffdate'] = get_string('cutoffdatevalidation', 'assign');
         }
         return $errors;
@@ -175,8 +181,10 @@ class assign_adapter extends base_adapter implements date_fields_interface, date
     public function validate(array $item, int $newstart, int $newend): array {
         $ismilestone = !empty($item['ismilestone']);
         $errors = $ismilestone ? [] : parent::validate($item, $newstart, $newend);
-        if ($ismilestone && ($newstart !== $newend || $newstart < 0 ||
-                ($newstart === 0 && empty($item['optional'])))) {
+        if (
+            $ismilestone && ($newstart !== $newend || $newstart < 0 ||
+                ($newstart === 0 && empty($item['optional'])))
+        ) {
             $errors[] = get_string('errorinvaliddate', 'calendar');
         }
         if (!$ismilestone && $newend < $newstart) {
@@ -215,8 +223,10 @@ class assign_adapter extends base_adapter implements date_fields_interface, date
         foreach ($dateerrors as $field => $message) {
             // If the invalid point date is also part of this save, its
             // milestone adapter reports the error with the child row context.
-            if ($field !== $item['startcol'] && $field !== $item['endcol'] &&
-                    array_key_exists($field, $item['proposeddates'] ?? [])) {
+            if (
+                $field !== $item['startcol'] && $field !== $item['endcol'] &&
+                    array_key_exists($field, $item['proposeddates'] ?? [])
+            ) {
                 continue;
             }
             $title = trim((string)($item['title'] ?? 'Assignment'));

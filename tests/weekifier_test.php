@@ -51,12 +51,16 @@ final class weekifier_test extends advanced_testcase {
         $plan = weekifier::plan($course, [$assignment->cmid]);
         $this->assertCount(1, $plan['moves'], json_encode($plan));
         $targetsectionid = (int)\get_fast_modinfo($course)->get_section_info(1)->id;
-        $this->assertSame($targetsectionid,
-            $plan['moves'][0]['targetsectionid']);
+        $this->assertSame(
+            $targetsectionid,
+            $plan['moves'][0]['targetsectionid']
+        );
         $result = weekifier::apply($course, [$assignment->cmid]);
         $this->assertSame(1, $result['moved']);
-        $this->assertSame($targetsectionid,
-            (int)$DB->get_field('course_modules', 'section', ['id' => $assignment->cmid]));
+        $this->assertSame(
+            $targetsectionid,
+            (int)$DB->get_field('course_modules', 'section', ['id' => $assignment->cmid])
+        );
     }
 
     /**
@@ -95,17 +99,21 @@ final class weekifier_test extends advanced_testcase {
         $plan = weekifier::plan($course, [$first->cmid]);
         $this->assertCount(1, $plan['moves'], json_encode($plan));
         $this->assertSame($targetid, $plan['moves'][0]['targetsectionid']);
-        $this->assertSame($originalsection,
-            (int)$DB->get_field('course_modules', 'section', ['id' => $first->cmid]));
+        $this->assertSame(
+            $originalsection,
+            (int)$DB->get_field('course_modules', 'section', ['id' => $first->cmid])
+        );
 
         $result = weekifier::apply($course, [$first->cmid]);
         $this->assertSame(1, $result['moved']);
         $this->assertSame(0, $result['failed']);
         $this->assertSame($targetid, (int)$DB->get_field('course_modules', 'section', ['id' => $first->cmid]));
-        $this->assertSame($originalsection,
-            (int)$DB->get_field('course_modules', 'section', ['id' => $second->cmid]));
+        $this->assertSame(
+            $originalsection,
+            (int)$DB->get_field('course_modules', 'section', ['id' => $second->cmid])
+        );
         $items = manager::get_course_items((int)$course->id);
-        $firstrow = array_values(array_filter($items, static function(array $item) use ($first): bool {
+        $firstrow = array_values(array_filter($items, static function (array $item) use ($first): bool {
             return (int)$item['cmid'] === (int)$first->cmid && empty($item['issubtype']);
         }));
         $this->assertCount(1, $firstrow);
@@ -144,10 +152,14 @@ final class weekifier_test extends advanced_testcase {
 
         $result = weekifier::apply($course, [$newscm->id, $ordinary->cmid]);
         $this->assertSame(1, $result['moved']);
-        $this->assertSame($newssection,
-            (int)$DB->get_field('course_modules', 'section', ['id' => $newscm->id]));
-        $this->assertSame((int)\get_fast_modinfo($course)->get_section_info(1)->id,
-            (int)$DB->get_field('course_modules', 'section', ['id' => $ordinary->cmid]));
+        $this->assertSame(
+            $newssection,
+            (int)$DB->get_field('course_modules', 'section', ['id' => $newscm->id])
+        );
+        $this->assertSame(
+            (int)\get_fast_modinfo($course)->get_section_info(1)->id,
+            (int)$DB->get_field('course_modules', 'section', ['id' => $ordinary->cmid])
+        );
     }
 
     /**
@@ -193,11 +205,11 @@ final class weekifier_test extends advanced_testcase {
         $plan = weekifier::plan($course, [$undated->cmid, $late->cmid]);
         $this->assertCount(1, $plan['moves']);
         $this->assertSame($undated->cmid, $plan['moves'][0]['cmid']);
-        $this->assertSame((int)\get_fast_modinfo($course)->get_section_info(1)->id,
-            $plan['moves'][0]['targetsectionid']);
+        $this->assertSame(
+            (int)\get_fast_modinfo($course)->get_section_info(1)->id,
+            $plan['moves'][0]['targetsectionid']
+        );
         $this->assertSame(0, $plan['skipped']['undated']);
         $this->assertSame(1, $plan['skipped']['outofrange']);
     }
-
-
 }

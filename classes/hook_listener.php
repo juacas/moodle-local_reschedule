@@ -57,8 +57,10 @@ class hook_listener {
         }
 
         $coursecontext = \context_course::instance((int)$cm->course);
-        if (!has_capability('moodle/course:manageactivities', $coursecontext) ||
-                !manager::cm_is_supported((int)$cm->course, (int)$cm->id)) {
+        if (
+            !has_capability('moodle/course:manageactivities', $coursecontext) ||
+                !manager::cm_is_supported((int)$cm->course, (int)$cm->id)
+        ) {
             return;
         }
 

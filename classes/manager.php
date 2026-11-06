@@ -138,7 +138,7 @@ class manager {
             if ($onlycmid <= 0) {
                 return $cacheditems;
             }
-            return array_values(array_filter($cacheditems, static function(array $item) use ($onlycmid): bool {
+            return array_values(array_filter($cacheditems, static function (array $item) use ($onlycmid): bool {
                 return (int)($item['cmid'] ?? 0) === $onlycmid;
             }));
         }
@@ -178,8 +178,11 @@ class manager {
             if (!$section) {
                 continue;
             }
-            $sectiontitle = trim(html_entity_decode(strip_tags((string)$format->get_section_name($section)),
-                ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+            $sectiontitle = trim(html_entity_decode(
+                strip_tags((string)$format->get_section_name($section)),
+                ENT_QUOTES | ENT_HTML5,
+                'UTF-8'
+            ));
             if ($sectiontitle === '') {
                 $sectiontitle = get_string('section') . ' ' . (int)$section->section;
             }
@@ -209,7 +212,7 @@ class manager {
             $adapter = adapter_manager::get_adapter($table, $course, $itemmetadata);
             $records = $adapter->get_activity_records($rule);
             if ($targetcm) {
-                $records = array_filter($records, static function($record) use ($targetcm): bool {
+                $records = array_filter($records, static function ($record) use ($targetcm): bool {
                     return (int)$record->id === (int)$targetcm->instance;
                 });
             }
@@ -560,7 +563,7 @@ class manager {
             $items[$parentkey]['absolutelimits'] = $adapter->get_absolute_limits($parent, $subitems);
         }
 
-        uasort($items, static function(array $left, array $right) use ($itemorders): int {
+        uasort($items, static function (array $left, array $right) use ($itemorders): int {
             $leftorder = $itemorders[$left['id']] ?? PHP_INT_MAX;
             $rightorder = $itemorders[$right['id']] ?? PHP_INT_MAX;
             return $leftorder <=> $rightorder ?: strcmp($left['id'], $right['id']);
@@ -613,8 +616,10 @@ class manager {
         // Point milestones are excluded, just as they are from the effort plot.
         $parentsums = [];
         foreach ($ordereditems as $ordereditem) {
-            if (empty($ordereditem['issubtype']) || !empty($ordereditem['ismilestone']) ||
-                    empty($ordereditem['parentkey'])) {
+            if (
+                empty($ordereditem['issubtype']) || !empty($ordereditem['ismilestone']) ||
+                    empty($ordereditem['parentkey'])
+            ) {
                 continue;
             }
             $parentkey = (string)$ordereditem['parentkey'];
@@ -667,11 +672,13 @@ class manager {
         $proposeddates = [];
         foreach ($updates as $up) {
             $candidate = $itemmap[$up['id'] ?? ''] ?? null;
-            if (!$candidate || empty($candidate['cmid']) ||
+            if (
+                !$candidate || empty($candidate['cmid']) ||
                     (empty($candidate['startcol']) && empty($candidate['endcol'])) ||
                     ($candidate['editable'] ?? true) === false ||
                     (!empty($candidate['issubtype']) && empty($candidate['ismilestone']) &&
-                        empty($candidate['isdateinterval']) && empty($candidate['isopenended']))) {
+                        empty($candidate['isdateinterval']) && empty($candidate['isopenended']))
+            ) {
                 continue;
             }
             $cmid = (int)$candidate['cmid'];
@@ -683,8 +690,10 @@ class manager {
                 $proposeddates[$cmid][$candidate['startcol']] = $startenabled ?
                     (int)($up['datestart'] ?? $candidate['datestart']) : 0;
             }
-            if (empty($candidate['ismilestone']) && empty($candidate['isopenended']) &&
-                    !empty($candidate['endcol'])) {
+            if (
+                empty($candidate['ismilestone']) && empty($candidate['isopenended']) &&
+                    !empty($candidate['endcol'])
+            ) {
                 $proposeddates[$cmid][$candidate['endcol']] = $endenabled ?
                     (int)($up['dateend'] ?? $candidate['dateend']) : 0;
             }
@@ -741,7 +750,7 @@ class manager {
             $availabilityupdates = null;
             if (array_key_exists('availabilityconditions', $up)) {
                 $availabilityupdates = $up['availabilityconditions'];
-                $normalise = static function($conditions): string {
+                $normalise = static function ($conditions): string {
                     if (!is_array($conditions)) {
                         return 'invalid';
                     }
@@ -856,7 +865,7 @@ class manager {
         // Phase 2: Atomic transactional execution.
         // Main activity adapters can shift dependent dates; explicit milestone
         // edits must run afterwards regardless of the client's row order.
-        usort($plan, static function(array $left, array $right): int {
+        usort($plan, static function (array $left, array $right): int {
             return (int)!empty($left['item']['ismilestone']) <=> (int)!empty($right['item']['ismilestone']);
         });
 
@@ -898,7 +907,7 @@ class manager {
         $updatedcount = 0;
         $pendingadapter = null;
         $pendingtasks = [];
-        $flushadaptertasks = static function() use (&$pendingadapter, &$pendingtasks): void {
+        $flushadaptertasks = static function () use (&$pendingadapter, &$pendingtasks): void {
             if ($pendingadapter && $pendingtasks) {
                 $pendingadapter->save_batch($pendingtasks);
             }

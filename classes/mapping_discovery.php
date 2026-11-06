@@ -46,8 +46,12 @@ final class mapping_discovery {
                 // A form can declare controls over several lines and may use either quote style.
                 $datecontrolpattern = '/addElement\s*\(\s*[\'\"](date_time_selector|date_selector)[\'\"]' .
                     '\s*,\s*[\'\"]([a-z][a-z0-9_]*)[\'\"]/i';
-                preg_match_all($datecontrolpattern,
-                    $source, $matches, PREG_SET_ORDER);
+                preg_match_all(
+                    $datecontrolpattern,
+                    $source,
+                    $matches,
+                    PREG_SET_ORDER
+                );
                 foreach ($matches as $match) {
                     if ($dbman->field_exists($name, $match[2])) {
                         $fields[$match[2]] = [
@@ -63,11 +67,13 @@ final class mapping_discovery {
                 'submission|assessment|assess)/i';
             foreach ($columns as $column) {
                 $field = $column->name;
-                if (isset($fields[$field]) ||
+                if (
+                    isset($fields[$field]) ||
                         !preg_match($dateprefixpattern, $field) ||
                         !preg_match('/(date|time|start|end|open|close|due|finish|from|to|deadline)$/i', $field) ||
                         preg_match('/(created|modified|duration|limit|zone|stamp|update|validate|notification)/i', $field) ||
-                        !in_array($column->meta_type ?? '', ['I', 'N'], true)) {
+                        !in_array($column->meta_type ?? '', ['I', 'N'], true)
+                ) {
                     continue;
                 }
                 $fields[$field] = ['name' => $field, 'dateonly' => false, 'origin' => 'schema'];
@@ -88,9 +94,11 @@ final class mapping_discovery {
                     $candidates = array_merge($candidates, ['duedate', 'dateend', 'enddate', 'timeclose']);
                 }
                 foreach ($candidates as $end) {
-                    if ($end !== $start && isset($fields[$end]) &&
+                    if (
+                        $end !== $start && isset($fields[$end]) &&
                             (!in_array($end, ['duedate', 'dateend', 'enddate', 'timeclose'], true) ||
-                                $fields[$end]['origin'] === 'mod_form')) {
+                                $fields[$end]['origin'] === 'mod_form')
+                    ) {
                         $pairs[] = ['start' => $start, 'end' => $end];
                         break;
                     }

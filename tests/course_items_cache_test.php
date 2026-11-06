@@ -17,6 +17,7 @@
 namespace local_reschedule;
 
 use advanced_testcase;
+use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * Tests the application cache for extracted course items.
@@ -24,16 +25,12 @@ use advanced_testcase;
  * @package local_reschedule
  * @copyright 2026 Juan Pablo de Castro
  * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @coversDefaultClass \local_reschedule\course_items_cache
  */
+#[CoversClass(course_items_cache::class)]
 final class course_items_cache_test extends advanced_testcase {
     /**
      * Verify cache variants are separated and invalidated per course.
      *
-     * @covers ::get
-     * @covers ::set
-     * @covers ::invalidate
-     * @covers ::invalidate_all
      */
     public function test_course_items_cache_lifecycle(): void {
         $this->resetAfterTest();

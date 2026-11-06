@@ -33,7 +33,7 @@ if (!is_readable($configpath)) {
     $configpath = __DIR__ . '/../../config.php';
 }
 require($configpath);
-require_once($CFG->dirroot. '/local/reschedule/lib.php');
+require_once($CFG->dirroot . '/local/reschedule/lib.php');
 
 $courseid = required_param('id', PARAM_INT);
 $cmidsparam = optional_param('cmids', '', PARAM_SEQUENCE);
@@ -136,7 +136,7 @@ $timeframe = \local_reschedule\manager::get_course_timeframe($course, $items);
 $coursestart = $timeframe['start'];
 $courseend = $timeframe['end'];
 
-// cmid controls initial focus (and editmode=2 scope); only cmids is an explicit
+// Cmid controls initial focus (and editmode=2 scope); only cmids is an explicit
 // list filter for selecting which activities to display.
 $cmids = array_filter(array_map('intval', preg_split('/,/', $cmidsparam, -1, PREG_SPLIT_NO_EMPTY)));
 $cmids = array_values(array_unique($cmids));
@@ -154,7 +154,7 @@ foreach (preg_split('/,/', $instancesparam, -1, PREG_SPLIT_NO_EMPTY) as $instanc
 $instances = array_values(array_unique($instances));
 if (!$scopededitmode && !empty($cmids)) {
     $cmidlookup = array_fill_keys($cmids, true);
-    $items = array_values(array_filter($items, function(array $item) use ($cmidlookup): bool {
+    $items = array_values(array_filter($items, function (array $item) use ($cmidlookup): bool {
         return isset($cmidlookup[(int)($item['cmid'] ?? 0)]);
     }));
 }
@@ -165,7 +165,7 @@ if (!$scopededitmode && !empty($instances)) {
         [$type, $recordid] = explode(':', $instance, 2);
         $parentlookup['main_' . $type . '_' . $recordid] = true;
     }
-    $items = array_values(array_filter($items, function(array $item) use ($instancelookup, $parentlookup): bool {
+    $items = array_values(array_filter($items, function (array $item) use ($instancelookup, $parentlookup): bool {
         $itemkey = ($item['table'] ?? '') . ':' . (int)($item['recordid'] ?? 0);
         return isset($instancelookup[$itemkey]) ||
             (!empty($item['parentkey']) && isset($parentlookup[$item['parentkey']]));
@@ -200,10 +200,15 @@ foreach ($items as &$item) {
     if (empty($item['endenabled'])) {
         $item['dateend'] = $timelineend;
     }
-    if (($item['effortsource'] ?? '') === 'mapping' &&
-            ($item['effortestimator']['model'] ?? '') === 'perday') {
+    if (
+        ($item['effortsource'] ?? '') === 'mapping' &&
+            ($item['effortestimator']['model'] ?? '') === 'perday'
+    ) {
         $item['effort'] = \local_reschedule\mapping::estimate(
-            $item['effortestimator'], (int)$item['datestart'], (int)$item['dateend']);
+            $item['effortestimator'],
+            (int)$item['datestart'],
+            (int)$item['dateend']
+        );
     }
 }
 unset($item);
@@ -269,8 +274,10 @@ foreach ($items as &$item) {
     }
     if (!empty($item['ismilestone'])) {
         $itemsforview[] = array_merge($item, [
-            'startformatted' => !empty($item['startenabled']) ? userdate($item['datestart'],
-                !empty($item['dateonly']) ? $dateonlyformat : $dateformat) : '',
+            'startformatted' => !empty($item['startenabled']) ? userdate(
+                $item['datestart'],
+                !empty($item['dateonly']) ? $dateonlyformat : $dateformat
+            ) : '',
             'endformatted' => '',
             'durationformatted' => get_string('milestone', 'local_reschedule'),
         ]);

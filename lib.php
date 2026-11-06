@@ -76,8 +76,10 @@ function local_reschedule_extend_settings_navigation(\settings_navigation $setti
         return;
     }
     $coursecontext = \context_course::instance((int)$cm->course);
-    if (!has_capability('moodle/course:manageactivities', $coursecontext) ||
-            !has_capability('moodle/course:manageactivities', $context)) {
+    if (
+        !has_capability('moodle/course:manageactivities', $coursecontext) ||
+            !has_capability('moodle/course:manageactivities', $context)
+    ) {
         return;
     }
 

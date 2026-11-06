@@ -42,8 +42,10 @@ class weekify extends external_api {
             'courseid' => new external_value(PARAM_INT, 'Course ID.'),
             'forceeditmode' => new external_value(PARAM_BOOL, 'Use Reschedule edit mode.', VALUE_DEFAULT, false),
             'action' => new external_value(PARAM_ALPHA, 'preview or apply.'),
-            'cmids' => new external_multiple_structure(new external_value(PARAM_INT, 'Course module ID.'),
-                'Selected course modules.'),
+            'cmids' => new external_multiple_structure(
+                new external_value(PARAM_INT, 'Course module ID.'),
+                'Selected course modules.'
+            ),
         ]);
     }
 

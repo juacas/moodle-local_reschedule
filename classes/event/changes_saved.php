@@ -91,12 +91,16 @@ class changes_saved extends \core\event\base {
                 'affectedcount' => count($affected),
                 'affectedmoduleids' => implode(',', array_keys($affected)),
                 'affectedmodulesummary' => implode(', ', $summary),
-                'affectedmodules' => json_encode(array_values($affected),
-                    JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                'affectedmodules' => json_encode(
+                    array_values($affected),
+                    JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+                ),
                 'affectedsubactivitycount' => count($affectedsubactivities),
                 'affectedsubactivitysummary' => implode(', ', $subactivitysummary),
-                'affectedsubactivities' => json_encode(array_values($affectedsubactivities),
-                    JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                'affectedsubactivities' => json_encode(
+                    array_values($affectedsubactivities),
+                    JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+                ),
             ],
         ]);
     }
@@ -158,9 +162,11 @@ class changes_saved extends \core\event\base {
         if ($this->contextlevel !== CONTEXT_COURSE) {
             throw new \coding_exception('Context level must be CONTEXT_COURSE.');
         }
-        foreach (['operation', 'affectedcount', 'affectedmoduleids', 'affectedmodulesummary',
+        foreach (
+            ['operation', 'affectedcount', 'affectedmoduleids', 'affectedmodulesummary',
                 'affectedmodules', 'affectedsubactivitycount', 'affectedsubactivitysummary',
-                'affectedsubactivities'] as $key) {
+                'affectedsubactivities'] as $key
+        ) {
             if (!isset($this->other[$key])) {
                 throw new \coding_exception("The '$key' value must be set in other.");
             }

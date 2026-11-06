@@ -97,8 +97,10 @@ final class quest_effort_test extends advanced_testcase {
         foreach ($cases as [$title, $minutes, , $expected]) {
             $this->assertArrayHasKey($ids[$title], $items);
             $this->assertEqualsWithDelta($expected, $items[$ids[$title]]['effort'], 0.0001);
-            $this->assertSame($minutes === null || $minutes <= 0 ? 'default' : 'adapter',
-                $items[$ids[$title]]['effortsource']);
+            $this->assertSame(
+                $minutes === null || $minutes <= 0 ? 'default' : 'adapter',
+                $items[$ids[$title]]['effortsource']
+            );
         }
         $this->assertEqualsWithDelta(10.15, $items['main_quest_' . $quest->id]['effort'], 0.0001);
         $this->assertSame('children', $items['main_quest_' . $quest->id]['effortsource']);
@@ -284,13 +286,17 @@ final class quest_effort_test extends advanced_testcase {
         $challengekey = 'sub_quest_submissions_' . $submissionid;
         $this->assertCount(2, $items[$challengekey]['absolutelimits']);
         $this->assertSame(['start_max', 'end_min'], array_column($items[$challengekey]['absolutelimits'], 'type'));
-        $this->assertSame([$answerdate, $lastanswerdate],
-            array_column($items[$challengekey]['absolutelimits'], 'date'));
+        $this->assertSame(
+            [$answerdate, $lastanswerdate],
+            array_column($items[$challengekey]['absolutelimits'], 'date')
+        );
         $parentlimits = $items['main_quest_' . $quest->id]['absolutelimits'];
         $this->assertCount(2, $parentlimits);
         $this->assertSame(['start_max', 'end_min'], array_column($parentlimits, 'type'));
-        $this->assertSame([$start + intdiv(HOURSECS, 2), $start + (4 * HOURSECS)],
-            array_column($parentlimits, 'date'));
+        $this->assertSame(
+            [$start + intdiv(HOURSECS, 2), $start + (4 * HOURSECS)],
+            array_column($parentlimits, 'date')
+        );
 
         $result = manager::save_schedule((int)$course->id, [[
             'id' => 'sub_quest_submissions_' . $submissionid,

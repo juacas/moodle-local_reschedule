@@ -28,7 +28,7 @@ use local_reschedule\adapter\date_fields_interface;
  * @author     Juan Pablo de Castro <juan.pablo.de.castro@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class workshop_adapter extends base_adapter implements date_fields_interface, date_dependencies_interface {
+class workshop_adapter extends base_adapter implements date_dependencies_interface, date_fields_interface {
     #[\Override]
     public function supports(string $modname, array $item): bool {
         return ($modname === 'workshop');
@@ -82,11 +82,13 @@ class workshop_adapter extends base_adapter implements date_fields_interface, da
      */
     public function validate_date_fields(\cm_info $cm, array $dates): array {
         $errors = [];
-        foreach ([
+        foreach (
+            [
             ['submissionstart', 'submissionend'],
             ['assessmentstart', 'assessmentend'],
             ['submissionend', 'assessmentstart'],
-        ] as [$start, $end]) {
+            ] as [$start, $end]
+        ) {
             if (!empty($dates[$start]) && !empty($dates[$end]) && $dates[$end] < $dates[$start]) {
                 $errors[$end] = get_string('timeclose', 'local_reschedule');
             }

@@ -89,8 +89,10 @@ class effort_store {
             return ['version' => self::SCHEMA_VERSION, 'model' => self::DEFAULT_MODEL, 'entries' => []];
         }
         $decoded = json_decode((string)$controller->get('value'), true);
-        if (!is_array($decoded) || ($decoded['version'] ?? null) !== self::SCHEMA_VERSION ||
-                !is_array($decoded['entries'] ?? null)) {
+        if (
+            !is_array($decoded) || ($decoded['version'] ?? null) !== self::SCHEMA_VERSION ||
+                !is_array($decoded['entries'] ?? null)
+        ) {
             return ['version' => self::SCHEMA_VERSION, 'model' => self::DEFAULT_MODEL, 'entries' => []];
         }
         $decoded['model'] = self::normalise_model($decoded['model'] ?? self::DEFAULT_MODEL);
@@ -178,8 +180,10 @@ class effort_store {
         $locators = effort_item_mapper::map($items);
         foreach ($items as &$item) {
             $id = (string)($item['id'] ?? '');
-            if (!isset($locators[$id]) || !empty($item['ismilestone']) ||
-                    ($item['effortsource'] ?? '') === 'adapter') {
+            if (
+                !isset($locators[$id]) || !empty($item['ismilestone']) ||
+                    ($item['effortsource'] ?? '') === 'adapter'
+            ) {
                 continue;
             }
             $key = effort_item_mapper::key($locators[$id]);
@@ -209,9 +213,11 @@ class effort_store {
         foreach ($items as $item) {
             $id = (string)($item['id'] ?? '');
             $ismanuallyset = ($item['effortsource'] ?? '') === 'manual';
-            if ((!array_key_exists($id, $values) && !$ismanuallyset) || !isset($locators[$id]) ||
+            if (
+                (!array_key_exists($id, $values) && !$ismanuallyset) || !isset($locators[$id]) ||
                     !empty($item['ismilestone']) ||
-                    in_array($item['effortsource'] ?? '', ['adapter', 'children'], true)) {
+                    in_array($item['effortsource'] ?? '', ['adapter', 'children'], true)
+            ) {
                 continue;
             }
             $hours = array_key_exists($id, $values) ? $values[$id] : (float)($item['effort'] ?? 0);

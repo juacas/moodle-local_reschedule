@@ -179,6 +179,9 @@ final class milestone_test extends advanced_testcase {
 
         $cutoff = time() + (3 * DAYSECS);
         $DB->set_field('assign', 'duedate', $cutoff, ['id' => $assignment->id]);
+        // Direct database writes bypass Moodle's module observers, so mirror
+        // the invalidation performed by supported activity update APIs.
+        course_items_cache::invalidate((int)$course->id);
         $after = array_column(manager::get_course_items($course->id), null, 'id');
         $this->assertTrue($after[$milestoneid]['startenabled']);
         $this->assertSame($cutoff, $after[$milestoneid]['datestart']);

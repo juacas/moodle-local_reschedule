@@ -30,7 +30,7 @@ use local_reschedule\adapter\date_fields_interface;
  * @copyright  2026 Juan Pablo de Castro
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-abstract class base_date_adapter extends base_adapter implements date_fields_interface, date_dependencies_interface {
+abstract class base_date_adapter extends base_adapter implements date_dependencies_interface, date_fields_interface {
     /**
      * Get the activity module name handled by this adapter.
      *
@@ -111,8 +111,10 @@ abstract class base_date_adapter extends base_adapter implements date_fields_int
             }
             $component = $definition['component'] ?? $this->get_module_name();
             $labelkey = $definition['label'];
-            if ($this->get_module_name() === 'zoom' && $labelkey === 'meeting_time' &&
-                    !get_string_manager()->string_exists($labelkey, $component)) {
+            if (
+                $this->get_module_name() === 'zoom' && $labelkey === 'meeting_time' &&
+                    !get_string_manager()->string_exists($labelkey, $component)
+            ) {
                 $label = get_string('zoommeetingtime', 'local_reschedule');
             } else {
                 $label = get_string($labelkey, $component);
@@ -208,8 +210,10 @@ abstract class base_date_adapter extends base_adapter implements date_fields_int
     public function validate(array $item, int $newstart, int $newend): array {
         $ismilestone = !empty($item['ismilestone']);
         $errors = $ismilestone ? [] : parent::validate($item, $newstart, $newend);
-        if ($ismilestone && ($newstart !== $newend || $newstart < 0 ||
-                ($newstart === 0 && empty($item['optional'])))) {
+        if (
+            $ismilestone && ($newstart !== $newend || $newstart < 0 ||
+                ($newstart === 0 && empty($item['optional'])))
+        ) {
             return [get_string('errorinvaliddate', 'calendar')];
         }
         $cmid = (int)($item['cmid'] ?? 0);
@@ -231,8 +235,10 @@ abstract class base_date_adapter extends base_adapter implements date_fields_int
         if (!empty($item['startcol']) && array_key_exists($item['startcol'], $dates)) {
             $dates[$item['startcol']] = !empty($item['startenabled']) ? $newstart : 0;
         }
-        if (!$ismilestone && !empty($item['endcol']) && empty($item['isopenended']) &&
-                array_key_exists($item['endcol'], $dates)) {
+        if (
+            !$ismilestone && !empty($item['endcol']) && empty($item['isopenended']) &&
+                array_key_exists($item['endcol'], $dates)
+        ) {
             $dates[$item['endcol']] = !empty($item['endenabled']) ? $newend : 0;
         }
         foreach ($this->validate_date_fields($cm, $dates) as $message) {

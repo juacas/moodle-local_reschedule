@@ -98,12 +98,14 @@ JSON;
             $fk = (string)($entry['fk'] ?? ($parent !== '' ? $parent . 'id' : ''));
             $identifier = static fn(string $value): bool =>
                 (bool)preg_match('/^[a-z][a-z0-9_]*$/iD', $value);
-            if (!in_array($kind, ['range', 'milestone', 'open'], true) ||
+            if (
+                !in_array($kind, ['range', 'milestone', 'open'], true) ||
                     !$identifier($table) || !$identifier($title) || !$identifier($start) ||
                     ($kind === 'range' && !$identifier($end)) ||
                     ($kind === 'milestone' && $end !== '' && $end !== $start) ||
                     ($kind === 'open' && $end !== '') ||
-                    ($parent !== '' && (!$identifier($parent) || !$identifier($fk))) || $label === '') {
+                    ($parent !== '' && (!$identifier($parent) || !$identifier($fk))) || $label === ''
+            ) {
                 continue;
             }
             if (!in_array($entry['availability'] ?? 'auto', ['auto', 'off'], true)) {
@@ -115,8 +117,10 @@ JSON;
                 }
             }
             $estimator = self::normalise_effort($entry['effort'] ?? null);
-            if ($estimator === false || ($estimator !== null && $estimator['model'] === 'perday' &&
-                    $kind !== 'range')) {
+            if (
+                $estimator === false || ($estimator !== null && $estimator['model'] === 'perday' &&
+                    $kind !== 'range')
+            ) {
                 continue;
             }
             $rules[] = [
@@ -160,8 +164,10 @@ JSON;
         $model = $value['model'] ?? '';
         $field = $model === 'fixed' ? 'hours' : 'hoursperday';
         $hours = $value[$field] ?? null;
-        if (!in_array($model, ['fixed', 'perday'], true) || !is_numeric($hours) ||
-                !is_finite((float)$hours) || (float)$hours < 0) {
+        if (
+            !in_array($model, ['fixed', 'perday'], true) || !is_numeric($hours) ||
+                !is_finite((float)$hours) || (float)$hours < 0
+        ) {
             return false;
         }
         return ['model' => $model, 'value' => (float)$hours];
@@ -195,8 +201,10 @@ JSON;
     public static function effective_rules(?string $configured): array {
         $rules = self::parse(self::BUILTIN_JSON);
         foreach (self::parse($configured === null || $configured === '' ? self::DEFAULT_JSON : $configured) as $rule) {
-            if (in_array($rule['table'], self::OWNED_MODULES, true) ||
-                    in_array($rule['parenttable'], self::OWNED_MODULES, true)) {
+            if (
+                in_array($rule['table'], self::OWNED_MODULES, true) ||
+                    in_array($rule['parenttable'], self::OWNED_MODULES, true)
+            ) {
                 continue;
             }
             $rules[] = $rule;

@@ -23,6 +23,7 @@ namespace local_reschedule;
  * @copyright  2026 Juan Pablo de Castro
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(manager::class)]
 final class event_test extends \advanced_testcase {
     /**
      * Saving an activity schedule records the affected course modules.
