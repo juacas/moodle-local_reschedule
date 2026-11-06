@@ -97,6 +97,9 @@ jobs:
         run: >-
           moodle-plugin-ci phpunit --fail-on-warning --coverage-clover --coverage-pcov
 
+      - name: Behat acceptance tests
+        run: moodle-plugin-ci behat --profile chrome --start-servers ./plugin
+
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4

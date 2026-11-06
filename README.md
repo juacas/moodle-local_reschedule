@@ -676,7 +676,21 @@ sequenceDiagram
 
 ---
 
-### Project Structure
+### Acceptance tests
+
+The Behat suite covers read-only access, forced edit mode, activity-scoped editing,
+student access denial, the restricted global report, and JavaScript timeline
+initialisation. From Moodle's `$CFG->dirroot`, initialise the isolated Behat site
+and run only this component:
+
+```bash
+php admin/tool/behat/cli/init.php
+php admin/tool/behat/cli/run.php --tags=@local_reschedule
+```
+
+GitHub Actions runs the same scenarios with Chrome for Moodle 4.5 and Moodle 5.3.
+
+### Project structure
 
 ```
 local/reschedule/
@@ -723,6 +737,8 @@ local/reschedule/
 │   └── es/local_reschedule.php            # Spanish language strings
 ├── templates/
 │   └── reschedule.mustache                # Mustache template (UI, modals, table)
+├── tests/
+│   └── behat/                             # Browser-level access and timeline scenarios
 ├── index.php                              # Main view controller
 ├── lib.php                                # Navigation hooks (course secondary menu)
 ├── db/services.php                        # Moodle Ajax external function declarations
