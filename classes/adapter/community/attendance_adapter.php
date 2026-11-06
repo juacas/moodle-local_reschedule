@@ -224,15 +224,19 @@ class attendance_adapter extends base_adapter {
     private function load_api(): bool {
         global $CFG;
 
-        if (
-            !file_exists($CFG->dirroot . '/mod/attendance/classes/structure.php') ||
-                !file_exists($CFG->dirroot . '/mod/attendance/classes/attendance_webservices_handler.php')
-        ) {
+        $structurepath = $CFG->dirroot . '/mod/attendance/classes/structure.php';
+        if (!file_exists($structurepath)) {
             return false;
         }
-        require_once($CFG->dirroot . '/mod/attendance/classes/structure.php');
-        require_once($CFG->dirroot . '/mod/attendance/classes/attendance_webservices_handler.php');
-        return class_exists('mod_attendance_structure') && class_exists('attendance_handler');
+        require_once($structurepath);
+
+        $legacypath = $CFG->dirroot . '/mod/attendance/classes/attendance_webservices_handler.php';
+        if (file_exists($legacypath)) {
+            require_once($legacypath);
+        }
+
+        return class_exists('mod_attendance_structure') &&
+            (class_exists('\\mod_attendance\\external\\get_sessions') || class_exists('attendance_handler'));
     }
 
     /**
@@ -242,7 +246,17 @@ class attendance_adapter extends base_adapter {
      * @return \stdClass[] Session records.
      */
     private function get_sessions(int $attendanceid): array {
-        return $attendanceid > 0 ? (array)\attendance_handler::get_sessions($attendanceid) : [];
+        if ($attendanceid <= 0) {
+            return [];
+        }
+        if (class_exists('\\mod_attendance\\external\\get_sessions')) {
+            $sessions = \mod_attendance\external\get_sessions::execute($attendanceid);
+            return array_column((array)$sessions, null, 'id');
+        }
+        if (class_exists('attendance_handler')) {
+            return (array)\attendance_handler::get_sessions($attendanceid);
+        }
+        return [];
     }
 
     /**

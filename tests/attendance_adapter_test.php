@@ -32,12 +32,15 @@ final class attendance_adapter_test extends \advanced_testcase {
      *
      */
     public function test_attendance_sessions_use_module_api(): void {
-        global $CFG;
+        global $CFG, $USER;
 
         $this->resetAfterTest();
         $this->setAdminUser();
         require_once($CFG->dirroot . '/mod/attendance/classes/structure.php');
-        require_once($CFG->dirroot . '/mod/attendance/classes/attendance_webservices_handler.php');
+        $legacypath = $CFG->dirroot . '/mod/attendance/classes/attendance_webservices_handler.php';
+        if (file_exists($legacypath)) {
+            require_once($legacypath);
+        }
         $course = $this->getDataGenerator()->create_course(['startdate' => time() - DAYSECS]);
         $attendance = $this->getDataGenerator()->create_module('attendance', ['course' => $course->id]);
         $cm = get_coursemodule_from_id('attendance', $attendance->cmid, $course->id, false, MUST_EXIST);
@@ -76,13 +79,23 @@ final class attendance_adapter_test extends \advanced_testcase {
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
         $statuses = $api->get_statuses();
         $status = reset($statuses);
-        \attendance_handler::update_user_status(
-            $sessionid,
-            $student->id,
-            2,
-            (int)$status->id,
-            (int)$status->setnumber
-        );
+        if (class_exists('\\mod_attendance\\external\\update_user_status')) {
+            \mod_attendance\external\update_user_status::execute(
+                $sessionid,
+                $student->id,
+                (int)$USER->id,
+                (int)$status->id,
+                (int)$status->setnumber
+            );
+        } else {
+            \attendance_handler::update_user_status(
+                $sessionid,
+                $student->id,
+                (int)$USER->id,
+                (int)$status->id,
+                (int)$status->setnumber
+            );
+        }
         $children = $adapter->get_subitems($rule, [(int)$attendance->id]);
         $limits = $adapter->get_subitem_attributes($children[$sessionid], $rule)['absolutelimits'];
         $this->assertCount(2, $limits);
@@ -102,7 +115,7 @@ final class attendance_adapter_test extends \advanced_testcase {
         $newend = $start + 5 * HOURSECS;
         $item['cmid'] = (int)$cm->id;
         $adapter->save($item, $newstart, $newend);
-        $saved = \attendance_handler::get_sessions((int)$attendance->id)[$sessionid];
+        $saved = $api->get_session_info($sessionid);
         $this->assertSame($newstart, (int)$saved->sessdate);
         $this->assertSame($newend - $newstart, (int)$saved->duration);
     }
